@@ -44,7 +44,9 @@ export function SelectedOptionsDisplay<V extends TFilterValue>(props: TSelectedO
         <React.Fragment key={index}>
           <div className="flex items-center whitespace-nowrap">
             {option?.icon && <span className={cn("mr-1", option.iconClassName)}>{option.icon}</span>}
-            <span className="max-w-24 truncate">{option?.label}</span>
+            {/* Issue #8998: Replace fixed 96px (max-w-24) cap with flex-based truncation so labels  */}
+            {/* render at their natural width and only ellipsis-truncate when the container is full. */}
+            <span className="min-w-0 flex-1 truncate">{option?.label}</span>
           </div>
           {index < Math.min(displayCount, selectedOptions.length) - 1 && <span className="mx-1 text-tertiary">,</span>}
         </React.Fragment>
