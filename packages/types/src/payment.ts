@@ -68,7 +68,7 @@ export type TProductSubscriptionType = "FREE" | "ONE" | "PRO" | "BUSINESS" | "EN
  * Plane subscription product with all available prices.
  *
  * Fields:
- * - `type`: tier identifier excluding `FREE` (the free tier has no Stripe product)
+ * - `type`: tier identifier excluding `FREE` (typed as `Omit<TProductSubscriptionType, "FREE">`).
  * - `payment_quantity`: minimum or default seats included in the product
  * - `prices`: array of `IPaymentProductPrice` covering the available billing frequencies/currencies
  * - `is_active`: false when the product is offered for renewal but no longer sold to new buyers

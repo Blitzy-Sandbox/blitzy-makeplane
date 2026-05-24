@@ -14,6 +14,12 @@
  * sub-issue, etc.) and persisted on saved views (`IProjectView`, `IWorkspaceView`),
  * cycles, modules, and per-user project/workspace property preferences.
  *
+ * Mutual contract with `./views.ts`: this module defines the filter / sort / display-
+ * property contracts (`IIssueDisplayFilterOptions`, `IIssueDisplayProperties`,
+ * `IIssueFilterOptions`, `TWorkItemFilterExpression`); `views.ts` imports and composes
+ * those contracts inside the `IProjectView` saved-view persistence shape. Live issue
+ * layouts read these same contracts directly without going through `views.ts`.
+ *
  * Most filter and display-filter shapes also have an API/wire counterpart
  * (`IWorkspaceViewIssuesParams`, `IIssueFiltersResponse`) — array members are joined
  * into comma-separated strings at the API boundary.

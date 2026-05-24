@@ -224,24 +224,17 @@ export type TEditorAssetType =
   | EFileAssetType.PROJECT_DESCRIPTION
   | EFileAssetType.TEAM_SPACE_COMMENT_DESCRIPTION;
 
-// INTENT UNCLEAR: enum is exported but currently has no consumers in apps/ or packages/;
-// the string-literal values (OFF-TRACK / ON-TRACK / AT-RISK) match the common
-// progress-tracking vocabulary used for cycles, modules, and initiatives, but no
-// usage site confirms which entity family it applies to. Wire format preserves the
-// hyphen (e.g. "OFF-TRACK"), not the enum key underscore form.
+// INTENT UNCLEAR: enum is exported but a repository-wide grep finds no consumers
+// in apps/ or packages/. Wire format preserves the hyphen on the value literals
+// (e.g. "OFF-TRACK"), not the underscore enum-key form.
 /**
- * Progress / risk tracking status — likely consumed by cycle / module / initiative
- * progress widgets and analytics rollups.
- *
- * Wire values use hyphenated form ("OFF-TRACK" / "ON-TRACK" / "AT-RISK") rather than
- * the underscore-form enum keys; serializers and comparisons MUST use the enum
- * members, never the raw string literal, to avoid drift.
+ * Exported enum of three hyphenated string-literal values ("OFF-TRACK" / "ON-TRACK" /
+ * "AT-RISK"). No current in-repository consumers were found by grep at documentation
+ * time; serializers and comparisons should reference the enum members rather than the
+ * raw string literal to avoid drift in any future consumer.
  */
 export enum EUpdateStatus {
-  /** Behind schedule — current trajectory will miss the target. */
   OFF_TRACK = "OFF-TRACK",
-  /** On schedule — current trajectory meets the target. */
   ON_TRACK = "ON-TRACK",
-  /** Schedule is in jeopardy — trending toward slippage but not yet off-track. */
   AT_RISK = "AT-RISK",
 }

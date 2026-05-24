@@ -13,6 +13,12 @@
  * `./workspace-views.ts` for the workspace-aggregated equivalent. Mirrors
  * `apps/api/plane/db/models/view.py`.
  *
+ * Mutual contract with `./view-props.ts`: saved project views defined here are the
+ * persistence wrapper around the filter / sort / display-property contracts declared in
+ * `view-props.ts` — `IProjectView` imports and composes `IIssueDisplayFilterOptions`,
+ * `IIssueDisplayProperties`, `IIssueFilterOptions`, and `TWorkItemFilterExpression`
+ * from that module to form the saved-view API shape.
+ *
  * Consumers: `apps/web/core/store/project-view.store.ts`, `apps/web/core/components/views/`,
  * and `apps/web/core/services/view.service.ts`.
  */

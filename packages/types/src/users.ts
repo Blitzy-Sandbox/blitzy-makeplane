@@ -305,15 +305,11 @@ export interface IUserActivityResponse {
   total_results: number;
 }
 
-// INTENT UNCLEAR: no current consumers found in apps/web, apps/space, or packages;
-// retained as a legacy coarse-role flag shape that may be referenced by
-// downstream forks. Fields are mutually-non-exclusive booleans tracking
-// membership / ownership / guest status of a user in some workspace or project.
+// INTENT UNCLEAR: a repository-wide grep for `UserAuth` finds no consumers
+// in apps/ or packages/ at documentation time.
 /**
- * Legacy coarse role-flag triple — `isMember`, `isOwner`, `isGuest`.
- *
- * Retained for backward compatibility; no active consumers were found in the
- * current codebase. New code should use `TUserPermissions` from `./enums.ts`.
+ * Exported alias for an object of three boolean flags — `isMember`, `isOwner`, `isGuest`.
+ * No current in-repository consumers were found by grep at documentation time.
  */
 export type UserAuth = {
   isMember: boolean;

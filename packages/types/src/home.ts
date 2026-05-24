@@ -144,9 +144,11 @@ export type TLinkEditableFields = {
  *
  * Fields with non-obvious semantics:
  * - `metadata`: opaque blob (e.g. OpenGraph preview cache); shape varies by link source.
- * - `created_at`: `Date` object (not ISO string) — already deserialized by the workspace API consumer.
+ * - `created_at`: typed as `Date`; the workspace API returns the raw payload value from
+ *   `apps/web/core/services/workspace.service.ts` without an explicit `Date` parser, so
+ *   verify serialization at the service/API boundary before invoking `Date` methods.
  * - `created_by_id`: user id of the link creator; used for permission checks on edit/delete.
- * - `workspace_slug`: scopes the link to a single workspace; also used as the key in `TLinkMap`/`TLinkIdMap`.
+ * - `workspace_slug`: scopes the link to a single workspace; also used as the key in `TLinkIdMap`.
  */
 export type TLink = TLinkEditableFields & {
   created_by_id: string;
@@ -159,12 +161,14 @@ export type TLink = TLinkEditableFields & {
 };
 
 /**
- * Map of links keyed by `workspace_slug`.
+ * Map of links keyed by link id — the entity-by-id lookup cache.
  *
- * Stored on the MobX link store for fast O(1) lookup of the most-recent link per workspace.
+ * Consumed by `apps/web/core/store/workspace/link.store.ts` as `linkMap`, populated via
+ * `set(linkMap, link.id, link)` and read by `getLinkById(linkId)`. Companion to
+ * `TLinkIdMap`, which holds the workspace-slug-keyed ordered id lists.
  */
 export type TLinkMap = {
-  [workspace_slug: string]: TLink;
+  [link_id: string]: TLink;
 };
 
 /**
