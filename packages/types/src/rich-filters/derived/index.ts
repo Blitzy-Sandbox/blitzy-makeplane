@@ -4,6 +4,17 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Barrel module for derived rich-filter operator unions.
+ *
+ * Composes the core-tier and extended-tier per-field-type operator unions into the public
+ * derived API: `TSupportedDateFilterOperators<V>`, `TAllAvailableDateFilterOperatorsForDisplay<V>`,
+ * `TSupportedSelectFilterOperators<V>`, `TAllAvailableSelectFilterOperatorsForDisplay<V>`.
+ *
+ * Consumers: filter-config builders in `packages/utils/src/work-item-filters/configs/filters/`
+ *            and the rich filter UI in `apps/web/core/components/rich-filters/`.
+ */
+
 import type { TFilterValue } from "../expression";
 import type {
   TCoreAllAvailableDateFilterOperatorsForDisplay,
@@ -21,23 +32,37 @@ import type {
 // -------- COMPOSED SUPPORT TYPES --------
 
 /**
- * All supported date filter operators.
+ * Public per-value operator union for date-shaped filter fields — unions core + extended date operators.
+ *
+ * @template V - Filter value type — defaults to `TFilterValue`; allows consumers to specialize when narrower value types are appropriate.
  */
 export type TSupportedDateFilterOperators<V extends TFilterValue = TFilterValue> =
   | TCoreSupportedDateFilterOperators<V>
   | TExtendedSupportedDateFilterOperators<V>;
 
+/**
+ * Display-tier alias of `TSupportedDateFilterOperators<V>`.
+ *
+ * @template V - Filter value type — defaults to `TFilterValue`; allows consumers to specialize when narrower value types are appropriate.
+ */
 export type TAllAvailableDateFilterOperatorsForDisplay<V extends TFilterValue = TFilterValue> =
   | TCoreAllAvailableDateFilterOperatorsForDisplay<V>
   | TExtendedAllAvailableDateFilterOperatorsForDisplay<V>;
 
 /**
- * All supported select filter operators.
+ * Public per-value operator union for select-shaped filter fields — unions core + extended select operators.
+ *
+ * @template V - Filter value type — defaults to `TFilterValue`; allows consumers to specialize when narrower value types are appropriate.
  */
 export type TSupportedSelectFilterOperators<V extends TFilterValue = TFilterValue> =
   | TCoreSupportedSelectFilterOperators<V>
   | TExtendedSupportedSelectFilterOperators<V>;
 
+/**
+ * Display-tier alias of `TSupportedSelectFilterOperators<V>`.
+ *
+ * @template V - Filter value type — defaults to `TFilterValue`; allows consumers to specialize when narrower value types are appropriate.
+ */
 export type TAllAvailableSelectFilterOperatorsForDisplay<V extends TFilterValue = TFilterValue> =
   | TCoreAllAvailableSelectFilterOperatorsForDisplay<V>
   | TExtendedAllAvailableSelectFilterOperatorsForDisplay<V>;
