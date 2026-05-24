@@ -4,4 +4,11 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Barrel module for rich-filter property configuration types.
+ *
+ * Re-exports the `TFilterConfig<P>` contract from `./filter-config.ts`. This folder is
+ * the canonical import path for filter property configs across the codebase.
+ */
+
 export * from "./filter-config";
