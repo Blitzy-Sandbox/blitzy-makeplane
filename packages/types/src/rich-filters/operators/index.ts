@@ -4,6 +4,19 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Barrel and composition module for rich-filter operators.
+ *
+ * Merges the core + extended operator registries via object spread into the public
+ * runtime registries (`LOGICAL_OPERATOR`, `EQUALITY_OPERATOR`, `COLLECTION_OPERATOR`,
+ * `COMPARISON_OPERATOR`, `MULTI_VALUE_OPERATORS`), and the corresponding TypeScript
+ * unions (`TLogicalOperator`, ..., `TSupportedOperators`, `TAllAvailableOperatorsForDisplay`).
+ *
+ * Single canonical import path for the operator vocabulary across the codebase. The
+ * runtime string tokens defined in `./core.ts` are part of the persisted wire format —
+ * see that file for the breaking-change warning.
+ */
+
 import type { TCoreSupportedOperators } from "./core";
 import {
   CORE_LOGICAL_OPERATOR,
@@ -23,26 +36,43 @@ import {
 
 // -------- COMPOSED OPERATORS --------
 
+/**
+ * Composed runtime registry: spread of `CORE_LOGICAL_OPERATOR` + `EXTENDED_LOGICAL_OPERATOR`.
+ * Currently contains only AND.
+ */
 export const LOGICAL_OPERATOR = {
   ...CORE_LOGICAL_OPERATOR,
   ...EXTENDED_LOGICAL_OPERATOR,
 } as const;
 
+/**
+ * Composed equality registry: spread of `CORE_EQUALITY_OPERATOR` + `EXTENDED_EQUALITY_OPERATOR`.
+ */
 export const EQUALITY_OPERATOR = {
   ...CORE_EQUALITY_OPERATOR,
   ...EXTENDED_EQUALITY_OPERATOR,
 } as const;
 
+/**
+ * Composed collection registry: spread of `CORE_COLLECTION_OPERATOR` + `EXTENDED_COLLECTION_OPERATOR`.
+ */
 export const COLLECTION_OPERATOR = {
   ...CORE_COLLECTION_OPERATOR,
   ...EXTENDED_COLLECTION_OPERATOR,
 } as const;
 
+/**
+ * Composed comparison registry: spread of `CORE_COMPARISON_OPERATOR` + `EXTENDED_COMPARISON_OPERATOR`.
+ */
 export const COMPARISON_OPERATOR = {
   ...CORE_COMPARISON_OPERATOR,
   ...EXTENDED_COMPARISON_OPERATOR,
 } as const;
 
+/**
+ * Composed tuple of operators whose payload is an array rather than a scalar.
+ * `ReadonlyArray<TSupportedOperators>` so consumers can iterate but not mutate.
+ */
 export const MULTI_VALUE_OPERATORS: ReadonlyArray<TSupportedOperators> = [
   ...CORE_MULTI_VALUE_OPERATORS,
   ...EXTENDED_MULTI_VALUE_OPERATORS,
@@ -50,19 +80,26 @@ export const MULTI_VALUE_OPERATORS: ReadonlyArray<TSupportedOperators> = [
 
 // -------- COMPOSED TYPES --------
 
+/** Union of all logical-operator token literals from `LOGICAL_OPERATOR`. */
 export type TLogicalOperator = (typeof LOGICAL_OPERATOR)[keyof typeof LOGICAL_OPERATOR];
+/** Union of all equality-operator token literals from `EQUALITY_OPERATOR`. */
 export type TEqualityOperator = (typeof EQUALITY_OPERATOR)[keyof typeof EQUALITY_OPERATOR];
+/** Union of all collection-operator token literals from `COLLECTION_OPERATOR`. */
 export type TCollectionOperator = (typeof COLLECTION_OPERATOR)[keyof typeof COLLECTION_OPERATOR];
+/** Union of all comparison-operator token literals from `COMPARISON_OPERATOR`. */
 export type TComparisonOperator = (typeof COMPARISON_OPERATOR)[keyof typeof COMPARISON_OPERATOR];
 
 /**
- * Union type representing all operators that can be used in a filter condition.
- * Combines core and extended operators.
+ * Canonical union of all operators that can appear on a `TFilterConditionNode.operator`.
+ * Unions the core + extended comparison-family operator unions. **Does NOT include
+ * logical operators** — those live on group-node `logicalOperator` fields.
  */
 export type TSupportedOperators = TCoreSupportedOperators | TExtendedSupportedOperators;
 
 /**
- * All operators available for use in rich filters UI, including negated versions.
+ * Display-tier alias of `TSupportedOperators` — currently identical to it.
+ * Reserved for the UI to surface negated/composite operator forms (e.g., "is not")
+ * that may later be normalized back onto canonical `TSupportedOperators` for persistence.
  */
 export type TAllAvailableOperatorsForDisplay = TSupportedOperators;
 
