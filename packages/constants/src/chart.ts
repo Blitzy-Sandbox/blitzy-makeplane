@@ -7,9 +7,30 @@
 import type { TChartColorScheme } from "@plane/types";
 import { ChartXAxisProperty } from "@plane/types";
 
+/**
+ * Shared Tailwind classes for axis/chart text labels — uppercase, muted color,
+ * fixed 13px size, slight letter-spacing — applied across recharts visualizations
+ * for visual consistency.
+ *
+ * Consumers: `apps/web/core/components/dashboards/**`, `apps/web/core/components/analytics/**`.
+ */
 export const LABEL_CLASSNAME = "uppercase text-tertiary/60 text-13 tracking-wide";
+
+/**
+ * Same uppercase/muted token used specifically by axis labels — kept as a separate
+ * export so future axis-only tweaks don't disturb other label callsites.
+ *
+ * Consumers: chart axis components in `apps/web/core/components/dashboards/**`.
+ */
 export const AXIS_LABEL_CLASSNAME = "uppercase text-tertiary/60 text-13 tracking-wide";
 
+/**
+ * Time bucketing granularity for date-typed x-axes — selects how a date series
+ * is aggregated before being plotted.
+ *
+ * Consumers: chart filter pickers in `apps/web/core/components/dashboards/**`,
+ * `apps/web/core/components/analytics/**`.
+ */
 export enum ChartXAxisDateGrouping {
   DAY = "DAY",
   WEEK = "WEEK",
@@ -17,11 +38,23 @@ export enum ChartXAxisDateGrouping {
   YEAR = "YEAR",
 }
 
+/**
+ * X-axis property values whose tick labels should be capitalized at render time
+ * (priority/state-group names are stored lowercase in the backend payload).
+ *
+ * Consumers: chart tick formatters in `apps/web/core/components/dashboards/**`.
+ */
 export const TO_CAPITALIZE_PROPERTIES: ChartXAxisProperty[] = [
   ChartXAxisProperty.PRIORITY,
   ChartXAxisProperty.STATE_GROUPS,
 ];
 
+/**
+ * X-axis properties that produce a date series and therefore need a
+ * `ChartXAxisDateGrouping` selector + date-aware tick formatter.
+ *
+ * Consumers: chart axis-config selectors in `apps/web/core/components/dashboards/**`.
+ */
 export const CHART_X_AXIS_DATE_PROPERTIES: ChartXAxisProperty[] = [
   ChartXAxisProperty.START_DATE,
   ChartXAxisProperty.TARGET_DATE,
@@ -29,6 +62,20 @@ export const CHART_X_AXIS_DATE_PROPERTIES: ChartXAxisProperty[] = [
   ChartXAxisProperty.COMPLETED_AT,
 ];
 
+/**
+ * Visual presentation modes available for a chart widget — chosen by the user in
+ * the widget config form and mapped to the appropriate recharts composition.
+ *
+ * Values:
+ * - BASIC: single series, single dimension
+ * - STACKED: multi-series stacked along the x-axis
+ * - GROUPED: multi-series side-by-side groups
+ * - MULTI_LINE: multi-series line chart
+ * - COMPARISON: paired comparison (e.g., this vs. last period)
+ * - PROGRESS: progress-bar style toward a target
+ *
+ * Consumers: chart-widget config + renderers in `apps/web/core/components/dashboards/**`.
+ */
 export enum EChartModels {
   BASIC = "BASIC",
   STACKED = "STACKED",
@@ -38,6 +85,19 @@ export enum EChartModels {
   PROGRESS = "PROGRESS",
 }
 
+/**
+ * Curated chart color palettes used by dashboard widgets. Each entry exposes a
+ * `light` and `dark` hex array tuned for theme contrast; the `key` matches the
+ * `TChartColorScheme` discriminant persisted on the dashboard widget config.
+ *
+ * Palettes:
+ * - modern: vivid jewel tones for general-purpose dashboards
+ * - horizon: warm sunset-leaning palette for analytics widgets
+ * - earthen: earth-tone palette emphasizing greens and warm browns
+ *
+ * Consumers: chart color resolver in `apps/web/core/components/dashboards/**`,
+ * widget settings UI for picking a scheme.
+ */
 export const CHART_COLOR_PALETTES: {
   key: TChartColorScheme;
   i18n_label: string;
