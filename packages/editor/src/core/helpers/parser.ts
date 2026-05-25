@@ -4,6 +4,14 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * HTML → document-payload conversion orchestrator for cross-workspace paste and import flows.
+ *
+ * Composes four steps: (1) extract asset references from HTML, (2) duplicate the referenced assets into the current workspace through an injected service, (3) replace source URLs with the duplicated asset ids, (4) convert the rewritten HTML into a `TDocumentPayload` (binary + html + json) via `convertHTMLDocumentToAllFormats`.
+ *
+ * The duplication step exists because pasted documents (e.g., copied from another workspace) reference assets the destination workspace cannot read; cloning them into the destination's asset store is required for the assets to render. See `helpers/paste-asset.ts` for the upstream paste-side handler dispatch.
+ */
+
 // plane imports
 import type { TDocumentPayload, TDuplicateAssetData, TDuplicateAssetResponse, TEditorAssetType } from "@plane/types";
 // plane web imports
@@ -15,9 +23,10 @@ import {
 import { convertHTMLDocumentToAllFormats } from "./yjs-utils";
 
 /**
- * @description function to extract all assets from HTML content
- * @param htmlContent
- * @returns {string[]} array of asset sources
+ * Function to extract all assets from HTML content by collecting `src` attributes from `image-component` elements and adding additional plane-editor-specific asset ids via `extractAdditionalAssetsFromHTMLContent`.
+ *
+ * @param htmlContent - HTML to scan.
+ * @returns Array of unique asset sources (image src + additional asset ids).
  */
 const extractAssetsFromHTMLContent = (htmlContent: string): string[] => {
   // create a DOM parser
@@ -37,9 +46,11 @@ const extractAssetsFromHTMLContent = (htmlContent: string): string[] => {
 };
 
 /**
- * @description function to replace assets in HTML content with new IDs
- * @param props
- * @returns {string} HTML content with replaced assets
+ * Function to replace asset sources in HTML content using a `{ oldSrc -> newSrc }` mapping, covering both `image-component` `src` attributes and additional plane-editor-specific asset references.
+ *
+ * @param props.htmlContent - HTML to rewrite.
+ * @param props.assetMap - Mapping from old asset source / id to its newly duplicated counterpart.
+ * @returns Rewritten HTML.
  */
 const replaceAssetsInHTMLContent = (props: { htmlContent: string; assetMap: Record<string, string> }): string => {
   const { htmlContent, assetMap } = props;
@@ -63,6 +74,19 @@ const replaceAssetsInHTMLContent = (props: { htmlContent: string; assetMap: Reco
   return replacedHTMLContent;
 };
 
+/**
+ * End-to-end orchestrator that takes raw HTML, duplicates referenced assets into the current workspace via `duplicateAssetService`, rewrites the HTML to point at the duplicates, and converts the result to a `TDocumentPayload` (binary + json + html) ready for persistence.
+ *
+ * The composition is: extract assets → duplicate via service → replace URLs in HTML → `convertHTMLDocumentToAllFormats`. Used for cross-workspace paste / import flows where the pasted document references assets the destination workspace does not yet own.
+ *
+ * @param props.descriptionHTML - The HTML document to process.
+ * @param props.entityId - Target entity id receiving the duplicated assets (issue/page/etc.).
+ * @param props.entityType - `TEditorAssetType` distinguishing which asset bucket the duplicates land in.
+ * @param props.projectId - Optional project scope (undefined for workspace-scope entities).
+ * @param props.variant - `"rich"` (rich-text editor schema) or `"document"` (document editor schema); selects the extension set used for HTML→binary conversion.
+ * @param props.duplicateAssetService - Async service that takes asset ids and returns an `{ oldId -> newId }` map; the service implementation typically posts to the apiserver duplicate-asset endpoint.
+ * @returns Promise resolving to the `TDocumentPayload` with `description_json`, `description_html`, and base64-encoded `description_binary`.
+ */
 export const getEditorContentWithReplacedAssets = async (props: {
   descriptionHTML: string;
   entityId: string;
