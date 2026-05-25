@@ -4,6 +4,28 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Central constants and type definitions for editor toolbar and command
+ * metadata: editor-variant discriminator, the {@link ToolbarMenuItem} shape,
+ * the per-category item rosters, the composed `TOOLBAR_ITEMS` map, and the
+ * shared `COLORS_LIST` palette.
+ *
+ * Consumers (UI surfaces that render editor buttons, shortcuts, icons, menu
+ * groupings, or color chips):
+ *  - `core/extensions/callout/{block,color-selector}.tsx`
+ *  - `core/extensions/custom-color.ts`
+ *  - `core/extensions/slash-commands/command-items-list.tsx`
+ *  - `core/extensions/table/plugins/drag-handles/color-selector.tsx`
+ *  - `core/components/menus/bubble-menu/{color-selector,root}.tsx`
+ *  - Downstream applications via the `@plane/editor` barrel (e.g.,
+ *    `apps/space/components/editor/toolbar.tsx`).
+ *
+ * This module is part of the `@plane/editor` public API surface: it is
+ * re-exported by `packages/editor/src/index.ts` via
+ * `export * from "@/constants/common"`, so every exported symbol below is a
+ * stable boundary for downstream consumers.
+ */
+
 import type { LucideIcon } from "lucide-react";
 import {
   AlignCenter,
@@ -30,13 +52,52 @@ import {
 } from "lucide-react";
 import type { TCommandExtraProps, TEditorCommands } from "@/types/editor";
 
+/**
+ * Discriminator for which editor variant a toolbar item applies to.
+ *
+ * - `"lite"` — the lite text editor used for comments and descriptions.
+ * - `"document"` — the full document editor used for pages.
+ *
+ * Consumed by {@link ToolbarMenuItem.editors} so that the same item roster
+ * can be filtered into per-variant toolbars without duplicating definitions.
+ */
 export type TEditorTypes = "lite" | "document";
 
+/**
+ * Conditional narrowing of `extraProps` to the per-command shape declared in
+ * `TCommandExtraProps` (defined in `@/types/editor`), or `object` when the
+ * command declares no extras.
+ *
+ * Some toolbar commands need extra arguments to dispatch (e.g., `text-align`
+ * requires `{ alignment }`, `image` requires a saved `Selection`), while
+ * marks like `bold` or `italic` require none — this utility keeps the
+ * `extraProps` field strongly typed per command without forcing every item
+ * to declare an empty payload.
+ */
 // Utility type to enforce the necessary extra props or make extraProps optional
 export type ExtraPropsForCommand<T extends TEditorCommands> = T extends keyof TCommandExtraProps
   ? TCommandExtraProps[T]
   : object; // Default to empty object for commands without extra props
 
+/**
+ * Declarative shape for a single toolbar menu item rendered by editor UI
+ * components.
+ *
+ * Field semantics:
+ *  - `itemKey`    — command identifier dispatched into the editor on click.
+ *  - `renderKey`  — stable React `key` string, unique within a toolbar group;
+ *                   distinct from `itemKey` because multiple items can share
+ *                   the same `itemKey` with different `extraProps` (e.g., the
+ *                   three `text-align` variants all use `itemKey: "text-align"`
+ *                   but differ by `extraProps.alignment`).
+ *  - `name`       — human-readable label shown in tooltips and menus.
+ *  - `icon`       — Lucide icon component rendered alongside the label.
+ *  - `shortcut`   — optional keyboard-shortcut segments (e.g., `["Cmd", "B"]`).
+ *  - `editors`    — which editor variants the item applies to; the same item
+ *                   roster is filtered into per-variant toolbars by this field.
+ *  - `extraProps` — optional per-command extra arguments, narrowed to the
+ *                   command's payload shape by {@link ExtraPropsForCommand}.
+ */
 export type ToolbarMenuItem<T extends TEditorCommands = TEditorCommands> = {
   itemKey: T;
   renderKey: string;
@@ -47,6 +108,15 @@ export type ToolbarMenuItem<T extends TEditorCommands = TEditorCommands> = {
   extraProps?: ExtraPropsForCommand<T>;
 };
 
+/**
+ * Toolbar item rosters by command category — typography, text alignment,
+ * basic marks, lists, user actions, and complex inserts.
+ *
+ * Each roster is filtered into {@link TOOLBAR_ITEMS} per editor variant via
+ * its items' `.editors` field, and items render in declaration order.
+ */
+
+/** Heading and text-style options for the document editor only — the lite editor does not render typography. */
 export const TYPOGRAPHY_ITEMS: ToolbarMenuItem<"text" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6">[] = [
   { itemKey: "text", renderKey: "text", name: "Text", icon: CaseSensitive, editors: ["document"] },
   { itemKey: "h1", renderKey: "h1", name: "Heading 1", icon: Heading1, editors: ["document"] },
@@ -57,6 +127,10 @@ export const TYPOGRAPHY_ITEMS: ToolbarMenuItem<"text" | "h1" | "h2" | "h3" | "h4
   { itemKey: "h6", renderKey: "h6", name: "Heading 6", icon: Heading6, editors: ["document"] },
 ];
 
+/**
+ * Three text-align variants (`left` / `center` / `right`) that share `itemKey: "text-align"`
+ * but differ by `extraProps.alignment`; see {@link ToolbarMenuItem.renderKey} for React-key disambiguation.
+ */
 export const TEXT_ALIGNMENT_ITEMS: ToolbarMenuItem<"text-align">[] = [
   {
     itemKey: "text-align",
@@ -93,6 +167,7 @@ export const TEXT_ALIGNMENT_ITEMS: ToolbarMenuItem<"text-align">[] = [
   },
 ];
 
+// Private — composed into `TOOLBAR_ITEMS` below; not part of the public API surface.
 const BASIC_MARK_ITEMS: ToolbarMenuItem<"bold" | "italic" | "underline" | "strikethrough">[] = [
   {
     itemKey: "bold",
@@ -128,6 +203,7 @@ const BASIC_MARK_ITEMS: ToolbarMenuItem<"bold" | "italic" | "underline" | "strik
   },
 ];
 
+// Private — composed into `TOOLBAR_ITEMS` below; not part of the public API surface.
 const LIST_ITEMS: ToolbarMenuItem<"bulleted-list" | "numbered-list" | "to-do-list">[] = [
   {
     itemKey: "bulleted-list",
@@ -155,16 +231,30 @@ const LIST_ITEMS: ToolbarMenuItem<"bulleted-list" | "numbered-list" | "to-do-lis
   },
 ];
 
+/** Quote and inline-code toolbar items, available in both editor variants. */
 export const USER_ACTION_ITEMS: ToolbarMenuItem<"quote" | "code">[] = [
   { itemKey: "quote", renderKey: "quote", name: "Quote", icon: TextQuote, editors: ["lite", "document"] },
   { itemKey: "code", renderKey: "code", name: "Code", icon: Code2, editors: ["lite", "document"] },
 ];
 
+/**
+ * "Complex" inserts requiring richer prompts or dialogs: `table` (document
+ * editor only) and `image` (both editor variants).
+ */
 export const COMPLEX_ITEMS: ToolbarMenuItem<"table" | "image">[] = [
   { itemKey: "table", renderKey: "table", name: "Table", icon: Table, editors: ["document"] },
   { itemKey: "image", renderKey: "image", name: "Image", icon: Image, editors: ["lite", "document"] },
 ];
 
+/**
+ * Composed toolbar roster keyed by {@link TEditorTypes}.
+ *
+ * The inner object's keys are toolbar group names (`basic`, `alignment`,
+ * `list`, `userAction`, `complex`); each value is the corresponding pre-
+ * filtered item array. Consumers (`apps/web` lite/sticky/page toolbars,
+ * `apps/space` lite toolbar, etc.) render groups in this object's
+ * declaration order.
+ */
 export const TOOLBAR_ITEMS: {
   [editorType in TEditorTypes]: {
     [key: string]: ToolbarMenuItem[];
@@ -186,6 +276,30 @@ export const TOOLBAR_ITEMS: {
   },
 };
 
+/**
+ * Shared color palette for editor text color and background highlights.
+ *
+ * Each entry exposes:
+ *  - `key`             — programmatic identifier persisted as the value on
+ *                        TipTap `textStyle` / `highlight` marks.
+ *  - `label`           — UI-facing display name shown in pickers.
+ *  - `textColor`       — CSS variable reference resolved by the editor theme.
+ *  - `backgroundColor` — CSS variable reference resolved by the editor theme.
+ *
+ * Consumers:
+ *  - `core/extensions/callout/{block,color-selector}.tsx`
+ *  - `core/extensions/custom-color.ts` (validates persisted color keys)
+ *  - `core/extensions/slash-commands/command-items-list.tsx`
+ *  - `core/extensions/table/plugins/drag-handles/color-selector.tsx`
+ *  - `core/components/menus/bubble-menu/{color-selector,root}.tsx`
+ *
+ * The palette references CSS variables rather than literal colors because
+ * the theme is consumer-controlled: the editor never bakes a palette in,
+ * and the `var(--editor-colors-*)` tokens are defined by the consuming
+ * application's stylesheets. The trailing commented-out
+ * `pink-blue-gradient` entry is intentionally retained as a reference for
+ * a future re-enable.
+ */
 export const COLORS_LIST: {
   key: string;
   label: string;
