@@ -4,21 +4,78 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Authoritative registry of analytics tracking identifiers consumed by the
+ * PostHog client in the web frontend.
+ *
+ * Two complementary export families partition the surface:
+ *   - `*_TRACKER_ELEMENTS` — string identifiers attached to interactive React
+ *     elements as `data-ph-element` attributes so PostHog autocapture labels
+ *     click/interaction events with a semantic name instead of a CSS selector.
+ *   - `*_TRACKER_EVENTS` — event name strings passed to PostHog's `capture()`
+ *     API for explicitly-fired analytics events.
+ *
+ * Consumers: web components and route segments under
+ * `apps/web/core/components/**` and `apps/web/app/**`. The backend Celery task
+ * `apps/api/plane/bgtasks/event_tracking_task.py` (queued via Celery on
+ * RabbitMQ — Redis is caching/session only in this codebase) relays
+ * complementary server-side events to the same PostHog project.
+ *
+ * Stability contract: every string literal value defined in this module is a
+ * public analytics schema element. Renaming a value is a breaking change for
+ * any PostHog dashboard, funnel, cohort, or insight that references the prior
+ * label and MUST be coordinated with the analytics team.
+ */
+
 import type { EProductSubscriptionEnum } from "@plane/types";
 
 /**
  * ===========================================================================
  * Event Groups
  * ===========================================================================
+ *
+ * Shared/standalone tracker identifiers that don't belong to a single feature
+ * group. Documented per-export because the three constants below are not
+ * tightly coupled to one another.
+ */
+
+/**
+ * PostHog "group" identifier used to scope workspace-level analytics
+ * aggregations via PostHog's group-analytics feature; passed to
+ * `posthog.group()` when associating events with a workspace entity.
+ *
+ * Consumer: web frontend analytics initialization.
  */
 export const GROUP_WORKSPACE_TRACKER_EVENT = "workspace_metrics";
+/**
+ * Event name captured when the user is redirected to GitHub (e.g., from a
+ * star-on-GitHub call-to-action). Fired via PostHog `capture()`.
+ *
+ * Consumer: web frontend GitHub outbound surfaces.
+ */
 export const GITHUB_REDIRECTED_TRACKER_EVENT = "github_redirected";
+/**
+ * UI element identifier attached as `data-ph-element` to the GitHub icon
+ * rendered in the application header so PostHog autocapture labels clicks
+ * on that icon with a stable semantic name.
+ *
+ * Consumer: web frontend header GitHub icon.
+ */
 export const HEADER_GITHUB_ICON = "header_github_icon";
 
 /**
  * ===========================================================================
  * Command palette tracker
  * ===========================================================================
+ *
+ * Instruments the global ⌘K / Ctrl-K command palette. Tracking how often the
+ * shortcut key is used to open the palette is a common power-user funnel
+ * signal.
+ *
+ * Consumer: `apps/web/core/components/command-palette/**` and the global
+ * keyboard-shortcut surface.
+ *   - `COMMAND_PALETTE_TRACKER_ELEMENTS` — attached as `data-ph-element` to
+ *     the keyboard-shortcut handler that opens the palette.
  */
 export const COMMAND_PALETTE_TRACKER_ELEMENTS = {
   COMMAND_PALETTE_SHORTCUT_KEY: "command_palette_shortcut_key",
@@ -28,6 +85,19 @@ export const COMMAND_PALETTE_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Workspace Events and Elements
  * ===========================================================================
+ *
+ * Instruments workspace CRUD: the create / update / delete lifecycle plus the
+ * buttons that initiate those actions across onboarding and workspace
+ * settings flows.
+ *
+ * Consumers: `apps/web/core/components/workspace/**`,
+ * `apps/web/core/components/onboarding/**` and the workspace settings route
+ * segments under `apps/web/app/**`.
+ *   - `WORKSPACE_TRACKER_EVENTS` — fired via PostHog `capture()` when a
+ *     workspace is created, updated, or deleted.
+ *   - `WORKSPACE_TRACKER_ELEMENTS` — attached as `data-ph-element` to
+ *     onboarding create-workspace, header create-workspace, update, and
+ *     delete buttons.
  */
 export const WORKSPACE_TRACKER_EVENTS = {
   create: "workspace_created",
@@ -46,6 +116,19 @@ export const WORKSPACE_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Project Events and Elements
  * ===========================================================================
+ *
+ * Instruments project CRUD plus the per-project feature-toggle interaction.
+ * Elements cover every project-creation entry point (extended sidebar,
+ * sidebar, command palette, empty state, header, first-project onboarding,
+ * Jira import) plus the toggle UI for project-level feature flags.
+ *
+ * Consumers: `apps/web/core/components/project/**`,
+ * `apps/web/core/components/workspace/sidebar/**`, the command palette, and
+ * the project settings route segments under `apps/web/app/**`.
+ *   - `PROJECT_TRACKER_EVENTS` — fired via PostHog `capture()` for project
+ *     create/update/delete and individual feature-toggle changes.
+ *   - `PROJECT_TRACKER_ELEMENTS` — attached as `data-ph-element` to the
+ *     creation buttons listed above and the feature-toggle control.
  */
 export const PROJECT_TRACKER_EVENTS = {
   create: "project_created",
@@ -73,6 +156,20 @@ export const PROJECT_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Cycle Events and Elements
  * ===========================================================================
+ *
+ * Instruments cycle CRUD plus favorite/unfavorite and archive/restore
+ * lifecycle events. The `as const` assertion on `CYCLE_TRACKER_ELEMENTS`
+ * keeps the union of element identifier string literals narrowable at the
+ * type level for downstream consumers.
+ *
+ * Consumers: `apps/web/core/components/cycles/**` (list, active cycle,
+ * analytics sidebar, dropdowns) and cycle route segments under
+ * `apps/web/app/**`.
+ *   - `CYCLE_TRACKER_EVENTS` — fired via PostHog `capture()` for cycle
+ *     create/update/delete and favorite/archive toggles.
+ *   - `CYCLE_TRACKER_ELEMENTS` — attached as `data-ph-element` to the right
+ *     header add button, empty state add button, command palette add item,
+ *     right sidebar, quick actions, context menu, and list item.
  */
 export const CYCLE_TRACKER_EVENTS = {
   create: "cycle_created",
@@ -98,6 +195,18 @@ export const CYCLE_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Module Events and Elements
  * ===========================================================================
+ *
+ * Instruments module CRUD plus favorite/unfavorite/archive/restore and a
+ * nested `link` sub-object that tracks create/update/delete of module link
+ * attachments separately from the parent module's lifecycle.
+ *
+ * Consumers: `apps/web/core/components/modules/**` and module route segments
+ * under `apps/web/app/**`.
+ *   - `MODULE_TRACKER_EVENTS` — fired via PostHog `capture()` for module
+ *     CRUD, favorite/archive toggles, and module-link CRUD.
+ *   - `MODULE_TRACKER_ELEMENTS` — attached as `data-ph-element` to the right
+ *     header add button, empty state add button, command palette add item,
+ *     right sidebar, quick actions, context menu, list item, and card item.
  */
 export const MODULE_TRACKER_EVENTS = {
   create: "module_created",
@@ -129,6 +238,27 @@ export const MODULE_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Work Item Events and Elements
  * ===========================================================================
+ *
+ * Instruments the work-item (issue) lifecycle — the primary product surface
+ * and therefore the largest group in this file because work items are
+ * reachable from every layout root (project, project-view, cycle, module,
+ * global view, archived, draft). The element identifiers are deeply nested
+ * one level deeper than other groups so a single click site can carry the
+ * surface it originated from, which is essential for funnel analytics that
+ * compare creation rates across layout roots.
+ *
+ * Consumers: `apps/web/core/components/issues/**` (issue-layouts,
+ * issue-detail, issue-modal, bulk-operations, peek-overview) and the issue
+ * route segments under `apps/web/app/**`.
+ *   - `WORK_ITEM_TRACKER_EVENTS` — fired via PostHog `capture()` for issue
+ *     create/add_existing/update/delete/archive/restore, attachment
+ *     add/remove, sub-issue CRUD/remove/add_existing, and draft issue
+ *     create.
+ *   - `WORK_ITEM_TRACKER_ELEMENTS` — attached as `data-ph-element` to header
+ *     add buttons, command palette add button, empty state add buttons,
+ *     quick actions, and context menus across every layout-root surface
+ *     (WORK_ITEMS / PROJECT_VIEW / CYCLE / MODULE / GLOBAL_VIEW / ARCHIVED
+ *     / DRAFT).
  */
 export const WORK_ITEM_TRACKER_EVENTS = {
   create: "work_item_created",
@@ -191,6 +321,18 @@ export const WORK_ITEM_TRACKER_ELEMENTS = {
  * ===========================================================================
  * State Events and Elements
  * ===========================================================================
+ *
+ * Instruments workflow-state CRUD — the per-project state values like
+ * "Backlog", "In Progress", "Done" that drive the kanban columns and the
+ * state dropdown on work items.
+ *
+ * Consumers: `apps/web/core/components/project-states/**` and the state
+ * settings route segments under `apps/web/app/**`.
+ *   - `STATE_TRACKER_EVENTS` — fired via PostHog `capture()` when a state is
+ *     created, updated, or deleted.
+ *   - `STATE_TRACKER_ELEMENTS` — attached as `data-ph-element` to the
+ *     state-group add button (within state settings), state list delete
+ *     button, and state list edit button.
  */
 export const STATE_TRACKER_EVENTS = {
   create: "state_created",
@@ -207,6 +349,22 @@ export const STATE_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Project Page Events and Elements
  * ===========================================================================
+ *
+ * Instruments the project-page lifecycle — the wiki/doc-style pages that
+ * live inside a project and are edited collaboratively via the apps/live
+ * Hocuspocus server. Covers create/update/delete plus state transitions
+ * (archive/restore, lock/unlock, public/private access toggle) and
+ * relationships (favorite/unfavorite, duplicate, move).
+ *
+ * Consumers: `apps/web/core/components/pages/**` and the project-page route
+ * segments under `apps/web/app/**`.
+ *   - `PROJECT_PAGE_TRACKER_EVENTS` — fired via PostHog `capture()` for
+ *     every page lifecycle and metadata-mutation event listed above.
+ *   - `PROJECT_PAGE_TRACKER_ELEMENTS` — attached as `data-ph-element` to the
+ *     command palette create buttons (button + keyboard shortcut variant),
+ *     empty state create button, context menu, quick actions, list item,
+ *     favorite/archive/lock buttons, public/private access toggle, and
+ *     duplicate button.
  */
 export const PROJECT_PAGE_TRACKER_EVENTS = {
   create: "project_page_created",
@@ -240,6 +398,22 @@ export const PROJECT_PAGE_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Member Events and Elements
  * ===========================================================================
+ *
+ * Instruments member invitation/acceptance and project/workspace leave
+ * events. The nested structure (`project.add` / `project.leave` /
+ * `workspace.leave`) keeps project-scoped vs. workspace-scoped membership
+ * mutations distinguishable in PostHog reports.
+ *
+ * Consumers: `apps/web/core/components/workspace/settings/**`,
+ * `apps/web/core/components/project/settings/**`, onboarding flows under
+ * `apps/web/core/components/onboarding/**`, and member-management route
+ * segments under `apps/web/app/**`.
+ *   - `MEMBER_TRACKER_EVENTS` — fired via PostHog `capture()` for invitation
+ *     send/accept and project/workspace member leave.
+ *   - `MEMBER_TRACKER_ELEMENTS` — attached as `data-ph-element` to the
+ *     header add-member button, accept-invitation button, onboarding
+ *     join-workspace and invite-member continue buttons, sidebar project
+ *     quick actions, and project/workspace member table context menus.
  */
 export const MEMBER_TRACKER_EVENTS = {
   invite: "member_invited",
@@ -267,6 +441,19 @@ export const MEMBER_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Auth Events and Elements
  * ===========================================================================
+ *
+ * Instruments the authentication funnel: code_verify, sign_up_with_password,
+ * sign_in_with_password, forgot_password click, new_code_requested, and
+ * password_created. These identifiers are critical for the conversion-funnel
+ * dashboards in PostHog, so any rename would silently break those funnels.
+ *
+ * Consumers: `apps/web/core/components/account/**` (auth forms) and the
+ * authentication route segments under `apps/web/app/**`.
+ *   - `AUTH_TRACKER_EVENTS` — fired via PostHog `capture()` on each step of
+ *     the sign-up / sign-in / forgot-password / code-verify flow.
+ *   - `AUTH_TRACKER_ELEMENTS` — attached as `data-ph-element` to navigation
+ *     between sign-in/sign-up/forgot-password screens, unique-code sign-in,
+ *     new-code request, code verify, and the set-password form.
  */
 export const AUTH_TRACKER_EVENTS = {
   code_verify: "code_verified",
@@ -292,6 +479,20 @@ export const AUTH_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Global View Events and Elements
  * ===========================================================================
+ *
+ * Instruments cross-project (workspace-level) global view CRUD plus an
+ * `open` event that captures which views are actually being selected and
+ * loaded — important for prioritizing performance work on heavily-used
+ * filter combinations.
+ *
+ * Consumers: `apps/web/core/components/issues/issue-layouts/roots/**`
+ * (notably `all-issue-layout-root.tsx`) and the workspace-views route
+ * segments under `apps/web/app/**`.
+ *   - `GLOBAL_VIEW_TRACKER_EVENTS` — fired via PostHog `capture()` for
+ *     global-view CRUD and on view open/selection.
+ *   - `GLOBAL_VIEW_TRACKER_ELEMENTS` — attached as `data-ph-element` to the
+ *     right header add button, header save-view button, quick actions, and
+ *     list item.
  */
 export const GLOBAL_VIEW_TRACKER_EVENTS = {
   create: "global_view_created",
@@ -311,6 +512,23 @@ export const GLOBAL_VIEW_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Project View Events and Elements
  * ===========================================================================
+ *
+ * Instruments per-project view CRUD. Note the three "save-as-view" element
+ * identifiers (project / cycle / module header) — these capture the current
+ * filter state of the originating layout root as a new view, so the
+ * surface-aware identifiers let analytics distinguish save-as-view origins.
+ *
+ * Consumers: `apps/web/core/components/views/**`,
+ * `apps/web/core/components/issues/issue-layouts/roots/**` (project,
+ * cycle, module layout roots that surface "save as view"), and the
+ * project-view route segments under `apps/web/app/**`.
+ *   - `PROJECT_VIEW_TRACKER_EVENTS` — fired via PostHog `capture()` for
+ *     project-view create/update/delete.
+ *   - `PROJECT_VIEW_TRACKER_ELEMENTS` — attached as `data-ph-element` to the
+ *     right header add button, command palette add item, empty state create
+ *     button, header save-view button, the three save-as-view buttons
+ *     (project/cycle/module headers), quick actions, and list item context
+ *     menu.
  */
 export const PROJECT_VIEW_TRACKER_EVENTS = {
   create: "project_view_created",
@@ -334,6 +552,18 @@ export const PROJECT_VIEW_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Product Tour Events and Elements
  * ===========================================================================
+ *
+ * Instruments the in-app product tour funnel. `complete` is the terminal
+ * event in the funnel; the start/skip/create-project element identifiers
+ * cover the three primary tour interaction points.
+ *
+ * Consumers: `apps/web/core/components/onboarding/**` and the tour overlay
+ * surfaces in `apps/web/core/components/**`.
+ *   - `PRODUCT_TOUR_TRACKER_EVENTS.complete` — fired via PostHog `capture()`
+ *     when the tour finishes.
+ *   - `PRODUCT_TOUR_TRACKER_ELEMENTS` — attached as `data-ph-element` to the
+ *     tour start button, skip button, and the create-project button shown
+ *     inside the tour.
  */
 export const PRODUCT_TOUR_TRACKER_EVENTS = {
   complete: "product_tour_completed",
@@ -349,6 +579,17 @@ export const PRODUCT_TOUR_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Notification Events and Elements
  * ===========================================================================
+ *
+ * Instruments notification archive/unarchive, mark_read/mark_unread, and the
+ * bulk all_marked_read event.
+ *
+ * Consumers: `apps/web/core/components/workspace-notifications/**` and the
+ * notification-inbox surfaces under `apps/web/app/**`.
+ *   - `NOTIFICATION_TRACKER_EVENTS` — fired via PostHog `capture()` for each
+ *     archive/read state mutation listed above.
+ *   - `NOTIFICATION_TRACKER_ELEMENTS` — attached as `data-ph-element` to the
+ *     mark-all-as-read button, archive/unarchive button, and mark-read/unread
+ *     button.
  */
 export const NOTIFICATION_TRACKER_EVENTS = {
   archive: "notification_archived",
@@ -368,6 +609,18 @@ export const NOTIFICATION_TRACKER_ELEMENTS = {
  * ===========================================================================
  * User Events
  * ===========================================================================
+ *
+ * Instruments user-profile lifecycle events (initial details added,
+ * onboarding completed) plus the changelog modal/redirect element
+ * identifiers that surface product release notes to existing users.
+ *
+ * Consumers: onboarding flows under `apps/web/core/components/onboarding/**`,
+ * the changelog modal in `apps/web/core/components/**`, and the user-profile
+ * route segments under `apps/web/app/**`.
+ *   - `USER_TRACKER_EVENTS` — fired via PostHog `capture()` when the user
+ *     completes profile details / onboarding.
+ *   - `USER_TRACKER_ELEMENTS` — attached as `data-ph-element` to the product
+ *     changelog modal and the changelog redirect link.
  */
 export const USER_TRACKER_EVENTS = {
   add_details: "user_details_added",
@@ -383,6 +636,19 @@ export const USER_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Onboarding Events and Elements
  * ===========================================================================
+ *
+ * Element-only group. There is no paired `_EVENTS` map here because
+ * onboarding semantic event names are tracked via other groups — the auth
+ * group covers password creation, the workspace group covers workspace
+ * creation, and the member group covers invite/accept. This map only
+ * provides element identifiers for autocapture on the onboarding-specific
+ * UI surfaces (profile setup form, password creation selected/skipped).
+ *
+ * Consumers: `apps/web/core/components/onboarding/**` and the onboarding
+ * route segments under `apps/web/app/**`.
+ *   - `ONBOARDING_TRACKER_ELEMENTS` — attached as `data-ph-element` to the
+ *     profile setup form, password-creation-selected and
+ *     password-creation-skipped controls.
  */
 export const ONBOARDING_TRACKER_ELEMENTS = {
   PROFILE_SETUP_FORM: "onboarding_profile_setup_form",
@@ -394,6 +660,16 @@ export const ONBOARDING_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Sidebar Events
  * ===========================================================================
+ *
+ * Element-only group. There is no paired `_EVENTS` map because sidebar
+ * interactions are pure click-tracking via PostHog autocapture — they don't
+ * carry semantic event names beyond labelling which sidebar control was
+ * clicked.
+ *
+ * Consumers: `apps/web/core/components/workspace/sidebar/**` and other
+ * sidebar surfaces within `apps/web/core/components/**`.
+ *   - `SIDEBAR_TRACKER_ELEMENTS` — attached as `data-ph-element` to the
+ *     sidenav user menu item and the sidebar create-work-item button.
  */
 export const SIDEBAR_TRACKER_ELEMENTS = {
   USER_MENU_ITEM: "sidenav_user_menu_item",
@@ -404,6 +680,21 @@ export const SIDEBAR_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Project Settings Events and Elements
  * ===========================================================================
+ *
+ * Instruments project-settings interactions across three sub-areas: labels
+ * (created/updated/deleted), estimates (created/updated/deleted plus
+ * toggled), and automations (auto_close_workitems, auto_archive_workitems).
+ *
+ * Consumers: `apps/web/core/components/labels/**`,
+ * `apps/web/core/components/estimates/**`,
+ * `apps/web/core/components/automation/**`, and the project-settings route
+ * segments under `apps/web/app/**`.
+ *   - `PROJECT_SETTINGS_TRACKER_EVENTS` — fired via PostHog `capture()` for
+ *     each label/estimate/automation mutation listed above.
+ *   - `PROJECT_SETTINGS_TRACKER_ELEMENTS` — attached as `data-ph-element` to
+ *     labels (empty state create, header create, context menu, delete),
+ *     estimates (toggle, empty state create, list item), and automations
+ *     (archive toggle, close toggle).
  */
 export const PROJECT_SETTINGS_TRACKER_ELEMENTS = {
   LABELS_EMPTY_STATE_CREATE_BUTTON: "labels_empty_state_create_button",
@@ -436,6 +727,22 @@ export const PROJECT_SETTINGS_TRACKER_EVENTS = {
  * ===========================================================================
  * Profile Settings Events and Elements
  * ===========================================================================
+ *
+ * Instruments user-profile-settings interactions across four sub-areas:
+ * Account (deactivate, update_profile), Preferences (first_day, language,
+ * timezone, theme), Notifications (notifications_updated), and PAT
+ * (pat_created, pat_deleted). The element identifiers mirror the same
+ * four sub-areas one-to-one.
+ *
+ * Consumers: `apps/web/core/components/profile/**`,
+ * `apps/web/core/components/user/**`, and the profile-settings route
+ * segments under `apps/web/app/**`.
+ *   - `PROFILE_SETTINGS_TRACKER_EVENTS` — fired via PostHog `capture()` for
+ *     each profile-settings mutation listed above.
+ *   - `PROFILE_SETTINGS_TRACKER_ELEMENTS` — attached as `data-ph-element` to
+ *     save/deactivate buttons (Account), four preference dropdowns
+ *     (Preferences), four notification toggles (Notifications), and the
+ *     PAT header-add / empty-state add / list-item-delete controls (PAT).
  */
 export const PROFILE_SETTINGS_TRACKER_EVENTS = {
   // Account
@@ -477,6 +784,26 @@ export const PROFILE_SETTINGS_TRACKER_ELEMENTS = {
  * ===========================================================================
  * Workspace Settings Events and Elements
  * ===========================================================================
+ *
+ * Instruments workspace-settings interactions across three sub-areas:
+ * Billing (upgrade_plan_redirected), Exports (csv_exported), and Webhooks
+ * (created / updated / deleted / toggled / details_page_toggled).
+ *
+ * `WORKSPACE_SETTINGS_TRACKER_ELEMENTS.BILLING_UPGRADE_BUTTON` is the only
+ * function value in this file — see its inline JSDoc for the
+ * subscription-aware identifier generation pattern.
+ *
+ * Consumers: `apps/web/core/components/billing/**`,
+ * `apps/web/core/components/exporter/**`,
+ * `apps/web/core/components/web-hooks/**`, and the workspace-settings route
+ * segments under `apps/web/app/**`.
+ *   - `WORKSPACE_SETTINGS_TRACKER_EVENTS` — fired via PostHog `capture()`
+ *     for each billing/exports/webhooks mutation listed above.
+ *   - `WORKSPACE_SETTINGS_TRACKER_ELEMENTS` — attached as `data-ph-element`
+ *     to billing (upgrade button — subscription-aware function;
+ *     talk-to-sales button), exports (export button), and webhooks (header
+ *     add, empty state add, list item delete, list item toggle, details
+ *     page toggle, delete, update).
  */
 export const WORKSPACE_SETTINGS_TRACKER_EVENTS = {
   // Billing
@@ -493,6 +820,19 @@ export const WORKSPACE_SETTINGS_TRACKER_EVENTS = {
 
 export const WORKSPACE_SETTINGS_TRACKER_ELEMENTS = {
   // Billing
+  /**
+   * Generates a subscription-aware tracker identifier of the form
+   * `billing_upgrade_${subscriptionType}_button` from the user's current
+   * `EProductSubscriptionEnum` tier (imported from `@plane/types`). Used as
+   * the `data-ph-element` value on the in-app "Upgrade" CTA so PostHog
+   * reports can segment upgrade-button click events by the user's source
+   * subscription tier — essential for upgrade-funnel analytics per source
+   * plan.
+   *
+   * @param subscriptionType - The user's current product subscription tier.
+   * @returns A tracker identifier string of the form
+   * `billing_upgrade_${subscriptionType}_button`.
+   */
   BILLING_UPGRADE_BUTTON: (subscriptionType: EProductSubscriptionEnum) => `billing_upgrade_${subscriptionType}_button`,
   BILLING_TALK_TO_SALES_BUTTON: "billing_talk_to_sales_button",
   // Exports
