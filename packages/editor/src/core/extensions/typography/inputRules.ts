@@ -53,29 +53,11 @@ export type TypographyOptions = {
   impliesArrowRight: false | string;
 };
 
-// ---------------------------------------------------------------------------
-// Typography input-rule factories
-// ---------------------------------------------------------------------------
-//
-// Each factory below follows the same shape:
-//
-//   export const <name> = (override?: string) =>
-//     textInputRule({
-//       find: <regex>,
-//       replace: override ?? <default-glyph>,
-//     });
-//
-// `find` is anchored at the end of the buffer (`$`) so the rule only
-// triggers immediately after the user types the final character of the
-// trigger sequence. `replace` uses `??` so:
-//   - `override` undefined → use the default Unicode glyph
-//   - `override` empty string → use empty string (deliberate caller override)
-//   - `override` non-empty string → use the caller-supplied replacement
-//
-// The factories are consumed by `./index.ts` and registered in a fixed
-// order on `addInputRules()`. The source order below differs slightly from
-// the registration order in `./index.ts`; both orders are intentional and
-// must not be changed.
+// Each factory below end-anchors its `find` regex (`$`) so the rule fires only on the trigger's
+// final character, and uses `replace: override ?? <default>` — `??` (not `||`) so an empty-string
+// override deliberately suppresses the substitution while `undefined` falls back to the default
+// glyph. The source-declaration order here intentionally differs from the registration order in
+// `./index.ts`; both orderings are load-bearing and must not be changed.
 
 /** `--` → `—` (em dash, U+2014). Triggers on the second `-` of a `--` sequence. */
 export const emDash = (override?: string) =>

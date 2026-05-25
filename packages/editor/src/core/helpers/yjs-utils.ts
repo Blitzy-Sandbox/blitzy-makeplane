@@ -8,7 +8,7 @@
  * Y.js (CRDT) encoding, decoding, and merging utilities for the `@plane/editor` package.
  *
  * # CRDT semantics
- * Yjs converges replicas via vector clocks (Lamport-style timestamps); concurrent edits resolve **last-writer-wins** at the operation level. There is **no explicit conflict resolution callback** — convergence is structural, so no code in this package or in `apps/live` registers a resolver. Two clients applying the same update set in any order produce byte-identical documents.
+ * Yjs converges replicas through its CRDT / state-vector model: each update encodes the originating client and Lamport-style clock, and `Y.applyUpdate` merges concurrent updates structurally so no edits are dropped on either side. There is **no explicit application-level conflict resolver** registered by this package or by `apps/live` — convergence is built into the CRDT, so two clients applying the same update set in any order produce byte-identical documents.
  *
  * # Binary update format
  * Y.js encodes incremental updates as binary buffers (`Uint8Array`). `Y.applyUpdate(doc, update)` merges a buffer into a document atomically — the merge is commutative, associative, and idempotent, so applying the same update twice is a no-op.

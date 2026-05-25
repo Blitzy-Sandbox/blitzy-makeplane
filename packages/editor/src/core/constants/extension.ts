@@ -60,8 +60,12 @@
  *    configuration).
  *  - `CODE_BLOCK` ("codeBlock") — TipTap codeBlock node; fenced code
  *    with language attribute.
- *  - `HORIZONTAL_RULE` ("horizontalRule") — TipTap horizontalRule;
- *    renders as `<hr/>`.
+ *  - `HORIZONTAL_RULE` ("horizontalRule") — Plane-owned first-party
+ *    horizontal-rule node (does NOT wrap
+ *    `@tiptap/extension-horizontal-rule`); renders as
+ *    `<div data-type="horizontalRule"><div /></div>` and parses both
+ *    that form and `<hr>` for legacy / pasted content (see
+ *    `core/extensions/horizontal-rule.ts`).
  *  - `DOCUMENT` ("doc") — TipTap top-level doc node (schema root).
  *
  * List behavior:
