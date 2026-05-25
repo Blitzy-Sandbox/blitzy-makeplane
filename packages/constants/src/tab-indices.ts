@@ -4,6 +4,23 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Keyboard-accessibility source of truth: field-name orderings that define the tab
+ * sequence inside Plane's modal forms. Each array is consumed by the corresponding
+ * form to compute `tabIndex` values (via `Array.prototype.indexOf`) so that
+ * Tab/Shift+Tab navigation moves through fields in the documented logical order.
+ *
+ * Editing these arrays changes the keyboard navigation order of the affected form
+ * and is a deliberate accessibility decision — preserve the relative ordering of
+ * existing entries when adding new fields.
+ */
+
+/**
+ * Tab order for the work-item (issue) create/edit form: title → description → priority
+ * → assignees → label → dates → cycle/module → estimate → parent → form controls.
+ *
+ * Consumers: `apps/web/core/components/issues/issue-modal/**`.
+ */
 export const ISSUE_FORM_TAB_INDICES = [
   "name",
   "description_html",
@@ -26,6 +43,12 @@ export const ISSUE_FORM_TAB_INDICES = [
   "remove_parent",
 ];
 
+/**
+ * Tab order for the intake-issue create form — same as the issue form minus the
+ * `feeling_lucky` AI assist button and the draft button (intake issues are not drafts).
+ *
+ * Consumers: `apps/web/core/components/intake/**`.
+ */
 export const INTAKE_ISSUE_CREATE_FORM_TAB_INDICES = [
   "name",
   "description_html",
@@ -44,8 +67,18 @@ export const INTAKE_ISSUE_CREATE_FORM_TAB_INDICES = [
   "submit_button",
 ];
 
+/**
+ * Tab order for the label create form: name → color → cancel → submit.
+ *
+ * Consumers: `apps/web/core/components/labels/**`.
+ */
 export const CREATE_LABEL_TAB_INDICES = ["name", "color", "cancel", "submit"];
 
+/**
+ * Tab order for the project create form.
+ *
+ * Consumers: `apps/web/core/components/project/**`.
+ */
 export const PROJECT_CREATE_TAB_INDICES = [
   "name",
   "identifier",
@@ -59,8 +92,18 @@ export const PROJECT_CREATE_TAB_INDICES = [
   "logo_props",
 ];
 
+/**
+ * Tab order for the cycle create form.
+ *
+ * Consumers: `apps/web/core/components/cycles/**`.
+ */
 export const PROJECT_CYCLE_TAB_INDICES = ["name", "description", "date_range", "cancel", "submit", "project_id"];
 
+/**
+ * Tab order for the module create form.
+ *
+ * Consumers: `apps/web/core/components/modules/**`.
+ */
 export const PROJECT_MODULE_TAB_INDICES = [
   "name",
   "description",
@@ -72,10 +115,27 @@ export const PROJECT_MODULE_TAB_INDICES = [
   "submit",
 ];
 
+/**
+ * Tab order for the project view create form.
+ *
+ * Consumers: `apps/web/core/components/views/**`.
+ */
 export const PROJECT_VIEW_TAB_INDICES = ["name", "description", "filters", "cancel", "submit"];
 
+/**
+ * Tab order for the project page create form.
+ *
+ * Consumers: `apps/web/core/components/pages/**`.
+ */
 export const PROJECT_PAGE_TAB_INDICES = ["name", "public", "private", "cancel", "submit"];
 
+/**
+ * Form identifier enum used by the `getTabIndex(form, fieldName)` helper to look
+ * up the tab order for the active form.
+ *
+ * Consumers: `apps/web/core/components/**` form helpers that compute tab indices
+ * via `TAB_INDEX_MAP[form].indexOf(fieldName)`.
+ */
 export enum ETabIndices {
   ISSUE_FORM = "issue-form",
   INTAKE_ISSUE_FORM = "intake-issue-form",
@@ -87,6 +147,11 @@ export enum ETabIndices {
   PROJECT_PAGE = "project-page",
 }
 
+/**
+ * Lookup table: maps an `ETabIndices` form identifier to its tab-order array.
+ *
+ * Consumers: `apps/web/core/components/**` form helpers.
+ */
 export const TAB_INDEX_MAP: Record<ETabIndices, string[]> = {
   [ETabIndices.ISSUE_FORM]: ISSUE_FORM_TAB_INDICES,
   [ETabIndices.INTAKE_ISSUE_FORM]: INTAKE_ISSUE_CREATE_FORM_TAB_INDICES,
