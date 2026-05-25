@@ -5,14 +5,9 @@
  */
 
 /**
- * Extended operator-vocabulary placeholders for the `@plane/types/rich-filters/operators` subfolder.
- *
- * Reserved extension surface that mirrors `./core.ts`. All registries are empty `as const`
- * objects and the multi-value tuple is empty `as const`; the aggregate `EXTENDED_OPERATORS`
- * is the empty object spread. `TExtendedSupportedOperators` resolves to `never`.
- *
- * The file exists so future operator families can plug into the public composition in
- * `./index.ts` (object spread + union) without touching consumers.
+ * Extension-tier operator-vocabulary placeholders mirroring `./core.ts`; all
+ * registries are empty `as const` objects so new operator families can spread
+ * in here and flow through the `./index.ts` composition without touching consumers.
  */
 
 /** Reserved logical-operator extension registry; currently empty. */

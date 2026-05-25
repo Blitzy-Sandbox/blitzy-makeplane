@@ -5,21 +5,9 @@
  */
 
 /**
- * Enterprise-edition authentication extension hooks for the
- * `@plane/types/instance` subfolder. Provides the `never`-valued union members
- * that the enterprise build widens to add SSO / SAML / OIDC / SCIM provider
- * support without modifying community code.
- *
- * CE vs EE: community-edition builds resolve both exports to `never`, so any
- * `T | TExtendedLoginMediums` simplifies to `T`. Enterprise builds replace
- * these declarations with concrete unions inside a separate enterprise overlay.
- *
- * Consumers: `apps/admin/` enterprise auth settings (only when the EE build is
- * active) and `./base.ts` (`TLoginMediums = TCoreLoginMediums |
- * TExtendedLoginMediums`).
- *
- * Included here for type-completeness — community edition itself does NOT
- * consume these types at runtime; the `never` values are inert.
+ * Enterprise-edition auth extension hooks (`never` in CE, widened to
+ * SSO/SAML/OIDC/SCIM unions by the EE overlay) consumed by `./base.ts`
+ * to form `TLoginMediums` — inert at runtime in community builds.
  */
 
 /**

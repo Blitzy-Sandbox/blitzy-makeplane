@@ -5,21 +5,8 @@
  */
 
 /**
- * Filter expression tree contracts for the `@plane/types/rich-filters` subfolder.
- *
- * **This is the core data structure of the rich filter system.** Defines `TFilterExpression`
- * — a tagged union of group nodes (with logical operator and children) and leaf condition
- * nodes (with property/operator/value triple) — that can represent arbitrarily nested
- * boolean filter trees.
- *
- * The discriminant is the `type` field on each node: `"condition"` for a leaf and
- * `"group"` for a logical aggregator. Group nodes carry a `logicalOperator` (currently
- * only `AND`) and a `children` array of nested expressions.
- *
- * Consumed by every filter store, the issue listing API request builder, and the rich
- * filter UI: `packages/shared-state/src/store/work-item-filters/`,
- * `packages/utils/src/work-item-filters/`,
- * `apps/web/core/components/rich-filters/`.
+ * Core rich-filter expression tree (`TFilterExpression`) — a tagged union of leaf condition nodes (property/operator/value triple) and group nodes (logical operator + children), discriminated by the literal `type` field.
+ * Consumed by `packages/shared-state/src/store/work-item-filters/`, `packages/utils/src/work-item-filters/`, and `apps/web/core/components/rich-filters/`.
  */
 
 // local imports
@@ -27,13 +14,7 @@ import type { SingleOrArray } from "../utils";
 import type { TSupportedOperators, LOGICAL_OPERATOR, TAllAvailableOperatorsForDisplay } from "./operators";
 
 /**
- * Tagged-union discriminant registry for filter tree nodes.
- *
- * - `CONDITION`: leaf node carrying a single property/operator/value triple (e.g., "state is backlog").
- * - `GROUP`: container combining multiple child nodes via a logical operator (currently AND only).
- *
- * Consumed by the `type` discriminant field on every `TFilterExpression`. Runtime tokens are
- * `as const`-frozen so the value-level constants and the `TFilterNodeType` union stay in sync.
+ * `as const`-frozen discriminant registry mapping filter-node kinds to their literal `type` tokens (`CONDITION` = `"condition"` leaf, `GROUP` = `"group"` aggregator); paired with `TFilterNodeType` so value and type stay in sync.
  */
 export const FILTER_NODE_TYPE = {
   /** Leaf node — a single (property, operator, value) filter predicate. */
@@ -55,12 +36,7 @@ export type TFilterNodeType = (typeof FILTER_NODE_TYPE)[keyof typeof FILTER_NODE
 export type TFilterProperty = string;
 
 /**
- * Allowed filter values — primitives plus `null` / `undefined` for empty / not-set states.
- *
- * Fields with non-obvious semantics:
- * - `null`: explicit "is empty" comparand (e.g., assignee IS null).
- * - `undefined`: the slot was never set (treated as "no value" by adapters; serializes to absence).
- * - `Date`: persisted as an ISO 8601 string by adapters but typed here as a `Date` for in-memory use.
+ * Allowed filter value primitives plus `null` (explicit "is empty" comparand) / `undefined` (never set — serialized to absence by adapters); `Date` is in-memory only and adapters persist it as an ISO 8601 string.
  */
 export type TFilterValue = string | number | Date | boolean | null | undefined;
 
@@ -77,16 +53,10 @@ type TBaseFilterNode = {
 };
 
 /**
- * Leaf filter node — a single (property, operator, value) predicate, e.g., "state is backlog"
- * or "due_date between [2024-01-01, 2024-12-31]".
- *
- * Fields with non-obvious semantics:
- * - `type`: literal `"condition"` discriminant — must match `FILTER_NODE_TYPE.CONDITION`.
- * - `operator`: from the canonical `TSupportedOperators` union (NOT the looser display tier).
- * - `value`: `SingleOrArray<V>` — single scalar for `EXACT`, array for `IN` and `RANGE`.
+ * Leaf filter node carrying a single `(property, operator, value)` predicate; `operator` is the canonical `TSupportedOperators` (not the looser display tier) and `value` is `SingleOrArray<V>` — scalar for `EXACT`, array for `IN`/`RANGE`.
  *
  * @template P - Filter property key type (e.g., `EWorkItemFilterProperty`).
- * @template V - Filter value type — must be a `TFilterValue`-compatible primitive.
+ * @template V - Filter value type; must be a `TFilterValue`-compatible primitive.
  */
 export type TFilterConditionNode<P extends TFilterProperty, V extends TFilterValue> = TBaseFilterNode & {
   type: typeof FILTER_NODE_TYPE.CONDITION;
@@ -112,13 +82,7 @@ export type TFilterConditionNodeForDisplay<P extends TFilterProperty, V extends 
 };
 
 /**
- * Aggregator node combining multiple child expressions via the AND logical operator.
- *
- * Fields with non-obvious semantics:
- * - `type`: literal `"group"` discriminant — must match `FILTER_NODE_TYPE.GROUP`.
- * - `logicalOperator`: pinned to `LOGICAL_OPERATOR.AND` for the current operator set;
- *   OR/NOT variants are reserved by the operator registry but not yet emitted as group nodes.
- * - `children`: recursive — each child is itself a `TFilterExpression<P>` (condition or group).
+ * Aggregator node combining children via AND; `logicalOperator` is currently pinned to `LOGICAL_OPERATOR.AND` (OR/NOT variants are reserved by the operator registry but not yet emitted), and `children` is recursive — each entry is itself a `TFilterExpression<P>`.
  *
  * @template P - Filter property key type.
  */
@@ -138,22 +102,10 @@ export type TFilterAndGroupNode<P extends TFilterProperty> = TBaseFilterNode & {
 export type TFilterGroupNode<P extends TFilterProperty> = TFilterAndGroupNode<P>;
 
 /**
- * Recursive discriminated union of filter tree nodes — every node in a rich filter is
- * either a leaf condition (`TFilterConditionNode`) or a group of nested expressions
- * (`TFilterGroupNode`). Discriminated by the literal `type` field on each node.
- *
- * Narrowing example:
- * ```ts
- * if (expr.type === FILTER_NODE_TYPE.CONDITION) {
- *   // expr is narrowed to TFilterConditionNode<P, V>
- * } else {
- *   // expr is narrowed to TFilterGroupNode<P>
- * }
- * ```
+ * Recursive discriminated union of filter tree nodes (leaf `TFilterConditionNode` or aggregator `TFilterGroupNode`), narrowed by the literal `type` discriminant (`FILTER_NODE_TYPE.CONDITION` vs `.GROUP`).
  *
  * @template P - Filter property key type.
- * @template V - Filter value type — defaults to `TFilterValue` when the consumer does
- *   not specialize, allowing the union to be referenced without explicit value typing.
+ * @template V - Filter value type; defaults to `TFilterValue` so consumers can reference the union without explicit value typing.
  */
 export type TFilterExpression<P extends TFilterProperty, V extends TFilterValue = TFilterValue> =
   | TFilterConditionNode<P, V>

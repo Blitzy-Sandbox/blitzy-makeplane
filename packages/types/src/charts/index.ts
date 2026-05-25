@@ -5,25 +5,12 @@
  */
 
 /**
- * Chart type vocabulary for the `@plane/types/charts` sub-package.
+ * Chart type vocabulary for `@plane/types/charts` — re-exports `./common`
+ * and defines generic contracts for bar/line/scatter/area/pie/treemap/radar
+ * families consumed by `packages/propel/src/charts/` and analytics dashboards.
  *
- * Re-exports the foundational chart row/payload contracts from `./common`
- * (`TChartColorScheme`, `TChartDatum`, `TChart`) and defines the
- * chart-family-specific generic contracts for bar, line, scatter, area,
- * pie, treemap, and radar charts.
- *
- * Consumers: chart renderers in `packages/propel/src/charts/` (one
- * `root.tsx` per family plus the shared `components/legend.tsx`),
- * analytics dashboards in `apps/web/core/components/analytics/`, the
- * chart utility helpers in `apps/web/core/components/chart/utils.ts`,
- * and the sibling `packages/types/src/analytics.ts` which imports
- * `TChartData` directly.
- *
- * Generic parameter convention used throughout this file:
- * - `K extends string`: union of required (categorical/axis) row keys
- *   that every datum must carry.
- * - `T extends string`: union of dynamic series keys that attach
- *   additional numeric/any values per row (e.g., per-priority counts).
+ * Generic params: `K extends string` = required categorical/axis row keys;
+ * `T extends string` = dynamic series keys (e.g., per-priority counts).
  */
 
 // ============================================================
@@ -31,16 +18,11 @@
 // ============================================================
 export * from "./common";
 /**
- * Legend placement and layout configuration for chart components.
+ * Legend placement/layout config for chart components — independent
+ * `align`/`verticalAlign`/`layout` axes plus optional `wrapperStyles`
+ * forwarded to the legend container's inline style.
  *
- * Consumers: `packages/propel/src/charts/components/legend.tsx` and every
- * chart `root.tsx` in `packages/propel/src/charts/`.
- *
- * `align` is the horizontal anchor, `verticalAlign` is the vertical
- * anchor, and `layout` controls whether legend items flow horizontally
- * or vertically — these three dimensions are independent. `wrapperStyles`
- * is forwarded to the legend container's inline style for ad-hoc layout
- * overrides.
+ * Consumers: `packages/propel/src/charts/components/legend.tsx`.
  */
 export type TChartLegend = {
   align: "left" | "center" | "right";
@@ -50,12 +32,10 @@ export type TChartLegend = {
 };
 
 /**
- * Pixel margins applied around the chart plotting area.
+ * Pixel margins around the chart plotting area; any omitted side falls
+ * back to the underlying Recharts default for that chart family.
  *
  * Consumers: every chart `root.tsx` in `packages/propel/src/charts/`.
- *
- * All four sides are optional — undefined values fall back to the
- * underlying Recharts default margins for the corresponding chart family.
  */
 export type TChartMargin = {
   top?: number;
@@ -65,18 +45,12 @@ export type TChartMargin = {
 };
 
 /**
- * Generic chart row shape combining a required key field with an open
- * record of additional series values.
+ * Generic chart row: every datum must carry the categorical axis key(s)
+ * named by `K`, plus arbitrary additional dynamic series under keys named
+ * by `T` (forming the complete row schema for a chart family).
  *
- * Consumers: `packages/types/src/analytics.ts` (imports `TChartData`
- * directly), every chart `root.tsx` in `packages/propel/src/charts/`, and
- * the analytics chart data builders in `apps/web/core/components/chart/`
- * and `apps/web/core/components/analytics/`.
- *
- * The intersection enforces that every datum carries the categorical
- * axis key(s) named by `K` while still permitting arbitrary additional
- * dynamic series under keys named by `T` — together they form the
- * complete row schema rendered by a chart family.
+ * Consumers: `packages/types/src/analytics.ts`, every chart `root.tsx`
+ * in `packages/propel/src/charts/`, and `apps/web/core/components/chart/`.
  */
 export type TChartData<K extends string, T extends string> = {
   // required key
@@ -84,17 +58,9 @@ export type TChartData<K extends string, T extends string> = {
 } & Record<T, any>;
 
 /**
- * Shared props inherited (directly or via `Pick`) by every chart family
- * component — the common data + presentation contract.
- *
- * Consumers: extended by `TAxisChartProps` (bar/line/scatter/area) and
- * `Pick`-ed by `TPieChartProps` and `TRadarChartProps`; transitively
- * consumed by every chart `root.tsx` in `packages/propel/src/charts/`.
- *
- * Supplying `customTooltipContent` overrides the default Recharts
- * tooltip rendering; the callback receives the live tooltip payload
- * (`active` hover state, `label`, raw `payload`) and may return any
- * React node.
+ * Common data + presentation contract inherited by every chart family
+ * (extended by `TAxisChartProps`, `Pick`-ed by `TPieChartProps`/`TRadarChartProps`);
+ * `customTooltipContent` overrides the default Recharts tooltip renderer.
  */
 export type TBaseChartProps<K extends string, T extends string> = {
   data: TChartData<K, T>[];
@@ -107,18 +73,9 @@ export type TBaseChartProps<K extends string, T extends string> = {
 
 // Props specific to charts with X and Y axes
 /**
- * Extension of `TBaseChartProps` for chart families that render
- * Cartesian X and Y axes (bar, line, scatter, area).
- *
- * Consumers: extended by `TBarChartProps`, `TLineChartProps`,
- * `TScatterChartProps`, and `TAreaChartProps`.
- *
- * `xAxis.key` and `yAxis.key` are constrained to `keyof TChartData<K, T>`
- * so axis assignment is statically validated against the row shape.
- * `customTicks.{x,y}` are React component types that replace the default
- * tick renderer; `tickCount.{x,y}` request an approximate tick count
- * from Recharts; `yAxis.domain` pins the value range when present
- * (otherwise Recharts derives it from `data`).
+ * Extension of `TBaseChartProps` for Cartesian X/Y chart families
+ * (bar/line/scatter/area); axis `key` fields are constrained to
+ * `keyof TChartData<K, T>` so axis assignment is statically validated.
  */
 export type TAxisChartProps<K extends string, T extends string> = TBaseChartProps<K, T> & {
   xAxis: {
@@ -151,30 +108,17 @@ export type TAxisChartProps<K extends string, T extends string> = TBaseChartProp
 // ============================================================
 
 /**
- * Render-shape variant selector for individual bars in a bar chart.
- *
- * Consumers: `packages/propel/src/charts/bar-chart/bar.tsx` switches on
- * this value to choose the per-bar SVG primitive.
- *
- * Union values:
- * - `"bar"`: standard rectangular bar.
- * - `"lollipop"`: thin stem with a solid circular head.
- * - `"lollipop-dotted"`: thin stem with a dotted/outlined head.
+ * Render-shape variant selector for bars: `"bar"` (rectangle),
+ * `"lollipop"` (stem + solid head), or `"lollipop-dotted"` (stem + dotted head),
+ * switched on by `packages/propel/src/charts/bar-chart/bar.tsx`.
  */
 export type TBarChartShapeVariant = "bar" | "lollipop" | "lollipop-dotted";
 
 /**
- * Per-series configuration for a single bar in a bar chart.
- *
- * Consumers: `packages/propel/src/charts/bar-chart/root.tsx` and
- * `packages/propel/src/charts/bar-chart/bar.tsx`.
- *
- * `fill` accepts either a static color string OR a function that derives
- * the color from the row payload (used for conditional/threshold
- * coloring). `stackId` groups bars into stacked clusters when shared
- * across multiple entries. `showTopBorderRadius` / `showBottomBorderRadius`
- * are predicates evaluated per-bar so rounded corners can be applied only
- * to the outermost bar in a stacked cluster.
+ * Per-series config for a single bar — `fill` may be a static color or a
+ * payload-derived function (for conditional/threshold coloring); `stackId`
+ * groups bars into stacked clusters; border-radius predicates restrict
+ * rounded corners to the outermost bar in a stack.
  */
 export type TBarItem<T extends string> = {
   key: T;
@@ -189,15 +133,11 @@ export type TBarItem<T extends string> = {
 };
 
 /**
- * Public props for the bar chart family.
+ * Public props for the bar chart family; `barSize` pins each bar's pixel
+ * width (undefined defers sizing to Recharts auto-layout).
  *
- * Consumers: `packages/propel/src/charts/bar-chart/root.tsx`, and
- * analytics dashboards including
- * `apps/web/core/components/analytics/work-items/priority-chart.tsx`
- * and `apps/web/core/components/analytics/overview/project-insights.tsx`.
- *
- * `barSize` sets the pixel width of each bar; leaving it undefined
- * defers width sizing to Recharts' auto-layout.
+ * Consumers: `packages/propel/src/charts/bar-chart/root.tsx` and
+ * analytics dashboards in `apps/web/core/components/analytics/`.
  */
 export type TBarChartProps<K extends string, T extends string> = TAxisChartProps<K, T> & {
   bars: TBarItem<T>[];
@@ -209,14 +149,9 @@ export type TBarChartProps<K extends string, T extends string> = TAxisChartProps
 // ============================================================
 
 /**
- * Per-series configuration for a single line in a line chart.
- *
- * Consumers: `packages/propel/src/charts/line-chart/root.tsx`.
- *
- * `dashedLine` toggles the dashed stroke pattern; `smoothCurves` toggles
- * monotone-curve interpolation versus linear segments; `style` is
- * forwarded to the underlying SVG path element for ad-hoc attribute
- * overrides.
+ * Per-series config for a single line — `dashedLine` toggles the dashed
+ * stroke pattern, `smoothCurves` toggles monotone-curve interpolation
+ * versus linear segments, and `style` forwards to the underlying SVG path.
  */
 export type TLineItem<T extends string> = {
   key: T;
@@ -230,11 +165,9 @@ export type TLineItem<T extends string> = {
 };
 
 /**
- * Public props for the line chart family.
- *
- * Consumers: `packages/propel/src/charts/line-chart/root.tsx`,
- * `apps/web/core/components/analytics/work-items/created-vs-resolved.tsx`,
- * and `apps/web/core/components/core/sidebar/progress-chart.tsx`.
+ * Public props for the line chart family; consumed by
+ * `packages/propel/src/charts/line-chart/root.tsx` and analytics dashboards
+ * in `apps/web/core/components/analytics/` and `core/sidebar/`.
  */
 export type TLineChartProps<K extends string, T extends string> = TAxisChartProps<K, T> & {
   lines: TLineItem<T>[];
@@ -270,14 +203,9 @@ export type TScatterChartProps<K extends string, T extends string> = TAxisChartP
 // ============================================================
 
 /**
- * Per-series configuration for a single area in an area chart.
- *
- * Consumers: `packages/propel/src/charts/area-chart/root.tsx`.
- *
- * `fillOpacity` and `strokeOpacity` are unit-interval values in the
- * range `[0, 1]`; `stackId` groups areas into stacked clusters when
- * shared across multiple entries; `style` is forwarded to the underlying
- * SVG path element.
+ * Per-series config for a single area — `fillOpacity`/`strokeOpacity` are
+ * unit-interval values in `[0, 1]`, `stackId` groups areas into stacked
+ * clusters, and `style` forwards to the underlying SVG path.
  */
 export type TAreaItem<T extends string> = {
   key: T;
@@ -293,13 +221,9 @@ export type TAreaItem<T extends string> = {
 };
 
 /**
- * Public props for the area chart family.
- *
- * Consumers: `packages/propel/src/charts/area-chart/root.tsx`.
- *
- * Supplying `comparisonLine` overlays a horizontal reference line across
- * the plotting area (e.g., a target threshold or baseline value) with
- * the supplied stroke color and optional dashed pattern.
+ * Public props for the area chart family; supplying `comparisonLine`
+ * overlays a horizontal reference line (e.g., target threshold) with the
+ * given stroke color and optional dashed pattern.
  */
 export type TAreaChartProps<K extends string, T extends string> = TAxisChartProps<K, T> & {
   areas: TAreaItem<T>[];
@@ -324,17 +248,10 @@ export type TCellItem<T extends string> = {
 };
 
 /**
- * Public props for the pie chart family — picks the subset of base props
- * that apply to pies (no Cartesian axis configuration).
- *
- * Consumers: `packages/propel/src/charts/pie-chart/root.tsx`.
- *
- * Setting `innerRadius > 0` produces a donut chart; `cornerRadius`
- * rounds the outer wedge corners; `paddingAngle` inserts angular gaps
- * between adjacent wedges. `centerLabel` renders text in the donut's
- * hollow center (only meaningful when `innerRadius > 0`). `customLegend`
- * overrides the default Recharts legend renderer with a caller-supplied
- * React component.
+ * Public props for the pie chart family (subset of base props — no
+ * Cartesian axes); `innerRadius > 0` produces a donut, `centerLabel` is
+ * only meaningful with `innerRadius > 0`, and `customLegend` overrides
+ * the default Recharts legend renderer.
  */
 export type TPieChartProps<K extends string, T extends string> = Pick<
   TBaseChartProps<K, T>,
@@ -363,15 +280,9 @@ export type TPieChartProps<K extends string, T extends string> = Pick<
 // ============================================================
 
 /**
- * A single rectangle in a treemap chart, sized proportionally by `value`.
- *
- * Consumers: `packages/propel/src/charts/tree-map/root.tsx`.
- *
- * The trailing intersection is a **discriminated union**: each item must
- * carry EITHER `fillColor` (a literal color string) OR `fillClassName`
- * (a Tailwind class name), but never both. This enforces a single source
- * of truth for the fill styling decision at the type level so callers
- * cannot accidentally supply both kinds of fill at once.
+ * Treemap rectangle (sized proportionally by `value`); the trailing
+ * intersection is a discriminated union enforcing EITHER `fillColor`
+ * (literal color) OR `fillClassName` (Tailwind class), never both.
  */
 export type TreeMapItem = {
   name: string;
@@ -389,13 +300,9 @@ export type TreeMapItem = {
 );
 
 /**
- * Public props for the treemap chart family.
- *
- * Consumers: `packages/propel/src/charts/tree-map/root.tsx`.
- *
- * Treemap data is hierarchical/categorical rather than Cartesian, so
- * this type intentionally does NOT extend `TBaseChartProps` — it defines
- * its own minimal contract instead.
+ * Public props for the treemap chart family; intentionally does NOT
+ * extend `TBaseChartProps` because treemap data is hierarchical/categorical
+ * rather than Cartesian, so this type defines its own minimal contract.
  */
 export type TreeMapChartProps = {
   data: TreeMapItem[];
@@ -418,14 +325,9 @@ export type TTopSectionConfig = {
 };
 
 /**
- * Visibility flags for the bottom section of a treemap rectangle
- * (numeric value and supplementary label).
- *
- * Consumers: combined into `TContentVisibility` and applied by
- * `packages/propel/src/charts/tree-map/root.tsx`.
- *
- * `show` is the master toggle for the entire bottom section; the
- * remaining flags refine which sub-elements render when `show` is true.
+ * Visibility flags for a treemap rectangle's bottom section (value/label) —
+ * `show` is the master toggle and the remaining flags refine which
+ * sub-elements render when `show` is true.
  */
 export type TBottomSectionConfig = {
   show: boolean;
@@ -451,13 +353,9 @@ export type TContentVisibility = {
 // ============================================================
 
 /**
- * Per-series configuration for a single radar polygon.
- *
- * Consumers: `packages/propel/src/charts/radar-chart/root.tsx`.
- *
- * `dot.r` is the radius (in pixels) of the per-vertex data point;
- * omitting the `dot` field hides the dots entirely while leaving the
- * polygon outline and fill intact.
+ * Per-series config for a single radar polygon; `dot.r` is the per-vertex
+ * point radius in pixels, and omitting `dot` hides the dots entirely
+ * while leaving the polygon outline and fill intact.
  */
 export type TRadarItem<T extends string> = {
   key: T;
@@ -472,15 +370,9 @@ export type TRadarItem<T extends string> = {
 };
 
 /**
- * Public props for the radar chart family — picks the subset of base
- * props that apply to radars (no Cartesian axis configuration).
- *
- * Consumers: `packages/propel/src/charts/radar-chart/root.tsx`.
- *
- * `angleAxis.key` is constrained to `keyof TChartData<K, T>` so the
- * categorical axis label key is statically validated against the row
- * shape, matching the validation applied to `xAxis.key`/`yAxis.key` in
- * `TAxisChartProps`.
+ * Public props for the radar chart family (subset of base props — no
+ * Cartesian axes); `angleAxis.key` is constrained to `keyof TChartData<K, T>`
+ * so the categorical axis label key is statically validated against the row.
  */
 export type TRadarChartProps<K extends string, T extends string> = Pick<
   TBaseChartProps<K, T>,

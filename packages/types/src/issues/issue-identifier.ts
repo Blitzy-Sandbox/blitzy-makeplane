@@ -5,73 +5,26 @@
  */
 
 /**
- * Issue identifier display contracts for the `@plane/types/issues` subfolder.
- *
- * Models the canonical `<project_identifier>-<sequence_id>` label (e.g.
- * `"PLN-1234"`) rendered by the `<IssueIdentifier>` component family in
- * `apps/web/core/components/issues/`. The label surfaces in issue lists,
- * search results, breadcrumbs, peek overviews, sub-issue panels, and
- * shareable URLs — anywhere an issue is referenced compactly.
- *
- * Two complementary call-site flavors are exposed because identifier
- * rendering happens in BOTH store-hydrated contexts (issue lists with the
- * issue loaded in MobX) and store-less contexts (search hits, notification
- * payloads, webhook receipts where only a stub of the issue is available):
- *   - {@link TIssueIdentifierFromStore} — caller passes `issueId` and the
- *     component reads `projectMap[projectId].identifier` plus
- *     `issueMap[issueId].sequence_id` from the MobX stores in
- *     `apps/web/core/store/`.
- *   - {@link TIssueIdentifierWithDetails} — caller passes the pre-computed
- *     `projectIdentifier` prefix and `issueSequenceId` directly, bypassing
- *     any store lookup.
- * The two are combined as the discriminated union
- * {@link TIssueIdentifierProps}; TypeScript narrows on the structural
- * presence of `issueId` vs `projectIdentifier`/`issueSequenceId` rather
- * than on a literal discriminant field.
- *
- * Re-exported as a top-level surface DIRECTLY from
- * `packages/types/src/index.ts` (not via the `./base.ts` folder barrel) so
- * the identifier rendering concern stays decoupled from the core issue
- * entity types.
+ * Issue identifier display contracts (`<prefix>-<seq>` label e.g. `"PLN-1234"`)
+ * for `<IssueIdentifier>` in `apps/web/core/components/issues/`; exposes a
+ * store-hydrated flavor (`TIssueIdentifierFromStore` reads from MobX) and a
+ * store-less flavor (`TIssueIdentifierWithDetails` for search/webhook
+ * contexts) combined as the structurally-discriminated `TIssueIdentifierProps`.
  */
 
 import type { IIssueDisplayProperties } from "../view-props";
 
 /**
- * Discrete size token controlling identifier text scale — maps to the
- * Tailwind text-size scale (`text-xs` / `text-sm` / `text-base` /
- * `text-lg`) inside the `<IssueIdentifier>` family in
- * `apps/web/core/components/issues/`. A string literal union (rather than
- * a free `number` of pixels) is used so the design-system contract stays
- * enumerable and consumers cannot opt into off-token sizes.
- *
- * - `"xs"` — extra-small; reserved for compact list / spreadsheet rows
- *   where vertical density matters more than legibility.
- * - `"sm"` — small; the default in most issue list contexts.
- * - `"md"` — medium; used in the peek-overview header where the
- *   identifier sits alongside the issue title.
- * - `"lg"` — large; used in the issue detail page header where the
- *   identifier is one of the page's primary affordances.
+ * Identifier text-scale token mapped to the Tailwind `text-{xs|sm|base|lg}`
+ * scale; literal-union (not free pixels) so the design-system contract
+ * stays enumerable and off-token sizes are unreachable.
  */
 export type TIssueIdentifierSize = "xs" | "sm" | "md" | "lg";
 
 /**
- * Color token controlling the identifier label's text color. The variant
- * encodes context (active vs completed/archived issue, primary vs
- * secondary surface) rather than a raw color so theming and dark-mode
- * mappings stay in the design layer.
- *
- * - `"default"` — neutral foreground for in-flight issues.
- * - `"secondary"` — muted foreground for non-primary contexts (e.g. an
- *   identifier rendered inside a parent issue's sub-issue list).
- * - `"tertiary"` — most-muted foreground for tertiary contexts (e.g. an
- *   identifier referenced inside a comment body or activity log entry).
- * - `"primary"` — accent foreground for emphasized identifiers (e.g. the
- *   currently selected issue in a list).
- * - `"primary-subtle"` — accent foreground at reduced opacity, used when
- *   the surrounding surface already carries the accent color.
- * - `"success"` — green foreground used to signal a completed / closed
- *   issue without needing a separate strikethrough or icon.
+ * Identifier text-color variant token encoding context (default/secondary/
+ * tertiary/primary/primary-subtle/success) rather than a raw color so
+ * theming and dark-mode mappings stay in the design layer.
  */
 export type TIdentifierTextVariant = "default" | "secondary" | "tertiary" | "primary" | "primary-subtle" | "success";
 
@@ -109,15 +62,9 @@ export type TIssueIdentifierBaseProps = {
 };
 
 /**
- * "Lookup" identifier flavor — caller supplies only `issueId` and
- * `projectId` (via the extended base) and the rendering component reads
- * the project identifier and the issue sequence id from the MobX stores.
- * Used wherever the issue is already loaded into the store (issue lists,
- * issue detail page, kanban / spreadsheet rows).
- *
- * The component reads `projectMap[projectId].identifier` from the project
- * store and `issueMap[issueId].sequence_id` from
- * `apps/web/core/store/issue/`.
+ * "Lookup" identifier flavor: caller supplies only `issueId` (plus `projectId`
+ * from the extended base) and the component reads `projectMap[projectId].identifier`
+ * and `issueMap[issueId].sequence_id` from the MobX stores.
  */
 export type TIssueIdentifierFromStore = TIssueIdentifierBaseProps & {
   /**
@@ -183,12 +130,9 @@ export type TIssueTypeIdentifier = {
 };
 
 /**
- * Lowest-level rendering props for the final identifier-text leaf
- * component — takes the already-formatted identifier string plus
- * styling tokens. The composition (prefix + sequence id) is intentionally
- * pushed up to the caller so that this leaf can render identifiers
- * sourced from either flavor above without re-implementing the format
- * rule.
+ * Leaf renderer props for the identifier text — takes an already-formatted
+ * `identifier` string plus styling tokens; the `<prefix>-<seq>` composition
+ * is intentionally pushed to the caller so this leaf renders either flavor.
  */
 export type TIdentifierTextProps = {
   /**

@@ -27,20 +27,10 @@
  */
 
 /**
- * Form payload submitted when starting a new GitHub import.
- *
- * Bundles GitHub-side repository metadata, the user mapping list (controls which GitHub
- * users get invited / mapped / skipped), the sync flag, and the destination Plane project id.
- *
- * Fields with non-obvious semantics:
- * - `metadata.owner` / `metadata.name`: GitHub repo coordinates (owner login + repo name)
- * - `metadata.repository_id`: GitHub's numeric repository id (the stable identifier across
- *   renames; preferred over owner/name for de-duplication on the backend)
- * - `metadata.url`: full HTML URL of the GitHub repository (used for display and audit)
- * - `data.users[]`: per-GitHub-user mapping directive — see field-level JSDoc on `import` below
- * - `config.sync`: when true, the importer enters continuous-sync mode after the initial
- *   import completes (incremental polling for new GitHub issues / updates)
- * - `project_id`: id of the destination Plane project that imported issues will land in
+ * Form payload submitted when starting a new GitHub import — bundles repo
+ * metadata, the per-user mapping list (invite/map/skip), the `sync` flag
+ * (continuous incremental sync after initial import), and the destination
+ * Plane project id.
  */
 export interface IGithubServiceImportFormData {
   metadata: {
@@ -77,18 +67,9 @@ export interface IGithubServiceImportFormData {
 }
 
 /**
- * GitHub repository collaborator projection (mirrors a subset of GitHub's User schema).
- *
- * Returned as part of `IGithubRepoInfo.collaborators` from the GitHub workspace integration's
- * repository-info endpoint; used by the user-mapping picker in the GitHub import wizard
- * to display GitHub avatars and link out to the collaborator's GitHub profile.
- *
- * Fields:
- * - `id`: GitHub's numeric user id (stable across username changes)
- * - `login`: GitHub username (handle)
- * - `avatar_url`: signed/CDN avatar URL from GitHub
- * - `html_url`: full GitHub profile URL (e.g. `https://github.com/<login>`)
- * - `url`: GitHub REST API URL for this user (used for backend follow-up calls)
+ * GitHub repository collaborator projection (subset of GitHub's User schema)
+ * returned as part of `IGithubRepoInfo.collaborators`; rendered by the
+ * user-mapping picker in the import wizard.
  */
 export interface IGithubRepoCollaborator {
   avatar_url: string;
@@ -99,16 +80,9 @@ export interface IGithubRepoCollaborator {
 }
 
 /**
- * Pre-import summary of a GitHub repository's importable surface.
- *
- * Returned by the workspace integration's `getGithubRepoInfo` endpoint
- * (`apps/web/core/services/integrations/github.service.ts`) and rendered in the GitHub
- * import wizard so users can confirm what will be pulled in before triggering the import.
- *
- * Fields:
- * - `issue_count`: number of GitHub issues that will be imported
- * - `labels`: number of unique GitHub labels that will be created/mapped
- * - `collaborators`: list of GitHub collaborators eligible to appear in the user-mapping step
+ * Pre-import summary of a GitHub repository's importable surface (issue
+ * count, label count, eligible collaborators) returned by `getGithubRepoInfo()`
+ * and rendered in the import wizard's confirmation step.
  */
 export interface IGithubRepoInfo {
   issue_count: number;

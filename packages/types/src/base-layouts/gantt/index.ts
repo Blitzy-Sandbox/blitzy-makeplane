@@ -5,23 +5,8 @@
  */
 
 /**
- * Public Gantt type surface for the `@plane/types/base-layouts` family. Defines
- * Gantt-specific items, update payloads, capabilities, display options, props,
- * and the timeline registry.
- *
- * Differs from `./list` and `./kanban` because Gantt renders blocks on a timeline
- * (not item+group cards): the shared `renderItem` / `enableDragDrop` / `onDrop` /
- * `canDrag` props from `IBaseLayoutsBaseProps<T>` are omitted and replaced with
- * Gantt-specific `renderBlock` + `onBlockUpdate` + `onDateUpdate` callbacks.
- *
- * Consumers (via the `@plane/types` re-export chain):
- *   - apps/web/core/components/base-layouts/gantt/
- *   - apps/web/core/components/issues/issue-layouts/gantt/
- *   - apps/web/core/components/modules/gantt-chart/
- *   - apps/web/core/components/gantt-chart/
- *   - apps/web/core/hooks/use-timeline-chart.ts
- *   - apps/web/ce/hooks/use-timeline-chart.ts
- *   - apps/web/core/layouts/auth-layout/project-wrapper.tsx
+ * Public Gantt typing surface — Gantt-specific items/update payloads/capabilities/display options/props + the timeline registry, replacing the shared `renderItem`/drag handlers with timeline-block-aware `renderBlock` + `onBlockUpdate` + `onDateUpdate`.
+ * Consumed by `apps/web/core/components/{base-layouts,issues/issue-layouts,modules,gantt-chart}/gantt*` and `apps/web/{core,ce}/hooks/use-timeline-chart.ts`.
  */
 
 import type { ReactNode } from "react";
@@ -31,15 +16,7 @@ import { EXTENDED_GANTT_TIMELINE_TYPE } from "./extended";
 
 // Gantt-specific item with date fields
 /**
- * Gantt-renderable item — extends the shared {@link IBaseLayoutsBaseItem} with
- * optional start/target dates that position the block on the timeline axis.
- *
- * Fields:
- * - `start_date` — ISO date string (or `null` to clear); items lacking a
- *   `start_date` are hidden from the timeline unless
- *   {@link TGanttDisplayOptions.showAllBlocks} is `true`.
- * - `target_date` — ISO date string (or `null` to clear); marks the end of
- *   the Gantt block on the timeline.
+ * Gantt-renderable item extending `IBaseLayoutsBaseItem` with ISO-date `start_date` / `target_date`; items lacking `start_date` are hidden unless `TGanttDisplayOptions.showAllBlocks` is `true`.
  */
 export interface IBaseLayoutsGanttItem extends IBaseLayoutsBaseItem {
   start_date?: string | null;
@@ -48,16 +25,7 @@ export interface IBaseLayoutsGanttItem extends IBaseLayoutsBaseItem {
 
 // Block update data (for drag/resize operations)
 /**
- * Payload delivered to {@link IBaseLayoutsGanttProps.onBlockUpdate} when a
- * single block is dragged along the timeline, resized at either edge, or
- * reordered within the sidebar.
- *
- * Fields:
- * - `start_date` / `target_date` — present when the block is moved or resized
- *   (omitted fields are left unchanged on the server).
- * - `sort_order` — present only on sidebar reorders; `destinationIndex` is the
- *   zero-based row position and `newSortOrder` is the floating-point sort key
- *   that consumers persist so subsequent reorders remain stable.
+ * `IBaseLayoutsGanttProps.onBlockUpdate` payload — `start_date`/`target_date` carry move/resize edits (omitted = unchanged), and `sort_order` (set only on sidebar reorders) carries `destinationIndex` plus the floating-point `newSortOrder` that consumers persist for stable subsequent reorders.
  */
 export type TGanttBlockUpdateData = {
   start_date?: string;
@@ -70,14 +38,7 @@ export type TGanttBlockUpdateData = {
 
 // Date update handler for bulk date changes (e.g., dependency updates)
 /**
- * Per-item date-update payload used in the bulk array passed to
- * {@link IBaseLayoutsGanttProps.onDateUpdate} — typically when shifting a parent
- * block propagates new dates through dependency arrows to one or more children.
- *
- * Fields:
- * - `id` — item id whose dates are being updated.
- * - `start_date` / `target_date` — ISO date strings; omitted fields are left
- *   unchanged on the server.
+ * Per-item entry in the bulk `IBaseLayoutsGanttProps.onDateUpdate` array — typically emitted when a parent's date shift propagates through dependency arrows to one or more children; omitted ISO-date fields are left unchanged server-side.
  */
 export type TGanttDateUpdate = {
   id: string;
@@ -87,19 +48,9 @@ export type TGanttDateUpdate = {
 
 // Render props specific to Gantt
 /**
- * Render-prop contract for Gantt blocks and sidebar entries.
+ * Render-prop contract for Gantt blocks and sidebar cells — consumers supply visuals only; the Gantt core computes positioning/sizing from `start_date`/`target_date`.
  *
- * Why Gantt has its own render contract: positioning and sizing of a block are
- * computed by the Gantt core from `start_date`/`target_date`, so consumers only
- * supply the visual cell — not the geometry.
- *
- * Fields:
- * - `renderBlock` — required; renders the timeline block (Gantt core handles
- *   positioning and sizing).
- * - `renderSidebar` — optional; renders the row's left sidebar cell (typically
- *   the item title plus metadata).
- *
- * @template T - Concrete item type, must extend {@link IBaseLayoutsGanttItem}.
+ * @template T - Concrete item type, must extend `IBaseLayoutsGanttItem`.
  */
 export interface IGanttRenderProps<T extends IBaseLayoutsGanttItem> {
   renderBlock: (item: T) => ReactNode;
@@ -108,22 +59,7 @@ export interface IGanttRenderProps<T extends IBaseLayoutsGanttItem> {
 
 // Gantt-specific capabilities
 /**
- * Per-feature enablement flags that gate Gantt interactivity (resize, move,
- * reorder, add, select, dependency).
- *
- * Why each flag is `boolean | ((itemId: string) => boolean)`: this dual form
- * lets consumers either toggle a capability globally with a boolean OR supply
- * a predicate for per-item gating (e.g., locking a single row from resize)
- * without forcing every consumer to wrap their flag in a function.
- *
- * Flags:
- * - `enableBlockLeftResize` — left-edge resize gesture.
- * - `enableBlockRightResize` — right-edge resize gesture.
- * - `enableBlockMove` — full-block move gesture along the timeline.
- * - `enableReorder` — sidebar row reorder gesture.
- * - `enableAddBlock` — inline "add block" affordance.
- * - `enableSelection` — block selection state toggle.
- * - `enableDependency` — dependency-arrow creation gesture between blocks.
+ * Per-feature enablement flags gating Gantt interactivity (resize/move/reorder/add/select/dependency); each flag is `boolean | ((itemId: string) => boolean)` so consumers can toggle globally or gate per-item without wrapping every flag in a function.
  */
 export interface IGanttCapabilities {
   enableBlockLeftResize?: boolean | ((itemId: string) => boolean);
@@ -137,18 +73,7 @@ export interface IGanttCapabilities {
 
 // Gantt display options
 /**
- * Visual configuration for the Gantt timeline.
- *
- * Fields:
- * - `showAllBlocks` — render blocks even when `start_date`/`target_date` are
- *   missing (otherwise undated items are hidden from the timeline).
- * - `showToday` — highlight the current date column.
- * - `border` — render the outer container border.
- * - `title` — header title shown above the timeline.
- * - `loaderTitle` — title shown by the loader chrome while data loads.
- * - `quickAdd` — optional pre-rendered quick-add affordance node.
- * - `timelineType` — which timeline category (core or extended) selects the
- *   underlying store (see {@link TTimelineType}).
+ * Visual configuration for the Gantt timeline (showAllBlocks/showToday/border/title/loaderTitle/quickAdd/timelineType); `showAllBlocks` overrides the default "hide undated items" rule, and `timelineType` picks the underlying store category via `TTimelineType`.
  */
 export type TGanttDisplayOptions = {
   showAllBlocks?: boolean; // Show blocks even without dates
@@ -162,25 +87,9 @@ export type TGanttDisplayOptions = {
 
 // Main Gantt Layout Props
 /**
- * Top-level props contract for the Gantt layout component — composes the shared
- * base layout props with Gantt-specific render, capability, and display
- * contracts.
+ * Top-level Gantt layout props — `Omit`s the shared `renderItem`/drag handlers from `IBaseLayoutsBaseProps<T>` (Gantt computes geometry from dates) and composes `IGanttRenderProps` + `IGanttCapabilities` + `TGanttDisplayOptions` plus `onBlockUpdate` / `onDateUpdate` mutation callbacks.
  *
- * Why `Omit<IBaseLayoutsBaseProps<T>, "renderItem" | "enableDragDrop" |
- * "onDrop" | "canDrag">`: Gantt does not use item-level drag/drop or
- * `renderItem` rendering — those concerns are replaced by `renderBlock`
- * (geometry computed by the Gantt core) plus `onBlockUpdate` / `onDateUpdate`
- * mutation callbacks. The `Omit` prevents consumers from supplying props that
- * the Gantt layout cannot honor.
- *
- * Local fields:
- * - `onBlockUpdate` — invoked when a single block's position, dates, or sort
- *   order change (see {@link TGanttBlockUpdateData}).
- * - `onDateUpdate` — invoked with a bulk array of per-item date updates, used
- *   for dependency propagation when a parent's date change cascades to
- *   children (see {@link TGanttDateUpdate}).
- *
- * @template T - Concrete item type, must extend {@link IBaseLayoutsGanttItem}.
+ * @template T - Concrete item type, must extend `IBaseLayoutsGanttItem`.
  */
 export interface IBaseLayoutsGanttProps<T extends IBaseLayoutsGanttItem>
   extends
@@ -196,16 +105,7 @@ export interface IBaseLayoutsGanttProps<T extends IBaseLayoutsGanttItem>
 }
 
 /**
- * Merged registry of every Gantt timeline category available in this build —
- * combines the core set with edition-specific extended entries.
- *
- * Why `{ ...CORE_GANTT_TIMELINE_TYPE, ...EXTENDED_GANTT_TIMELINE_TYPE } as
- * const`: the `as const` assertion preserves literal string types so the
- * derived {@link TTimelineType} union resolves to specific string literals
- * (e.g. `"ISSUE" | "MODULE" | …`) rather than widening to `string`.
- *
- * Consumers use this for runtime comparisons against timeline categories
- * (e.g., `if (timelineType === GANTT_TIMELINE_TYPE.ISSUE) …`).
+ * Merged Gantt timeline registry (core ∪ extended) used for runtime comparisons (`if (timelineType === GANTT_TIMELINE_TYPE.ISSUE) …`); the `as const` assertion preserves literal string types so `TTimelineType` resolves to a specific union rather than widening to `string`.
  */
 export const GANTT_TIMELINE_TYPE = {
   ...CORE_GANTT_TIMELINE_TYPE,
@@ -213,26 +113,11 @@ export const GANTT_TIMELINE_TYPE = {
 } as const;
 
 /**
- * Union of the core timeline literal values (currently `"ISSUE" | "MODULE" |
- * "PROJECT" | "GROUPED"`, sourced from `CORE_GANTT_TIMELINE_TYPE`).
- *
- * Why a distinct core-only type exists: community-edition code paths
- * (e.g. `apps/web/ce/hooks/use-timeline-chart.ts`) constrain parameters to the
- * core set when extended-edition values would be inappropriate.
+ * Core-only timeline literal union (`"ISSUE" | "MODULE" | "PROJECT" | "GROUPED"`) used by community-edition code paths (e.g., `apps/web/ce/hooks/use-timeline-chart.ts`) that must reject extended-edition values.
  */
 export type TTimelineTypeCore = (typeof CORE_GANTT_TIMELINE_TYPE)[keyof typeof CORE_GANTT_TIMELINE_TYPE];
 /**
- * Union of every timeline literal value in this build — core ∪ extended.
- *
- * Relationship to {@link TTimelineTypeCore}: `TTimelineTypeCore` is a strict
- * subset accepted everywhere; `TTimelineType` is the full superset that the
- * downstream Gantt rendering layer accepts. In the community-edition build,
- * `EXTENDED_GANTT_TIMELINE_TYPE` is empty so the two unions resolve to the
- * same set, but downstream editions may add entries that extend this union
- * automatically.
- *
- * Consumed by `TGanttDisplayOptions.timelineType`,
- * `apps/web/core/hooks/use-timeline-chart.ts`, and every Gantt consumer.
+ * Full timeline-literal union (core ∪ extended) accepted by `TGanttDisplayOptions.timelineType` and `apps/web/core/hooks/use-timeline-chart.ts`; equals `TTimelineTypeCore` in community builds where `EXTENDED_GANTT_TIMELINE_TYPE` is empty.
  */
 export type TTimelineType =
   | TTimelineTypeCore

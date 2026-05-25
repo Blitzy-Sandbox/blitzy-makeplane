@@ -5,14 +5,8 @@
  */
 
 /**
- * Barrel module for page domain types — re-exports core page entity types from
- * `./core` and extended operation types from `./extended`.
- *
- * Provides a single stable import path for the page type contracts. Type-only;
- * no runtime emission. Consumed by `apps/web/core/store/pages/`,
- * `apps/web/core/components/pages/`, `apps/live/src/services/page/`,
- * and `apps/live/src/extensions/database.ts` (see tech spec §5.2.5 for the
- * collaborative-document persistence sequence that uses these types).
+ * Barrel for page-domain types — re-exports the core page entity from `./core`
+ * and the extension-point alias from `./extended`.
  */
 
 export * from "./core";

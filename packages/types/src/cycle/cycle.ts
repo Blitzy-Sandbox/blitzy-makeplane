@@ -5,42 +5,25 @@
  */
 
 /**
- * Cycle entity contracts for the `@plane/types/cycle` subfolder.
- *
- * Models project cycles — time-boxed sprints/iterations with start/end dates,
- * assigned members, lifecycle status, plot-type configuration (burndown / burnup),
- * and progress aggregations. Mirrors `apps/api/plane/db/models/cycle.py` (the
- * Django `Cycle` model) and `apps/api/plane/app/serializers/cycle.py`.
- *
- * Consumers:
- * - `apps/web/core/store/cycle.store.ts` (canonical MobX store)
- * - `apps/web/core/components/cycles/**` (UI surface)
- * - `apps/web/core/components/issues/**` (cycle-scoped issue layouts)
- * - `apps/api/plane/app/serializers/cycle.py` (server response shape)
+ * Cycle entity contracts mirroring `apps/api/plane/db/models/cycle.py` and
+ * `apps/api/plane/app/serializers/cycle.py`; consumed by `cycle.store.ts`
+ * and `apps/web/core/components/cycles/**`.
  */
 
 import type { TIssue } from "../issues/issue";
 import type { IIssueFilterOptions } from "../view-props";
 
 /**
- * Server-computed lifecycle group of a cycle, derived from `start_date`/`end_date`
- * relative to the current time and the cycle's draft status.
- *
- * Per-value semantics (matches the server label in `apps/api/plane/app/serializers/cycle.py:L57`):
- * - `"current"`: cycle whose date range contains "now" — actively running.
- * - `"upcoming"`: cycle whose `start_date` is in the future.
- * - `"completed"`: cycle whose `end_date` is in the past.
- * - `"draft"`: cycle with either date unset; not yet scheduled.
- *
- * Surfaced as `ICycle.status` and used by `TCycleFilters.status` for listing filters.
+ * Server-computed lifecycle group derived from start/end dates and draft
+ * status (`apps/api/plane/app/serializers/cycle.py:L57`) — surfaces as
+ * `ICycle.status` and `TCycleFilters.status`.
  */
 export type TCycleGroups = "current" | "upcoming" | "completed" | "draft";
 
 /**
- * Date-keyed completion ratio map used to render the cycle's burndown / burnup chart.
- *
- * Keys are ISO date strings (one entry per day of the cycle). Values are the completion
- * percentage on that day, or `null` for future dates with no recorded data yet.
+ * Date-keyed completion ratio map for the burndown/burnup chart; keys are ISO
+ * date strings, values are per-day completion percentages or `null` for
+ * future dates with no recorded data.
  */
 export type TCycleCompletionChartDistribution = {
   [key: string]: number | null;
@@ -114,16 +97,9 @@ export type TCycleEstimateDistribution = {
   labels: (TCycleLabelsDistribution & TCycleEstimateDistributionBase)[];
 };
 /**
- * Single day's progress data point for the burndown / burnup chart timeline.
- *
- * Field semantics:
- * - `date`: ISO date string identifying this point on the timeline.
- * - `started`/`completed`/`pending`/`unstarted`/`backlog`/`cancelled`: workflow-state
- *   counts as of `date`.
- * - `scope`: total issue count in the cycle on `date` (may grow when issues are added mid-cycle).
- * - `ideal`: theoretical "perfectly even" remaining work for that day, or `null` outside
- *   the active cycle window.
- * - `actual`: observed remaining work on `date`.
+ * Single day's progress data point for the burndown/burnup timeline; `scope`
+ * may grow mid-cycle when issues are added, and `ideal` is `null` outside
+ * the active cycle window.
  */
 export type TCycleProgress = {
   date: string;
@@ -173,29 +149,10 @@ export interface IProjectDetails {
 }
 
 /**
- * Cycle entity — a time-boxed sprint / iteration belonging to a project.
- *
- * Mirrors `apps/api/plane/db/models/cycle.py` and the response shape produced by
- * `apps/api/plane/app/serializers/cycle.py:CycleSerializer`. Extends `TProgressSnapshot`
- * so the aggregate progress counters are co-located with the entity metadata.
- *
- * Consumed canonically by `apps/web/core/store/cycle.store.ts:cycleMap`
- * (keyed by `id`) and rendered by `apps/web/core/components/cycles/**`.
- *
- * Non-obvious field semantics:
- * - `progress_snapshot`: server-computed snapshot at the moment the cycle was completed
- *   (frozen view); the inline `TProgressSnapshot` fields are the live values.
- * - `start_date` / `end_date`: ISO date strings; `null` while the cycle is in `"draft"`.
- * - `status`: server-computed lifecycle group (`TCycleGroups`); not user-settable.
- * - `archived_at`: `null` while the cycle is active; set when archived.
- * - `is_favorite`: per-viewer flag set by the cycle-list endpoint for the requesting user.
- * - `view_props.filters`: persisted `IIssueFilterOptions` applied when navigating to the
- *   cycle's issue list (mirrors the JSONField default from `cycle.py:L70`).
- * - `assignee_ids`: list of user ids assigned to issues in the cycle (denormalized for
- *   listing performance; not the cycle owner).
- * - `progress`: opaque per-day aggregation series consumed by the burndown / burnup chart.
- * - `version`: monotonically increasing integer bumped on every server-side cycle mutation,
- *   used for optimistic concurrency checks (mirrors `Cycle.version` in `cycle.py:L80`).
+ * Cycle entity (time-boxed sprint/iteration) mirroring `apps/api/plane/db/models/cycle.py`
+ * and `CycleSerializer`; `progress_snapshot` is a server-frozen snapshot at completion
+ * while the inline `TProgressSnapshot` fields are the live values, and `version` is the
+ * monotonic optimistic-concurrency counter.
  */
 export interface ICycle extends TProgressSnapshot {
   progress_snapshot: TProgressSnapshot | undefined;
@@ -256,14 +213,8 @@ export interface CycleIssueResponse {
 }
 
 /**
- * UI selection union used when a cycle has been picked for an action — extends `ICycle`
- * with an `actionType` discriminant identifying the pending action, or `undefined` when
- * no cycle is currently selected.
- *
- * `actionType` values:
- * - `"edit"`: open the cycle edit modal.
- * - `"delete"`: confirm cycle deletion.
- * - `"create-issue"`: open the create-issue modal scoped to this cycle.
+ * UI selection union for a cycle picked for `"edit"` / `"delete"` /
+ * `"create-issue"` actions, or `undefined` when no cycle is selected.
  */
 export type SelectCycleType = (ICycle & { actionType: "edit" | "delete" | "create-issue" }) | undefined;
 
@@ -280,26 +231,15 @@ export type CycleDateCheckData = {
 };
 
 /**
- * Per-viewer selection of which numeric scale to plot in cycle progress charts.
- *
- * - `"issues"`: count individual issues.
- * - `"points"`: sum the estimate points across the issues (requires an estimate scheme on the project).
- *
- * Persisted client-side in `apps/web/core/store/cycle.store.ts:estimatedType` and toggled
- * from the cycle analytics sidebar.
+ * Per-viewer numeric scale for cycle progress charts: `"issues"` counts issues
+ * and `"points"` sums estimate points (requires an estimate scheme); persisted
+ * in `cycle.store.ts:estimatedType`.
  */
 export type TCycleEstimateType = "issues" | "points";
 /**
- * Per-viewer selection of which chart shape to render for the cycle's progress.
- *
- * Per-value semantics:
- * - `"burndown"`: remaining work decreases from `scope` toward zero over time
- *   (default — emphasizes how much is left to do).
- * - `"burnup"`: completed work increases from zero toward `scope` over time
- *   (emphasizes how much has been done, exposes scope changes as line separation).
- *
- * Persisted client-side in `apps/web/core/store/cycle.store.ts:plotType` and toggled
- * from the cycle analytics sidebar.
+ * Per-viewer chart shape for cycle progress: `"burndown"` (remaining work
+ * decreases toward zero) or `"burnup"` (completed work increases toward
+ * scope, exposing scope changes); persisted in `cycle.store.ts:plotType`.
  */
 export type TCyclePlotType = "burndown" | "burnup";
 

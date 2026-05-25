@@ -5,17 +5,9 @@
  */
 
 /**
- * Standalone comment-reaction contracts for the issue-activity subdomain.
- *
- * Defines the persisted reaction row tying a reacting user, a parent comment, and an
- * emoji code-point together, plus two lookup-map shapes used for O(1) UI queries.
- * Distinct from the lightweight `TCommentReaction` embed in `./issue_comment.ts` —
- * this is the canonical reaction row returned by the standalone reaction endpoints.
- *
- * Mirrors `apps/api/plane/db/models/issue.py::CommentReaction` (unique on
- * `[comment, actor, reaction]`). Reaction handlers are surfaced through
- * `apps/web/core/store/issue/issue-details/comment.store.ts` — the workspace UI applies
- * reaction state via the comment store rather than fetching it standalone.
+ * Standalone comment-reaction contracts mirroring `CommentReaction` in
+ * `apps/api/plane/db/models/issue.py` (unique on `[comment, actor, reaction]`);
+ * distinct from the lightweight `TCommentReaction` embed in `./issue_comment.ts`.
  */
 
 /**
@@ -64,24 +56,17 @@ export type TIssueCommentReaction = {
 };
 
 /**
- * Flat lookup of reaction records keyed by their own primary key (`reaction_id`).
- *
- * Used by the comment-reaction store as the normalized source-of-truth slice so each
- * reaction is stored once and read in O(1). The key shape is the reaction's own `id` —
- * contrast {@link TIssueCommentReactionIdMap}, which is comment-keyed for grouped
- * "which reactions on this comment?" queries over the same row set.
+ * Flat normalized lookup of reaction records keyed by `reaction_id`; contrast
+ * {@link TIssueCommentReactionIdMap}, which groups the same rows by comment + emoji.
  */
 export type TIssueCommentReactionMap = {
   [reaction_id: string]: TIssueCommentReaction;
 };
 
 /**
- * Two-level nested lookup: outer key is `comment_id`, inner key is the emoji `reaction`
- * code-point, value is the array of reaction ids matching that emoji on that comment.
- *
- * Enables "which reactions exist on this comment, grouped by emoji?" and "who reacted
- * with 👍?" queries in O(1) without scanning {@link TIssueCommentReactionMap} on every
- * render.
+ * Two-level lookup (outer `comment_id` → inner emoji `reaction` → reaction id
+ * array) enabling O(1) "which reactions exist on this comment, grouped by
+ * emoji?" queries without scanning `TIssueCommentReactionMap`.
  */
 export type TIssueCommentReactionIdMap = {
   [comment_id: string]: { [reaction: string]: string[] };

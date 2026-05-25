@@ -5,30 +5,8 @@
  */
 
 /**
- * Core issue (work item) entity contracts for the `@plane/types/issues`
- * subfolder.
- *
- * Declares the canonical `TBaseIssue` and `TIssue` shapes plus the layout,
- * service, and store discriminant enums, the paginated list-response
- * envelopes, the bulk-update payload types, and the reduced-field public
- * issue interface served on deploy/space surfaces. Mirrors
- * `apps/api/plane/db/models/issue.py::Issue` and the DRF serializer in
- * `apps/api/plane/app/serializers/issue.py::IssueSerializer` (and the public
- * counterpart used by the deploy/space app).
- *
- * Consumers — virtually every issue surface in the monorepo embeds these
- * shapes:
- * - `apps/web/core/store/issue/**` — MobX stores (issue, kanban, list,
- *   calendar, gantt, spreadsheet variants).
- * - `apps/web/core/components/issues/**` — UI surfaces (issue detail,
- *   peek overview, issue modal, layout roots, properties, dropdowns).
- * - `apps/web/core/store/issue/helpers/` — pure helpers that operate on
- *   `TIssue` records (grouping, sorting, filter application).
- * - `packages/services/src/issue/` — REST client for the issue endpoints.
- * - Notification, search, intake, draft, and webhook payloads all embed
- *   `TIssue` (or a `Partial<TIssue>`) shapes.
- *
- * Re-exported via `./base.ts` (the folder barrel `packages/types/src/issues/base.ts`).
+ * Canonical issue (work item) entity contracts (`TBaseIssue`, `TIssue`, `IPublicIssue`) plus layout/service/store discriminants and list-response envelopes, mirroring `apps/api/plane/db/models/issue.py::Issue` and `apps/api/plane/app/serializers/issue.py::IssueSerializer`.
+ * Re-exported via `./base.ts`; consumed across `apps/web/core/store/issue/**`, `apps/web/core/components/issues/**`, and `packages/services/src/issue/`.
  */
 
 import type { TIssuePriorities } from "../issues";
@@ -40,16 +18,7 @@ import type { TIssueReaction, IIssuePublicReaction, IPublicVote } from "./issue_
 import type { TIssueRelationTypes } from "./issue_relation";
 
 /**
- * Discriminant for the active issue list layout.
- *
- * Drives which renderer is mounted and which layout-specific MobX store
- * flavor (kanban / list / calendar / gantt / spreadsheet) owns the
- * presentation state. Also gates which display-filter affordances are shown
- * (e.g., the "Show empty groups" toggle is kanban-only).
- *
- * Cross-reference: layout-specific MobX stores live at
- * `apps/web/core/store/issue/issue_kanban_view.store.ts`,
- * `issue_calendar_view.store.ts`, and `issue_gantt_view.store.ts`.
+ * Active issue list layout discriminant — selects the renderer and the layout-specific MobX store flavor in `apps/web/core/store/issue/issue_{kanban,calendar,gantt}_view.store.ts`, and gates layout-only display-filter affordances.
  */
 export enum EIssueLayoutTypes {
   /** Flat vertical list with optional grouping; the default layout. */
@@ -79,14 +48,7 @@ export enum EIssueServiceType {
 }
 
 /**
- * Discriminant identifying which MobX store flavor owns a given issue
- * collection.
- *
- * The issue store registry in `apps/web/core/store/issue/` is keyed by this
- * enum so consumers can pick the right slice via hooks of the form
- * `useIssues(EIssuesStoreType.CYCLE)`. Each value corresponds to a distinct
- * scoping of the underlying issue list (workspace-wide, project, cycle,
- * module, etc.).
+ * Discriminant keying the issue-store registry in `apps/web/core/store/issue/` so consumers select the right scoped slice via `useIssues(EIssuesStoreType.<scope>)` (workspace, project, cycle, module, draft, archived, etc.).
  */
 export enum EIssuesStoreType {
   /** Workspace-wide all-issues store. */
@@ -118,18 +80,8 @@ export enum EIssuesStoreType {
 }
 
 /**
- * Minimum-viable issue (work item) payload — the lite shape returned by list
- * endpoints, search results, kanban cards, and any consumer that does not
- * need the rich-text description or embedded relation collections.
- *
- * Mirrors the lite `Issue.objects.values(...)` projection used by list
- * endpoints in `apps/api/plane/app/views/issue/base.py`. The full shape
- * (with description payload and embedded relations) is `TIssue`, which
- * extends this type — see below.
- *
- * Foreign-key fields use `string | null` rather than `string | undefined`
- * to mirror the DRF serializer output (Django nulls survive serialization
- * as JSON `null`, not as a missing key).
+ * Lite issue payload returned by list endpoints / search / kanban cards (no description body or embedded relations); the full shape is `TIssue` below.
+ * FK fields use `string | null` because Django nulls survive DRF serialization as JSON `null`, not as a missing key.
  */
 export type TBaseIssue = {
   /** Primary key — server-set UUID. */
@@ -144,20 +96,14 @@ export type TBaseIssue = {
   /** FK to `IState`; `null` is allowed for transient draft creation only. */
   state_id: string | null;
   /**
-   * One of `"urgent" | "high" | "medium" | "low" | "none"` (see `TIssuePriorities` in `../issues`).
-   *
-   * - `urgent` — escalate-now category; visually distinguished (red); typically used for blockers and customer-impacting work.
-   * - `high` — important; ordering tier 2.
-   * - `medium` — default / normal priority.
-   * - `low` — nice-to-have; ordering tier 4.
-   * - `none` — explicitly unset (distinct from `null`, which means "not yet decided"); ordering tier 5.
-   *
-   * `null` is allowed for the same transient draft case as `state_id`.
+   * One of `TIssuePriorities` (`urgent | high | medium | low | none`); `none` is explicitly unset whereas `null` is "not yet decided" during transient draft creation only.
    */
   priority: TIssuePriorities | null;
   /** Array of `ILabel.id`; ordering is not significant. */
   label_ids: string[];
-  /** Array of `IUser.id`; ordering is not significant. */
+  /**
+   * UUID strings of assigned users as serialized by `IssueSerializer.assignee_ids` / `IssueListDetailSerializer.get_assignee_ids` (`apps/api/plane/app/serializers/issue.py`); resolved to user objects on demand by the MobX issue/member stores under `apps/web/core/store/`.
+   */
   assignee_ids: string[];
   /** FK to `IEstimate.points[].id`; `null` when no estimate is assigned. */
   estimate_point: string | null;
@@ -176,9 +122,7 @@ export type TBaseIssue = {
   /** FK to active cycle membership; `null` when the issue is not in any cycle. */
   cycle_id: string | null;
   /**
-   * FKs to module memberships. `null` (NOT an empty array) signals
-   * "membership has never been initialized"; an empty array means
-   * "initialized but currently empty". Consumers MUST handle both.
+   * FKs to module memberships; `null` means "never initialized" while an empty array means "initialized but currently empty" — consumers MUST distinguish the two.
    */
   module_ids: string[] | null;
   /** FK to issue type configuration; `null` means no type set. */
@@ -195,9 +139,7 @@ export type TBaseIssue = {
   /** Server-set when the issue transitions into a completed state group; cleared if it transitions back. */
   completed_at: string | null;
   /**
-   * Server-set when the issue is archived; `null` for active issues.
-   * Archived issues are excluded from most list endpoints — callers must
-   * opt in via `?archived=true` or use `EIssuesStoreType.ARCHIVED`.
+   * Server-set on archive; archived issues are excluded from most list endpoints unless callers opt in via `?archived=true` or use `EIssuesStoreType.ARCHIVED`.
    */
   archived_at: string | null;
 
@@ -215,12 +157,7 @@ export type TBaseIssue = {
 };
 
 /**
- * Internal shape for the embedded `issue_relation` / `issue_related` arrays
- * on `TIssue` — a lite snapshot of the related issue's identity (id, name,
- * project, sequence id, and the relation type label).
- *
- * Distinct from `TIssueRelation` in `./issue_relation.ts`, which is the
- * full per-anchor relations map; this type is intentionally NOT exported.
+ * Lite snapshot embedded inside `TIssue.issue_relation` / `.issue_related`; distinct from the per-anchor `TIssueRelation` map in `./issue_relation.ts` and intentionally not exported.
  */
 type IssueRelation = {
   id: string;
@@ -231,25 +168,12 @@ type IssueRelation = {
 };
 
 /**
- * Full issue entity returned by detail endpoints — extends `TBaseIssue`
- * with the rich-text description payload, embedded relation collections,
- * client-only optimistic-update transients, and the denormalized
- * `state__group` projection.
- *
- * Use this on issue-detail screens, the peek overview, and any place that
- * needs the description body or embedded reactions/attachments/links.
- * Prefer `TBaseIssue` where the lite shape is sufficient.
+ * Full issue entity from detail endpoints — extends `TBaseIssue` with the description payload, embedded relation collections, client-only optimistic transients, and the denormalized `state__group` projection (prefer `TBaseIssue` where the lite shape is sufficient).
  */
 export type TIssue = TBaseIssue & {
   /**
-   * Server-stored sanitized HTML of the issue description. Maintained in
-   * lockstep with `description_binary` (Yjs binary form) and
-   * `description_stripped` (plain-text projection) on the backend via the
-   * live-server callback chain in `apps/live/src/extensions/database.ts`
-   * (10-second persistence debounce; see tech spec §5.2.5.4). Plane stores
-   * BOTH HTML and binary so non-collaborating clients can read without Yjs.
-   * `description_stripped` is intentionally NOT exposed on this type — it
-   * lives on `IPublicIssue` and backend serializers only.
+   * Server-stored sanitized HTML of the issue description; kept in lockstep with backend `description_binary` (Yjs) and `description_stripped` (plain-text) via the live-server callback chain in `apps/live/src/extensions/database.ts` (10-second debounce; tech spec §5.2.5.4).
+   * `description_stripped` is intentionally not declared on `TIssue` nor on `IPublicIssue` below — it lives only on backend models/serializers.
    */
   description_html?: string;
   /** `true` when the current authenticated user is subscribed to issue activity notifications; resolved server-side per-request from `IssueSubscriber`. */
@@ -266,10 +190,10 @@ export type TIssue = TBaseIssue & {
   issue_relation?: IssueRelation[];
   /** Snapshots where THIS issue is the TARGET of someone else's relation; backend writes both sides in lockstep. */
   issue_related?: IssueRelation[];
-  /** Client-generated temporary id used to track optimistic creates before the server assigns the real `id`. NOT a part of the API response payload. */
+  /** Client-generated id for optimistic creates before the server assigns the real `id`; client-only, not present on API responses. */
   // tempId is used for optimistic updates. It is not a part of the API response.
   tempId?: string;
-  /** Original issue id when creating a clone via the "Make a copy" flow — used to propagate property values from the source. NOT a part of the API response payload. */
+  /** Source issue id when creating a clone via "Make a copy"; client-only, not present on API responses. */
   // sourceIssueId is used to store the original issue id when creating a copy of an issue. Used in cloning property values. It is not a part of the API response.
   sourceIssueId?: string;
   /** Denormalized state group projection (e.g., `"started"`); server includes this so the client can group issues by state group without a state-table join. */
@@ -277,29 +201,14 @@ export type TIssue = TBaseIssue & {
 };
 
 /**
- * Normalized issue store shape — a flat lookup of every loaded `TIssue` by
- * id. Backbone of the MobX issue store: every layout/group/sort projection
- * computes an ordered list of ids and resolves entries against this map.
+ * Flat `TIssue`-by-id lookup that backs the MobX issue store; every layout/group/sort projection resolves ordered id arrays against this map.
  */
 export type TIssueMap = {
   [issue_id: string]: TIssue;
 };
 
 /**
- * Variable-shape `results` field of `TIssuesResponse`.
- *
- * The same API serializes three structurally distinct shapes into this one
- * field depending on the request's grouping parameters:
- *
- * 1. Ungrouped — a flat `TBaseIssue[]`.
- * 2. Grouped — a record keyed by group id, each carrying its own
- *    `results: TBaseIssue[]` and `total_results: number`.
- * 3. Sub-grouped — a record keyed by group id, each carrying a record
- *    keyed by sub-group id with `results` and `total_results`.
- *
- * The union encodes all three shapes so consumers can narrow at runtime
- * based on the request shape; the recursive structure mirrors the
- * `group_by` / `sub_group_by` query-parameter pair.
+ * Variable-shape `results` field of `TIssuesResponse`: a flat `TBaseIssue[]` when ungrouped, a one-level record when grouped, or a two-level record when sub-grouped — the union mirrors the `group_by` / `sub_group_by` query parameters.
  */
 export type TIssueResponseResults =
   | TBaseIssue[]
@@ -347,11 +256,7 @@ export type TIssuesResponse = {
 };
 
 /**
- * `Pick<TIssue, ...>` of the fields editable via the bulk-update modal.
- *
- * Listed explicitly (rather than `Partial<TIssue>`) so the type signals the
- * exact field set the bulk-operations endpoint accepts — extending the
- * bulk endpoint requires adding a key here.
+ * `Pick<TIssue, ...>` of the fields the bulk-update endpoint accepts; listed explicitly (not `Partial<TIssue>`) so extending the endpoint requires extending this key set.
  */
 export type TBulkIssueProperties = Pick<
   TIssue,
@@ -379,39 +284,17 @@ export type TBulkOperationsPayload = {
 };
 
 /**
- * Optional widgets surfaced on the work-item detail right-sidebar.
- *
- * Each value identifies a collapse-able section that can be shown or
- * hidden by the user. Drives which widget panels are rendered.
+ * Collapse-able right-sidebar widgets on the work-item detail view (sub-issues, relations, links, attachments).
  */
-export type TWorkItemWidgets =
-  /** Sub-issues panel. */
-  | "sub-work-items"
-  /** Issue relations panel. */
-  | "relations"
-  /** External links panel. */
-  | "links"
-  /** File attachments panel. */
-  | "attachments";
+export type TWorkItemWidgets = "sub-work-items" | "relations" | "links" | "attachments";
 
 /**
- * Type-narrowed alias for the three valid `EIssueServiceType` enum values.
- *
- * Functionally identical to the enum union, but lets generic factories
- * accept "any issue-like service" type without an explicit `as
- * EIssueServiceType` cast at call sites.
+ * Type-narrowed alias of the three valid `EIssueServiceType` enum values, used so generic factories accept any issue-like service without an explicit `as EIssueServiceType` cast.
  */
 export type TIssueServiceType = EIssueServiceType.ISSUES | EIssueServiceType.EPICS | EIssueServiceType.WORK_ITEMS;
 
 /**
- * Reduced-field issue shape served on PUBLIC pages (the deploy/space
- * surfaces).
- *
- * Pick-based composition keeps this type a structural subset of `TIssue`:
- * private fields (assignees beyond ids, archived/draft flags, audit
- * `updated_by`, draft / intake markers) are excluded, and public-only
- * embedded collections (`comments`, `reaction_items`, `vote_items`) are
- * added. Served by the deploy/space app's public read endpoints.
+ * Public-pages (deploy/space) issue shape — a structural `Pick<TIssue, ...>` subset that drops private fields (draft/intake/archive markers, audit `updated_by`) and adds public-only embedded collections (`comments`, `reaction_items`, `vote_items`).
  */
 export interface IPublicIssue extends Pick<
   TIssue,

@@ -5,47 +5,23 @@
  */
 
 /**
- * Intake-domain TypeScript contracts for the `@plane/types/intake` subfolder.
- *
- * Models the triage-classified workflow state records that drive Plane's intake
- * (issue-triage) experience — i.e. project `State` rows whose `group` is the
- * `TRIAGE` value of `apps/api/plane/db/models/state.py::StateGroup`. These are
- * the narrow projection of the broader `IState` workflow-state shape; here only
- * the triage subset is modelled because it is fetched and stored on its own code
- * path (`fetchProjectIntakeState` / `intakeStateMap`).
- *
- * Consumers:
- *  - `apps/web/core/store/state.store.ts` (`intakeStateMap` + accessors + fetcher)
- *  - `apps/web/core/services/project/project-state.service.ts` (HTTP client)
- *  - `apps/web/core/components/dropdowns/intake-state/base.tsx` (selector UI)
- *  - `packages/propel/src/icons/state/` (group-keyed color and icon mappings)
+ * Intake (issue-triage) workflow state contracts — narrow projection of
+ * `State` rows whose `group=StateGroup.TRIAGE` in `apps/api/plane/db/models/state.py`;
+ * fetched on a separate code path (`fetchProjectIntakeState`/`intakeStateMap`)
+ * from the broader `IState`.
  */
 
 /**
- * Union of valid state-group identifiers for intake (issue-triage) workflow states.
- *
- * Valid values: `"triage"`. Mirrors the `StateGroup.TRIAGE` value declared on
- * `apps/api/plane/db/models/state.py`; kept as a named alias (rather than an inline
- * `"triage"` literal) so the vocabulary stays centrally controlled and additional
- * intake groupings can be added in one place if introduced upstream. Used as the
- * discriminant for {@link IIntakeState.group} and as the key set for the
- * `INTAKE_STATE_GROUP_COLORS` lookup in `packages/propel/src/icons/state/helper.tsx`.
+ * Intake state-group identifiers (currently just `"triage"`, mirroring
+ * `StateGroup.TRIAGE`); kept as a named alias so additional intake groupings
+ * can be added in one place if introduced upstream.
  */
 export type TIntakeStateGroups = "triage";
 
 /**
- * Canonical shape of a single intake (issue-triage) state record for a project, as
- * returned by the Django backend's project intake-state endpoints (mirrors the
- * `State` row in `apps/api/plane/db/models/state.py` filtered to
- * `group == StateGroup.TRIAGE`).
- *
- * Consumers:
- *  - `apps/web/core/store/state.store.ts` — `intakeStateMap`, `getIntakeStateById`,
- *    `getProjectIntakeState`, `fetchProjectIntakeState`
- *  - `apps/web/core/services/project/project-state.service.ts` — `getIntakeState`
- *    API client method
- *  - `apps/web/core/components/dropdowns/intake-state/base.tsx` — `getStateById`
- *    prop type for the intake-state dropdown
+ * Single intake state record for a project (mirrors `State` rows filtered to
+ * `group=StateGroup.TRIAGE` in `apps/api/plane/db/models/state.py`); consumed
+ * by `state.store.ts:intakeStateMap` and the intake-state dropdown.
  */
 export interface IIntakeState {
   /** Server-assigned UUID for the state row; immutable for the record's lifetime. */

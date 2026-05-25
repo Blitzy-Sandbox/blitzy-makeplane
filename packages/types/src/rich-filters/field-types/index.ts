@@ -5,12 +5,8 @@
  */
 
 /**
- * Barrel and composition module for rich-filter field types.
- *
- * Merges the core and extended field-type registries into the public `FILTER_FIELD_TYPE`
- * runtime registry and the `TFilterFieldType` value union, and unions the core + extended
- * config aliases into `TSupportedFilterFieldConfigs<V>`. This is the canonical import path
- * for the filter field-type vocabulary across the codebase.
+ * Barrel merging the core + extended field-type registries into `FILTER_FIELD_TYPE`
+ * and `TFilterFieldType`, and unioning their configs into `TSupportedFilterFieldConfigs<V>`.
  */
 
 import type { TFilterValue } from "../expression";

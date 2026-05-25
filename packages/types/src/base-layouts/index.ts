@@ -5,22 +5,7 @@
  */
 
 /**
- * Barrel module for the `@plane/types/base-layouts` subfolder.
- *
- * Aggregates the four layout-typing sub-modules into a single stable import
- * path so downstream consumers depend on `@plane/types` (via this folder)
- * rather than reaching into individual file paths.
- *
- * Re-exports:
- * - `./base`   — Shared layout primitives: items, groups, drag-drop handlers,
- *                render contracts, layout configuration.
- * - `./list`   — List layout-specific prop aliases over the shared base contracts.
- * - `./kanban` — Kanban layout-specific prop extensions (adds `groupClassName`).
- * - `./gantt`  — Gantt-specific items, capabilities, display options, and the
- *                core/extended timeline registries.
- *
- * Consumers: `apps/web/core/components/base-layouts/` and its `list/`,
- * `kanban/`, and `gantt/` subdirectories.
+ * Barrel module re-exporting `./base` (shared layout primitives), `./list`, `./kanban`, and `./gantt`; consumed by `apps/web/core/components/base-layouts/` and its layout-specific subdirectories.
  */
 
 export * from "./base";

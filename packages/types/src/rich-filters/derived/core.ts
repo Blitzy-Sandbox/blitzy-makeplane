@@ -5,13 +5,9 @@
  */
 
 /**
- * Core derived operator unions for the `@plane/types/rich-filters/derived` subfolder.
- *
- * Produces per-field-type subsets of the canonical operator vocabulary by intersecting
- * the operator-config map (`TOperatorSpecificConfigs`) with each concrete field-type
- * config (`TDateFilterFieldConfig`, `TDateRangeFilterFieldConfig`,
- * `TSingleSelectFilterFieldConfig`, `TMultiSelectFilterFieldConfig`). The aggregated
- * `TCore*FilterOperators` unions are the canonical "operators allowed for this field" sets.
+ * Per-field-type operator subsets derived by intersecting `TOperatorSpecificConfigs`
+ * with each concrete field-type config; the aggregated `TCore*FilterOperators`
+ * unions are the canonical "operators allowed for this field" sets.
  */
 
 import type { TFilterValue } from "../expression";

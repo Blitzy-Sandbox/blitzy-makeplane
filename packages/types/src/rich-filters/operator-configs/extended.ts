@@ -5,11 +5,9 @@
  */
 
 /**
- * Extended operator-to-config-shape placeholders for the `@plane/types/rich-filters/operator-configs` subfolder.
- *
- * Reserved extension surface that mirrors the core file. All concrete config aliases
- * currently resolve to `never`, and `TExtendedOperatorSpecificConfigs` is `unknown` —
- * acting as a permissive placeholder that must be narrowed by consumers when extending.
+ * Extension-tier operator-to-config-shape placeholders mirroring the core file;
+ * concrete aliases resolve to `never` and `TExtendedOperatorSpecificConfigs` is
+ * `unknown` (a permissive placeholder consumers must narrow when extending).
  */
 
 // ----------------------------- EXACT Operator -----------------------------

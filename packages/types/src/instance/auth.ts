@@ -5,28 +5,15 @@
  */
 
 /**
- * Community-edition authentication contracts for the `@plane/types/instance`
- * subfolder. Models sign-in modes (password / magic-link / Google / GitHub /
- * GitLab / Gitea), method/feature-flag keys, per-provider OAuth client
- * configuration keys, and the core login medium union.
- *
- * CE vs EE: this file covers the community edition only. Enterprise-edition
- * extensions (SAML/OIDC/SCIM) hook in via `auth-ee.ts` through
- * `TExtendedLoginMediums` and `TExtendedInstanceAuthenticationModeKeys`.
- *
- * Consumers: `apps/admin/` authentication settings screens, the auth UI in
- * `apps/web` (sign-in / sign-up forms), and the server-side handler tree in
- * `apps/api/plane/authentication/`.
+ * Community-edition auth contracts (sign-in modes, feature-flag keys, per-provider
+ * OAuth credential keys, login mediums) consumed by `apps/admin/`, `apps/web`
+ * auth UI, and `apps/api/plane/authentication/`; EE extensions hook in via
+ * `auth-ee.ts`.
  */
 
 /**
- * Stable literal-string identifiers for each authentication mode available in
- * the community edition. Each value corresponds to one row in the auth-modes
- * registry rendered on the admin auth settings screen.
- *
- * Non-obvious members:
- * - `unique-codes`: magic-link / one-time-code sign-in.
- * - `passwords-login`: traditional email + password sign-in.
+ * Community-edition auth-mode identifiers; `"unique-codes"` is magic-link /
+ * one-time-code sign-in and `"passwords-login"` is email + password.
  */
 export type TCoreInstanceAuthenticationModeKeys =
   | "unique-codes"
@@ -37,26 +24,16 @@ export type TCoreInstanceAuthenticationModeKeys =
   | "gitea";
 
 /**
- * Active auth-mode key set — currently identical to
- * `TCoreInstanceAuthenticationModeKeys` in community edition. Re-aliased here
- * so enterprise builds can widen it without touching downstream call sites.
+ * Active auth-mode key set — identical to `TCoreInstanceAuthenticationModeKeys`
+ * in CE; re-aliased here so enterprise builds can widen it without touching
+ * downstream call sites.
  */
 export type TInstanceAuthenticationModeKeys = TCoreInstanceAuthenticationModeKeys;
 
 /**
- * UI metadata describing one authentication mode row in the admin auth
- * settings screen.
- *
- * Non-obvious field semantics:
- * - `key`: stable identifier; matches one member of
- *   `TInstanceAuthenticationModeKeys`.
- * - `icon`, `config`: pre-rendered React nodes — the provider's branded icon
- *   and the inline credential-input panel that becomes visible when the row
- *   is expanded.
- * - `enabledConfigKey`: the matching `IS_*_ENABLED` / `ENABLE_*` key in
- *   `TInstanceAuthenticationMethodKeys` that drives the toggle.
- * - `unavailable`: when true the row renders disabled with an upsell label
- *   (e.g. enterprise-only providers shown in community builds).
+ * UI metadata for one auth-mode row in the admin settings; `enabledConfigKey`
+ * binds the toggle to the matching `TInstanceAuthenticationMethodKeys` value,
+ * and `unavailable=true` renders the row disabled with an upsell label.
  */
 export type TInstanceAuthenticationModes = {
   key: TInstanceAuthenticationModeKeys;
@@ -69,17 +46,9 @@ export type TInstanceAuthenticationModes = {
 };
 
 /**
- * Configuration keys controlling whether each auth method is enabled at
- * runtime. Persisted in the instance configuration table and surfaced on the
- * admin auth settings screen as a toggle per row.
- *
- * Each value is the literal storage key consumed by
- * `apps/api/plane/authentication/`:
- * - `ENABLE_SIGNUP` — master self-serve registration switch.
- * - `ENABLE_MAGIC_LINK_LOGIN` — magic-link / unique-codes mode toggle.
- * - `ENABLE_EMAIL_PASSWORD` — email + password mode toggle.
- * - `IS_GOOGLE_ENABLED` / `IS_GITHUB_ENABLED` / `IS_GITLAB_ENABLED` /
- *   `IS_GITEA_ENABLED` — per-provider OAuth enablement.
+ * Runtime feature-flag keys for each auth method (master signup switch,
+ * magic-link / password modes, and per-provider OAuth enablement) consumed
+ * by `apps/api/plane/authentication/`.
  */
 export type TInstanceAuthenticationMethodKeys =
   | "ENABLE_SIGNUP"
@@ -91,15 +60,9 @@ export type TInstanceAuthenticationMethodKeys =
   | "IS_GITEA_ENABLED";
 
 /**
- * Google OAuth client credential keys.
- *
- * Field-level semantics:
- * - `GOOGLE_CLIENT_ID`: OAuth client identifier from Google Cloud Console
- *   (public, but treated as sensitive in transport).
- * - `GOOGLE_CLIENT_SECRET`: OAuth client secret; never echoed back to the
- *   frontend after write (masked by the API).
- * - `ENABLE_GOOGLE_SYNC`: provider-level enablement flag, separate from the
- *   instance-level `IS_GOOGLE_ENABLED` toggle.
+ * Google OAuth credential keys (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+ * `ENABLE_GOOGLE_SYNC`); the client secret is masked on read, and the
+ * provider-level sync flag is separate from instance-level `IS_GOOGLE_ENABLED`.
  */
 export type TInstanceGoogleAuthenticationConfigurationKeys =
   | "GOOGLE_CLIENT_ID"
@@ -107,14 +70,9 @@ export type TInstanceGoogleAuthenticationConfigurationKeys =
   | "ENABLE_GOOGLE_SYNC";
 
 /**
- * GitHub OAuth client credential keys.
- *
- * Field-level semantics:
- * - `GITHUB_CLIENT_ID`: OAuth App client ID from GitHub developer settings.
- * - `GITHUB_CLIENT_SECRET`: OAuth client secret; masked by the API after write.
- * - `GITHUB_ORGANIZATION_ID`: optional organization restriction — when set,
- *   only members of the named GitHub org may sign in via this provider.
- * - `ENABLE_GITHUB_SYNC`: provider-level enablement flag.
+ * GitHub OAuth credential keys; `GITHUB_ORGANIZATION_ID` is an optional
+ * restriction (only members of the named org may sign in when set), and the
+ * client secret is masked on read.
  */
 export type TInstanceGithubAuthenticationConfigurationKeys =
   | "GITHUB_CLIENT_ID"
@@ -123,14 +81,9 @@ export type TInstanceGithubAuthenticationConfigurationKeys =
   | "ENABLE_GITHUB_SYNC";
 
 /**
- * GitLab OAuth client credential keys.
- *
- * Field-level semantics:
- * - `GITLAB_HOST`: base URL of the GitLab instance (self-hosted GitLab is
- *   supported); defaults to `https://gitlab.com` when unset.
- * - `GITLAB_CLIENT_ID`: OAuth application ID from the GitLab admin area.
- * - `GITLAB_CLIENT_SECRET`: OAuth secret; masked by the API after write.
- * - `ENABLE_GITLAB_SYNC`: provider-level enablement flag.
+ * GitLab OAuth credential keys; `GITLAB_HOST` is the base URL (supports
+ * self-hosted instances, defaults to `https://gitlab.com` when unset) and
+ * the client secret is masked on read.
  */
 export type TInstanceGitlabAuthenticationConfigurationKeys =
   | "GITLAB_HOST"
@@ -139,14 +92,8 @@ export type TInstanceGitlabAuthenticationConfigurationKeys =
   | "ENABLE_GITLAB_SYNC";
 
 /**
- * Gitea OAuth client credential keys.
- *
- * Field-level semantics:
- * - `GITEA_HOST`: base URL of the Gitea instance (self-hosted only — Gitea has
- *   no SaaS host).
- * - `GITEA_CLIENT_ID`: OAuth application client ID from Gitea admin.
- * - `GITEA_CLIENT_SECRET`: OAuth secret; masked by the API after write.
- * - `ENABLE_GITEA_SYNC`: provider-level enablement flag.
+ * Gitea OAuth credential keys; `GITEA_HOST` is required (Gitea is self-hosted
+ * only — no SaaS host) and the client secret is masked on read.
  */
 export type TInstanceGiteaAuthenticationConfigurationKeys =
   | "GITEA_HOST"
@@ -174,17 +121,9 @@ export type TInstanceAuthenticationConfigurationKeys =
 export type TInstanceAuthenticationKeys = TInstanceAuthenticationMethodKeys | TInstanceAuthenticationConfigurationKeys;
 
 /**
- * Base props contract shared by every auth-mode panel component in
- * `apps/admin/`.
- *
- * Non-obvious field semantics:
- * - `disabled`: passed through to inner form fields; true while a sibling
- *   update is in flight to prevent overlapping writes.
- * - `updateConfig`: handler that writes a `TInstanceAuthenticationMethodKeys`
- *   value back to the API; the value is always a string (the API coerces
- *   booleans).
- * - `resolvedTheme`: current resolved theme name (`light` / `dark` / etc.);
- *   used to swap brand SVGs that are not theme-aware.
+ * Base props for every auth-mode panel in `apps/admin/`; `updateConfig`
+ * always receives a string value (the API coerces booleans), and
+ * `resolvedTheme` is used to swap brand SVGs that are not theme-aware.
  */
 export type TGetBaseAuthenticationModeProps = {
   disabled: boolean;
@@ -193,14 +132,9 @@ export type TGetBaseAuthenticationModeProps = {
 };
 
 /**
- * Single OAuth provider button displayed on the public sign-in / sign-up
- * screens.
- *
- * Non-obvious field semantics:
- * - `onClick`: triggers the OAuth redirect handshake; resolves after the
- *   browser navigates away.
- * - `enabled`: optional — when false the button renders disabled with a
- *   tooltip; defaults to true when omitted.
+ * Single OAuth provider button for the public sign-in screens; `onClick`
+ * triggers the OAuth redirect handshake, and `enabled` defaults to `true`
+ * when omitted (false renders disabled with a tooltip).
  */
 export type TOAuthOption = {
   id: string;
@@ -211,12 +145,9 @@ export type TOAuthOption = {
 };
 
 /**
- * Aggregate OAuth panel configuration handed to the public auth screens.
- *
- * - `isOAuthEnabled`: true when at least one of the four providers is
- *   enabled at runtime.
- * - `oAuthOptions`: ordered list of enabled provider buttons; render order
- *   matches admin-configured priority.
+ * Aggregate OAuth panel config for public auth screens; `oAuthOptions` is
+ * ordered by admin-configured priority and `isOAuthEnabled` is true when at
+ * least one of the four providers is enabled at runtime.
  */
 export type TOAuthConfigs = {
   isOAuthEnabled: boolean;
@@ -224,14 +155,8 @@ export type TOAuthConfigs = {
 };
 
 /**
- * Core login medium identifiers — the channels a user can authenticate
- * through in community edition.
- *
- * - `email`: email + password.
- * - `magic-code`: one-time code / magic link.
- * - `github`, `gitlab`, `google`, `gitea`: OAuth providers.
- *
- * Extended in enterprise edition through `TExtendedLoginMediums` (see
- * `./auth-ee.ts`); the two are unioned into `TLoginMediums` in `./base.ts`.
+ * Community-edition login medium identifiers (`"email"` + password,
+ * `"magic-code"` one-time code, and the four OAuth providers); extended in
+ * EE via `TExtendedLoginMediums` and unioned into `TLoginMediums` in `./base.ts`.
  */
 export type TCoreLoginMediums = "email" | "magic-code" | "github" | "gitlab" | "google" | "gitea";

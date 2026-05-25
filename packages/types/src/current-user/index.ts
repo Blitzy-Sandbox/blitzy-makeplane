@@ -5,20 +5,10 @@
  */
 
 /**
- * Barrel module for the `current-user` types subfolder.
- *
- * Re-exports every public symbol declared in `./profile.ts` so the folder can be
- * imported as a single directory-level entrypoint.
- *
- * Public-API status:
- * - This folder is NOT re-exported from `packages/types/src/index.ts` (the master
- *   barrel) and the package's `exports` field in `package.json` does not expose a
- *   `./current-user` subpath — consumers outside the package therefore cannot reach
- *   any symbol declared here through normal `@plane/types` imports.
- * - The `TUserProfile` actively consumed by stores (e.g.
- *   `apps/web/core/store/user/profile.store.ts`) is the one declared in `../users.ts`
- *   (re-exported via the master barrel), not the leaner shape declared in
- *   `./profile.ts`.
+ * Barrel for `current-user` — re-exports `./profile`, but the folder is NOT
+ * wired into the master `packages/types/src/index.ts` barrel nor the package
+ * `exports` field, so consumers reach the canonical `TUserProfile` via
+ * `../users.ts` instead of the leaner shape declared in `./profile.ts`.
  */
 // INTENT UNCLEAR: this folder declares its own `TUserProfile` type but is not wired
 // into the package's public exports, and no in-repo consumer imports from it.

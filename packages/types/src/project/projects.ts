@@ -5,18 +5,10 @@
  */
 
 /**
- * Project entity contracts for the `@plane/types/project` subfolder.
- *
- * Models the canonical project record — visibility (`EProjectNetwork`: PRIVATE/PUBLIC),
- * members, lead, identifier (e.g. "PLN" used for issue sequence labels), cover image,
- * logo props, default state, emoji/icon, and access controls. Mirrors
- * `apps/api/plane/db/models/project.py`. Consumed broadly across
- * `apps/web/core/store/project/`, `apps/web/core/components/project/`, and
- * `apps/api/plane/app/permissions/project.py`.
- *
- * Also exports membership types (`TProjectMembership`), navigation preferences,
- * GitHub repository integration payloads (used by the importer), project-scoped issue
- * search params, and the issue search response row.
+ * Project entity contracts mirroring `apps/api/plane/db/models/project.py`; consumed
+ * by `apps/web/core/store/project/`, `apps/web/core/components/project/`, and
+ * `apps/api/plane/app/permissions/project.py`. Also exports membership types,
+ * navigation preferences, GitHub integration payloads, and issue-search shapes.
  */
 
 import type { TLogoProps } from "../common";
@@ -26,11 +18,9 @@ import type { IUser, IUserLite } from "../users";
 import type { IWorkspace } from "../workspace";
 
 /**
- * Project-scoped role hierarchy (numeric values support `>=` / `<=` permission comparisons).
- *
- * Values match the platform-wide `EUserPermissions` numeric scale, allowing a single
- * `permission_classes` check to gate operations regardless of whether the role originated
- * from a workspace-level or project-level grant.
+ * Project-scoped role hierarchy on the platform-wide numeric scale; matches
+ * `EUserPermissions` so a single permission check gates both workspace- and
+ * project-originated roles.
  */
 export enum EUserProjectRoles {
   /** Full project administration — workspace owner or project admin. */
@@ -42,32 +32,12 @@ export enum EUserProjectRoles {
 }
 
 /**
- * Lightweight project projection used in workspace listings and sidebar navigation.
- *
- * Includes the fields necessary to render a project chip/row (name, identifier, logo,
- * sort_order, role) plus feature-toggle flags. Excludes heavy fields like description,
- * members array, and estimate which only appear on the full `IProject` shape.
- *
- * Fields with non-obvious semantics:
- * - `identifier`: short URL slug AND issue sequence prefix (e.g. "PLN" produces "PLN-1234"
- *   issue labels) — MUST be uppercase A–Z, validated server-side
- * - `network`: visibility discriminant; use values from `EProjectNetwork` enum in
- *   `../enums.ts` (PRIVATE=0, PUBLIC=2 — numeric 1 reserved)
- * - `sort_order`: float used for manual drag-reorder in the sidebar; nullable for
- *   freshly-created records before ordering is assigned
- * - `logo_props`: emoji/icon descriptor (see `TLogoProps`) — discriminated by `in_use`
- * - `member_role`: current viewer's role in this project (intersection of `TUserPermissions`
- *   and `EUserProjectRoles` for backward compatibility); `null` when the viewer is not
- *   a member (and the project is visible only because it's public)
- * - `archived_at`: ISO timestamp; null for active projects (archived projects are hidden
- *   from default listings)
- * - `cycle_view` / `issue_views_view` / `module_view` / `page_view` / `inbox_view`:
- *   feature-toggle flags controlling sidebar item visibility per project
- * - `guest_view_all_features`: when true, GUEST role members see all feature tabs
- *   regardless of their individual access grants
- * - `project_lead`: optional pointer to the project's accountable lead (either a
- *   hydrated `IUserLite` or just the user id); null when no lead is assigned
- * - `intake_count`: pre-aggregated count of pending intake issues (drives the sidebar badge)
+ * Lightweight project projection for workspace listings and sidebar navigation;
+ * `identifier` is the uppercase A–Z issue-prefix (e.g. "PLN" → "PLN-1234"),
+ * `network` uses `EProjectNetwork` numeric values (PRIVATE=0, PUBLIC=2),
+ * `sort_order` is a manual-reorder float (nullable until assigned), `member_role`
+ * is `null` for non-members viewing a public project, and `cycle_view`/
+ * `issue_views_view`/`module_view`/`page_view`/`inbox_view` are sidebar toggles.
  */
 export interface IPartialProject {
   id: string;
@@ -96,34 +66,13 @@ export interface IPartialProject {
 }
 
 /**
- * Full project entity record extending `IPartialProject`.
- *
- * Adds heavy fields not needed in the sidebar listing — description, cover image, default
- * state/assignee, estimate config, public deploy anchor, members array, timezone, and
- * the issue auto-sequence counter.
- *
- * Fields with non-obvious semantics:
- * - `archive_in` / `close_in`: number of months after which completed issues are
- *   auto-archived/closed by the `issue_automation_task` Celery beat job; 0 disables
- * - `cover_image_asset`: write-only field used during the presigned-upload flow (always
- *   `null` on read — the actual asset id is server-managed)
- * - `cover_image`: legacy field — direct URL string; superseded by `cover_image_url`
- * - `cover_image_url`: read-only signed URL for displaying the cover image
- * - `default_assignee`: user auto-assigned when a new issue is created with no explicit
- *   assignee (user id string or hydrated `IUser`); null means no auto-assignment
- * - `default_state`: default workflow state id assigned to new issues; null falls back to
- *   the project's first state by sort order
- * - `description`: free-form text description shown in the project header
- * - `estimate`: id of the active project estimate system (null when estimates disabled)
- * - `anchor`: stable URL slug for public deploy board exposure via `apps/space`
- *   (null when not published)
- * - `is_favorite`: current viewer's per-user favorite flag
- * - `members`: array of user ids who are project members (computed server-side from
- *   `ProjectMember` join — does NOT include roles; use `TProjectMembership` for roles)
- * - `timezone`: IANA timezone identifier (e.g. "America/New_York"); affects scheduled
- *   automation and notification timing
- * - `next_work_item_sequence`: next sequence number to assign on issue create
- *   (drives "PLN-1234" style labels); server-managed counter
+ * Full project entity extending `IPartialProject` with description, cover image,
+ * default state/assignee, estimate config, deploy anchor, members, timezone, and
+ * the issue auto-sequence counter. Non-obvious semantics: `archive_in`/`close_in`
+ * are months thresholds for `issue_automation_task` (0 disables); `cover_image_asset`
+ * is write-only during presigned upload; `anchor` is the public-deploy slug consumed
+ * by `apps/space` (null when not published); `next_work_item_sequence` is a
+ * server-managed counter driving issue labels.
  */
 export interface IProject extends IPartialProject {
   archive_in?: number;
@@ -145,12 +94,8 @@ export interface IProject extends IPartialProject {
 }
 
 /**
- * Query parameters for the project analytics count endpoint.
- *
- * Fields (both optional):
- * - `project_ids`: comma-separated project ids to compute counts for; omit for workspace-wide
- * - `fields`: comma-separated field names to include in the response (subset selection
- *   to reduce payload size)
+ * Query parameters for the project analytics count endpoint; both fields are
+ * comma-separated lists (`project_ids` scopes the rollup, `fields` selects a subset).
  */
 export type TProjectAnalyticsCountParams = {
   project_ids?: string;
@@ -158,17 +103,8 @@ export type TProjectAnalyticsCountParams = {
 };
 
 /**
- * Aggregate count row for a single project's analytics.
- *
- * `id` (inherited from `IProject` via `Pick`) identifies the project. All count fields
- * are optional because the `fields` query param controls which subset is included.
- *
- * Fields:
- * - `total_issues`: total issues across all states
- * - `completed_issues`: issues in the "completed" state group (subset of total)
- * - `total_cycles`: count of cycles in the project
- * - `total_members`: count of project members
- * - `total_modules`: count of modules in the project
+ * Aggregate count row for a single project's analytics; all count fields are
+ * optional because the `fields` query param controls which subset is included.
  */
 export type TProjectAnalyticsCount = Pick<IProject, "id"> & {
   total_issues?: number;
@@ -179,11 +115,8 @@ export type TProjectAnalyticsCount = Pick<IProject, "id"> & {
 };
 
 /**
- * Minimal project projection for embedding in cross-entity responses.
- *
- * Carries only the identity triple (id, name, identifier) + the logo for rendering a
- * project chip. Used inside notifications, search results, activity rows, etc. where
- * the full `IPartialProject`/`IProject` shape would be too heavy.
+ * Minimal project projection (identity + logo) for embedding in notifications,
+ * search results, and activity rows where the full record would be too heavy.
  */
 export interface IProjectLite {
   id: string;
@@ -193,27 +126,17 @@ export interface IProjectLite {
 }
 
 /**
- * Normalized cache of `IProject` records keyed by project id.
- *
- * Used by `apps/web/core/store/project/project.store.ts` as its primary storage shape
- * — every project the workspace exposes is stored as `projectMap[projectId]`.
+ * Normalized cache of `IProject` records keyed by project id, used as the primary
+ * storage shape in `apps/web/core/store/project/project.store.ts`.
  */
 export interface IProjectMap {
   [id: string]: IProject;
 }
 
 /**
- * Minimal project-member projection for cross-entity references.
- *
- * Uses Django ORM double-underscore prefixed names (`member__*`) because the fields come
- * from a JOIN with the `User` model on the backend. Used in places where only the
- * member's display info is needed (e.g. assignee chips).
- *
- * Fields:
- * - `id`: the `ProjectMember` row id (not the user id)
- * - `member__avatar_url`: signed URL to the user's avatar
- * - `member__display_name`: rendered display name
- * - `member_id`: the user id (use this for lookups in the user store)
+ * Minimal project-member projection using Django ORM double-underscore prefixed
+ * names (`member__*`) because the fields come from a JOIN with `User`; `id` is
+ * the `ProjectMember` row id, `member_id` is the user id.
  */
 export interface IProjectMemberLite {
   id: string;
@@ -223,20 +146,10 @@ export interface IProjectMemberLite {
 }
 
 /**
- * Project membership record linking a user to a project with a role.
- *
- * Discriminated by whether the membership has been persisted yet:
- * - Persisted variant: `id` is a string, `original_role` reflects the role at insert
- *   time (used to detect role changes), `created_at` is the membership creation timestamp
- * - Unpersisted variant: all three fields are `null` — used as a placeholder in the
- *   bulk-invite form before the server has created the rows
- *
- * Fields:
- * - `member`: user id of the project member
- * - `role`: current role (mix of `TUserPermissions` and `EUserProjectRoles` for backward
- *   compatibility — same numeric scale)
- * - `original_role`: role at membership creation (only on persisted variant); compared
- *   against `role` to detect modifications
+ * Project membership record discriminated by persistence state: the persisted
+ * variant carries `id`/`original_role`/`created_at`, the unpersisted variant has
+ * all three as `null` and is used as a placeholder in the bulk-invite form.
+ * `original_role` is compared against `role` to detect modifications.
  */
 export type TProjectMembership = {
   member: string;
@@ -255,24 +168,16 @@ export type TProjectMembership = {
 );
 
 /**
- * Form payload for bulk-adding members to a project.
- *
- * Fields:
- * - `members`: array of `{ member_id, role }` pairs — each member can be assigned a
- *   different role in the same submission
+ * Form payload for bulk-adding members; each entry pairs a `member_id` with its
+ * own role so different roles can be assigned in the same submission.
  */
 export interface IProjectBulkAddFormData {
   members: { role: TUserPermissions | EUserProjectRoles; member_id: string }[];
 }
 
 /**
- * Per-user, per-project sidebar navigation preferences.
- *
- * Fields:
- * - `default_tab`: which feature tab opens by default when the user enters the project
- *   (e.g. "issues", "cycles", "modules")
- * - `hide_in_more_menu`: ids of sidebar items the user has hidden under the "More"
- *   collapsible — controls personal sidebar layout
+ * Per-user, per-project sidebar navigation preferences controlling the default
+ * tab and which sidebar items are hidden under the "More" collapsible.
  */
 export type IProjectMemberNavigationPreferences = {
   default_tab: string;
@@ -280,20 +185,16 @@ export type IProjectMemberNavigationPreferences = {
 };
 
 /**
- * Request body for updating the current user's project preferences.
- *
- * Currently only carries navigation preferences; structured as an object so additional
- * preference groups can be added later without breaking the API shape.
+ * Request body for updating the current user's project preferences; structured
+ * as an object so additional preference groups can be added later.
  */
 export type IProjectMemberPreferencesUpdate = {
   navigation: IProjectMemberNavigationPreferences;
 };
 
 /**
- * Response from the project preferences GET endpoint.
- *
- * Wraps the preferences under a `preferences` key to match the backend serializer's
- * envelope convention.
+ * Response envelope from the project preferences GET endpoint matching the
+ * backend serializer's convention.
  */
 export type IProjectMemberPreferencesResponse = {
   preferences: {
@@ -302,11 +203,8 @@ export type IProjectMemberPreferencesResponse = {
 };
 
 /**
- * Full response variant including the parent identifiers (project, member, workspace ids).
- *
- * Returned by admin-scoped preference endpoints where the caller needs to know which
- * member's preferences are being returned (vs. the self-scoped endpoint that implies
- * the current user).
+ * Admin-scoped preferences response variant including parent ids so the caller
+ * knows which member's preferences are being returned.
  */
 export type IProjectMemberPreferencesFullResponse = IProjectMemberPreferencesResponse & {
   project_id: string;
@@ -315,16 +213,9 @@ export type IProjectMemberPreferencesFullResponse = IProjectMemberPreferencesRes
 };
 
 /**
- * GitHub repository descriptor returned by the GitHub integration's repo-listing endpoint.
- *
- * Subset of the GitHub REST API repository object — Plane only stores the fields needed
- * for picker UI and linking. Consumed by the GitHub importer flow in `apps/web`.
- *
- * Fields:
- * - `id`: GitHub repository id (stable across renames)
- * - `full_name`: "owner/repo" string (e.g. "makeplane/plane")
- * - `html_url`: web URL for browser navigation
- * - `url`: GitHub API URL for programmatic access
+ * GitHub repository descriptor returned by the GitHub integration's repo-listing
+ * endpoint; subset of the GitHub REST API repo object kept only for picker UI
+ * and linking in the GitHub importer flow.
  */
 export interface IGithubRepository {
   id: string;
@@ -334,10 +225,8 @@ export interface IGithubRepository {
 }
 
 /**
- * Paginated response wrapper for the GitHub repositories listing endpoint.
- *
- * `repositories` is a single page; `total_count` is the total across all pages
- * (mirrors the GitHub API's `total_count` field).
+ * Paginated response wrapper for the GitHub repositories listing; `total_count`
+ * mirrors the GitHub API's field across all pages.
  */
 export interface GithubRepositoriesResponse {
   repositories: IGithubRepository[];
@@ -345,24 +234,10 @@ export interface GithubRepositoriesResponse {
 }
 
 /**
- * Query parameters for the project-scoped issue search endpoint (used by parent/relation/
- * cycle/module pickers and the issue mention dropdown).
- *
- * Fields:
- * - `search`: free-text query (matches name, identifier, sequence_id)
- * - `parent`: when true, restrict results to issues that can be set as a parent (excludes
- *   the current issue and its descendants to prevent cycles)
- * - `issue_relation`: when true, restrict to issues eligible as a relation target
- *   (excludes the current issue and already-related issues)
- * - `cycle`: when true, restrict to issues not already in any cycle (for cycle add picker)
- * - `module`: module id; when set, restricts to issues not already in this module
- * - `sub_issue`: when true, restrict to issues eligible as a sub-issue (excludes parents
- *   to prevent cycles)
- * - `issue_id`: current issue id (excluded from results)
- * - `workspace_search`: true to search across all workspace projects; false narrows to
- *   the current project
- * - `target_date`: filter by issue target_date (ISO string or relative offset)
- * - `epic`: when true, restrict to issues that are epics (top-level work-item containers)
+ * Project-scoped issue search query params used by parent/relation/cycle/module
+ * pickers and the mention dropdown; the boolean predicates each restrict to
+ * issues eligible for a given linking action (e.g. `parent` excludes the current
+ * issue and its descendants to prevent cycles).
  */
 export type TProjectIssuesSearchParams = {
   search: string;
@@ -378,22 +253,10 @@ export type TProjectIssuesSearchParams = {
 };
 
 /**
- * Single search result row from the project-scoped issue search endpoint.
- *
- * Uses Django ORM double-underscore prefixed names (`project__*`, `state__*`,
- * `workspace__*`) because the fields come from JOINs on the backend; the format avoids
- * an extra hydration step on the frontend.
- *
- * Consumed by the issue picker modals in:
- * - `apps/web/core/components/issues/issue-detail-widgets/issue-detail-widget-modals.tsx`
- * - `apps/web/core/components/issues/issue-modal/context/issue-modal-context.tsx`
- *
- * Fields with non-obvious semantics:
- * - `sequence_id` + `project__identifier`: combine to render the canonical issue label
- *   (e.g. "PLN-1234")
- * - `state__group`: lifecycle group (`TStateGroups`) for grouping/icon selection in the picker
- * - `state__color`: hex string for the state pill background
- * - `type_id`: issue-type id (epic / regular / custom type); empty string when no type
+ * Search result row from the project-scoped issue search endpoint; uses Django
+ * ORM double-underscore prefixed names (`project__*`/`state__*`/`workspace__*`)
+ * because the fields come from JOINs. `sequence_id` + `project__identifier`
+ * combine to render the canonical label (e.g. "PLN-1234").
  */
 export interface ISearchIssueResponse {
   id: string;
@@ -411,18 +274,13 @@ export interface ISearchIssueResponse {
 }
 
 /**
- * Type alias for `IPartialProject`.
- *
- * Provides a `T*` naming convention for consumers that prefer type aliases over
- * interfaces (both are structurally equivalent and interchangeable).
+ * Type alias for `IPartialProject` provided so consumers preferring the `T*`
+ * naming convention can use either spelling interchangeably.
  */
 export type TPartialProject = IPartialProject;
 
 /**
- * Type alias combining `TPartialProject` and `IProject` — equivalent to `IProject` itself
- * (since `IProject extends IPartialProject`).
- *
- * Provides a `T*` named export for consumers that prefer the alias spelling; structurally
- * identical to `IProject`.
+ * Type alias combining `TPartialProject` and `IProject` — structurally identical
+ * to `IProject` (which already extends `IPartialProject`).
  */
 export type TProject = TPartialProject & IProject;

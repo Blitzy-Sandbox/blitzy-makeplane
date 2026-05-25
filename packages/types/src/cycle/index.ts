@@ -5,15 +5,9 @@
  */
 
 /**
- * Barrel module for the `@plane/types/cycle` subfolder.
- *
- * Re-exports the cycle entity types from `./cycle` (core domain — `ICycle`,
- * `TProgressSnapshot`, `TCycleGroups`, `TCyclePlotType`, distributions, progress
- * shapes) and the filter types from `./cycle_filters` (cycle listing filter and
- * display-filter shapes).
- *
- * Downstream consumers import the combined cycle type API via
- * `@plane/types` without needing to know the internal file layout.
+ * Barrel for `@plane/types/cycle` — re-exports the cycle entity types
+ * (`./cycle`) and listing filter types (`./cycle_filters`) into the
+ * combined `@plane/types` public surface.
  */
 
 export * from "./cycle_filters";

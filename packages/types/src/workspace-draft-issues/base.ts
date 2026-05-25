@@ -5,33 +5,15 @@
  */
 
 /**
- * Type contracts for workspace-scoped draft issues — working-copy issues
- * authored at the workspace level before being promoted to a project-bound
- * issue. A draft lives outside the regular project issues collection until a
- * destination `project_id` is set and the draft is converted into a real
- * project issue.
- *
- * Consumers: `apps/web/core/store/issue/workspace-draft/issue.store.ts`
- * (primary MobX store), `apps/web/core/services/issue/workspace_draft.service.ts`
- * (API service), and the `apps/web/core/components/issues/workspace-draft/`
- * component subtree (loader, root, delete-modal, draft-issue-block,
- * draft-issue-properties) plus the draft branch of
- * `apps/web/core/components/issues/issue-modal/form.tsx`.
+ * Workspace-scoped draft issue contracts mirroring `apps/api/plane/db/models/draft.py::DraftIssue` and serialized by `apps/api/plane/app/serializers/draft.py::DraftIssueSerializer` (with `DraftIssueCreateSerializer` for writes).
+ * Consumed by `apps/web/core/store/issue/workspace-draft/issue.store.ts`, `apps/web/core/services/issue/workspace_draft.service.ts`, and the workspace-draft branch of the issue-modal/components subtree.
  */
 
 import type { TIssuePriorities } from "../issues";
 
 /**
- * A single workspace-scoped draft issue record — the working copy an author
- * is composing at the workspace level before deciding which project to file
- * it against. Draft records flow through the workspace-draft endpoints and
- * become regular project issues once promoted (which requires a `project_id`).
- *
- * Consumers: `issue.store.ts`
- * (`issuesMap: Record<string, TWorkspaceDraftIssue>`),
- * `workspace_draft.service.ts` (HTTP payloads), and the workspace-draft UI
- * components that render and mutate individual rows. `type_id` references
- * the issue-type system and is required at draft creation time.
+ * Single workspace-scoped draft record mirroring `apps/api/plane/db/models/draft.py::DraftIssue` and serialized by `apps/api/plane/app/serializers/draft.py::DraftIssueSerializer`; consumed as `issuesMap: Record<string, TWorkspaceDraftIssue>` in `issue.store.ts` and as the response payload in `workspace_draft.service.ts`.
+ * The backend `DraftIssue.type` FK is nullable (`null=True, blank=True`) — `type_id` is documented `string` here because the canonical `DraftIssueSerializer` projection emits the resolved id; consumers MAY observe an empty/missing value in practice and should treat it as "no issue type set".
  */
 export type TWorkspaceDraftIssue = {
   id: string;
@@ -44,35 +26,18 @@ export type TWorkspaceDraftIssue = {
   assignee_ids: string[];
   estimate_point: string | undefined;
 
-  /**
-   * Destination project the draft will be filed into. Optional because an
-   * unpromoted draft may not yet have a destination project; promotion to a
-   * real issue requires this to be set.
-   */
+  /** Destination project; `undefined` while unpromoted — must be set before the draft can be promoted into a real project issue. */
   project_id: string | undefined;
-  /**
-   * Optional parent issue ID for draft sub-issue hierarchy; remains
-   * `undefined` for top-level drafts that are not children of another issue.
-   */
+  /** Optional parent issue ID for draft sub-issue hierarchy; `undefined` for top-level drafts. */
   parent_id: string | undefined;
-  /**
-   * Optional cycle assignment carried by the draft; honored when the draft
-   * is promoted into a real project issue.
-   */
+  /** Optional cycle assignment carried by the draft; honored on promotion to a real project issue. */
   cycle_id: string | undefined;
-  /**
-   * Optional module assignments carried by the draft; honored when the
-   * draft is promoted into a real project issue.
-   */
+  /** Optional module assignments carried by the draft; honored on promotion to a real project issue. */
   module_ids: string[] | undefined;
 
   start_date: string | undefined;
   target_date: string | undefined;
-  /**
-   * Set when the draft has been marked completed; otherwise `undefined`.
-   * Drafts are not typically completed in place, so this field is mostly
-   * `undefined` for live draft records.
-   */
+  /** Set when the draft is marked completed; usually `undefined` because drafts are not typically completed in place. */
   completed_at: string | undefined;
 
   created_at: string;
@@ -80,27 +45,19 @@ export type TWorkspaceDraftIssue = {
   created_by: string;
   updated_by: string;
 
-  /**
-   * Discriminator asserting this record is a workspace draft rather than a
-   * persisted project issue; always `true` for records returned from the
-   * workspace-draft endpoints.
-   */
+  /** Always `true` on records returned by the workspace-draft endpoints; distinguishes drafts from persisted project issues. */
   is_draft: boolean;
 
+  /**
+   * Issue-type FK projected by `DraftIssueSerializer`; the underlying `DraftIssue.type` column is nullable, so consumers should treat absent / empty values as "no type set" rather than assume creation-time requiredness.
+   */
   type_id: string;
 };
 
 /**
- * Cursor-based pagination envelope wrapping a `results: T[]` array for
- * workspace draft issue list responses, where `T` is the per-row item type
- * (typically `TWorkspaceDraftIssue`).
+ * Cursor-paginated list-response envelope for workspace-draft endpoints; `extra_stats`, `grouped_by`, and `sub_grouped_by` populate only when the request opts into aggregation/grouping and remain `undefined` otherwise.
  *
- * Consumers: `issue.store.ts`
- * (`paginationInfo: Omit<TWorkspaceDraftPaginationInfo<TWorkspaceDraftIssue>, "results"> | undefined`)
- * and the workspace draft service for list-fetch responses. The
- * `extra_stats`, `grouped_by`, and `sub_grouped_by` fields populate only
- * when the list endpoint is invoked with aggregation/grouping enabled and
- * remain `undefined` for plain ungrouped responses.
+ * @template T - Per-row item type, typically `TWorkspaceDraftIssue`.
  */
 export type TWorkspaceDraftPaginationInfo<T> = {
   /** Opaque cursor for the next page; `undefined` when the current page is the last page. */
@@ -129,14 +86,7 @@ export type TWorkspaceDraftPaginationInfo<T> = {
 };
 
 /**
- * Minimal query input contract for fetching workspace draft issue lists.
- * Pagination is intentionally cursor-based (not offset-based); `cursor` is
- * opaque and supplied by a prior
- * `TWorkspaceDraftPaginationInfo.next_cursor` / `prev_cursor`.
- *
- * Consumers: `issue.store.ts`
- * (`queryParams: TWorkspaceDraftQueryParams = { per_page, cursor }`
- * assembled inside the fetch action before each list request).
+ * Cursor-based query input for workspace-draft list fetches; `cursor` is opaque and supplied by a prior `TWorkspaceDraftPaginationInfo.next_cursor` / `prev_cursor` from `issue.store.ts`'s fetch action.
  */
 export type TWorkspaceDraftQueryParams = {
   per_page: number;
@@ -144,16 +94,7 @@ export type TWorkspaceDraftQueryParams = {
 };
 
 /**
- * String-literal union describing every loader / mutation state the
- * workspace draft issue UI surfaces can be in, plus `undefined` for the
- * idle (no-loader) state. Valid values are `"init-loader"`, `"empty-state"`,
- * `"mutation"`, `"pagination"`, `"loaded"`, `"create"`, `"update"`,
- * `"delete"`, `"move"`, and `undefined`.
- *
- * Consumers: `issue.store.ts`
- * (`loader: TWorkspaceDraftIssueLoader = undefined`) and
- * `apps/web/core/components/issues/workspace-draft/loader.tsx` plus other
- * draft-issue components that branch on loader state.
+ * Loader/mutation-state literal union for workspace-draft UI surfaces (`undefined` = idle); read from `issue.store.ts::loader` by `apps/web/core/components/issues/workspace-draft/loader.tsx` and peer components that branch on loader state.
  */
 export type TWorkspaceDraftIssueLoader =
   | "init-loader"

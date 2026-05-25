@@ -5,40 +5,17 @@
  */
 
 /**
- * Jira importer workflow contracts for the `@plane/types/importer` subfolder.
- *
- * Models the Jira import flow:
- * - Form payload sent when initiating an import (`IJiraImporterForm` + `IJiraConfig` +
- *   `IJiraData` + `IJiraMetadata`): bundles Atlassian-cloud credentials, project key,
- *   user mapping list, and the epics-to-modules configuration toggle
- * - Pre-import discovery response (`IJiraResponse` + `IJiraResponseUser` +
- *   `IJiraResponseAvatarUrls`): counts of issues / modules / labels / states + the
- *   collaborator list returned by the workspace integration's `getJiraProjectInfo` endpoint
- *
- * Consumers:
- * - `apps/web/core/services/integrations/jira.service.ts` — `getJiraProjectInfo()` accepts
- *   `IJiraMetadata` and returns `IJiraResponse`; `createJiraImporter()` accepts `IJiraImporterForm`
- * - Backend Jira importer Celery task in `apps/api/plane/bgtasks/` (Celery → RabbitMQ,
- *   NOT Redis — Redis is caching/session only per AAP §0.2.2 architectural context)
- *
- * The persisted importer-job record produced after submission is modeled by
- * `IImporterService` in `./index.ts`.
- *
- * Credential handling note: `IJiraMetadata.api_token` + `IJiraMetadata.email` are
- * collected from the user in the import wizard, transmitted over HTTPS, and persisted
- * server-side as encrypted credentials by `apps/api`; they are NOT browser-cached or
- * client-side persisted.
+ * Jira importer workflow contracts (form payload + discovery response)
+ * consumed by `apps/web/core/services/integrations/jira.service.ts` and the
+ * Jira importer Celery task in `apps/api/plane/bgtasks/`; Atlassian credentials
+ * (`api_token`, `email`) are transmitted over HTTPS and persisted encrypted
+ * server-side — never browser-cached.
  */
 
 /**
- * Top-level form payload submitted when starting a new Jira import.
- *
- * Composes the four facets of a Jira import: source connection credentials
- * (`metadata`), behavior toggles (`config`), the user mapping list + aggregate counts
- * (`data`), and the destination Plane project (`project_id`).
- *
- * Submitted to `apps/web/core/services/integrations/jira.service.ts::createJiraImporter()`,
- * which forwards it to the backend importer task in `apps/api/plane/bgtasks/`.
+ * Top-level Jira import form composing credentials (`metadata`), behavior
+ * toggles (`config`), user mapping + counts (`data`), and destination
+ * `project_id`; submitted to `jira.service.ts::createJiraImporter()`.
  */
 export interface IJiraImporterForm {
   metadata: IJiraMetadata;
@@ -48,32 +25,19 @@ export interface IJiraImporterForm {
 }
 
 /**
- * Jira import behavior configuration toggles.
- *
- * Fields with non-obvious semantics:
- * - `epics_to_modules`: when true, Jira Epics are imported as Plane modules
- *   (preserving the Epic-Story hierarchy as Module-Issue parent/child); when false,
- *   Jira Epics are imported as regular Plane issues with an "epic" issue-type tag.
- *   This toggle materially changes the resulting Plane project structure and cannot
- *   be changed after import completes.
+ * Jira import behavior toggles; `epics_to_modules` (when true) imports Epics
+ * as Plane modules preserving Epic-Story hierarchy, otherwise Epics are
+ * imported as regular issues with an "epic" tag — this toggle materially
+ * changes project structure and cannot be changed after import completes.
  */
 export interface IJiraConfig {
   epics_to_modules: boolean;
 }
 
 /**
- * Per-Jira-project import data — user mapping + invitation flag + aggregate counts.
- *
- * The aggregate counts (`total_issues` / `total_labels` / `total_states` / `total_modules`)
- * are pre-computed by the workspace integration's discovery endpoint and shown in the
- * import wizard confirmation step so users can preview what will be imported.
- *
- * Fields with non-obvious semantics:
- * - `users[]`: per-Jira-user mapping (see the `User` interface for the directive semantics)
- * - `invite_users`: when true, any user marked `import: "invite"` in `users[]` receives a
- *   Plane workspace invitation email after the import completes
- * - `total_modules`: only meaningful when `IJiraConfig.epics_to_modules` is true; otherwise
- *   the count of Jira Epics is reflected in `total_issues`
+ * Per-Jira-project import data: user mapping, `invite_users` flag (sends Plane
+ * invites to users marked `import: "invite"`), and pre-computed aggregate
+ * counts; `total_modules` is meaningful only when `epics_to_modules` is true.
  */
 export interface IJiraData {
   users: User[];
@@ -85,54 +49,26 @@ export interface IJiraData {
 }
 
 /**
- * Per-Jira-user mapping directive used when importing issues.
- *
- * NOTE: This interface is intentionally named `User` (not `IJiraUser`) because the
- * legacy Jira import flow shares the shape with the GitHub user mapping at runtime;
- * renaming would break the existing import wizard component bindings. The system
- * boundary "no renaming or restructuring" preserves this name verbatim.
- *
- * Fields:
- * - `username`: Jira display name / username (provider-specific identity)
- * - `email`: email used for invitation OR to match an existing Plane workspace member
- * - `import`: directive — see field-level JSDoc on the union below
+ * Per-Jira-user mapping directive; intentionally named `User` (not `IJiraUser`)
+ * because renaming would break import-wizard component bindings — preserved
+ * verbatim under the "no renaming" system boundary.
  */
 export interface User {
   username: string;
   /**
-   * Per-user import directive for this Jira user.
-   *
-   * Tri-state union semantics:
-   * - `"invite"`: send a Plane workspace invitation to this user's email so they
-   *   join the workspace and become the issue assignee
-   * - `"map"`: map this Jira user to an EXISTING Plane workspace member (resolved
-   *   server-side by `email` match)
-   * - `false` (boolean literal): skip — do not import or assign issues to this user;
-   *   their authored issues will be attributed to the importer initiator instead
+   * Per-user import directive: `"invite"` (send Plane invitation),
+   * `"map"` (match existing member by email), or `false` (skip — attribute
+   * authored issues to the importer initiator).
    */
   import: "invite" | "map" | false;
   email: string;
 }
 
 /**
- * Atlassian Cloud connection credentials + project key for the Jira import.
- *
- * Sent to `apps/web/core/services/integrations/jira.service.ts::getJiraProjectInfo()`
- * as query params for the pre-import discovery call. Server-side persisted encrypted
- * after import submission for any subsequent re-sync operations.
- *
- * Fields with non-obvious semantics (CREDENTIAL FIELDS — server-only after capture):
- * - `cloud_hostname`: Atlassian Cloud base hostname (e.g. `mycompany.atlassian.net`),
- *   without the protocol prefix; the backend constructs the full Jira REST API URL
- * - `api_token`: Atlassian Cloud API token issued by the user from their Atlassian
- *   account profile (the user's password is NOT accepted — Atlassian requires API tokens
- *   for cloud connections). NEVER persisted client-side; transmitted over HTTPS and stored
- *   encrypted by `apps/api`.
- * - `project_key`: Jira project key (the short identifier like "PLN" or "PROJ", NOT the
- *   numeric project id) — used to scope the import to a single Jira project
- * - `email`: Atlassian account email associated with `api_token` (Atlassian's basic-auth
- *   pairs email + API token). Used server-side only for the Jira API call; not stored
- *   in clear text on the client.
+ * Atlassian Cloud credentials (`api_token` + `email`) plus `cloud_hostname`
+ * (no protocol prefix) and `project_key` (short identifier like "PLN", not
+ * the numeric id) — sent to `getJiraProjectInfo()` and persisted encrypted
+ * server-side after import submission.
  */
 export interface IJiraMetadata {
   cloud_hostname: string;
@@ -142,16 +78,9 @@ export interface IJiraMetadata {
 }
 
 /**
- * Pre-import discovery response from the workspace integration's `getJiraProjectInfo` endpoint.
- *
- * Returns aggregate counts (rendered as a summary card in the import wizard) and the
- * Jira user list (rendered as the user-mapping picker rows). After the user reviews
- * this summary and submits the form, the actual import is performed asynchronously by
- * the Jira importer Celery task in `apps/api/plane/bgtasks/`.
- *
- * Fields:
- * - `issues` / `modules` / `labels` / `states`: counts that will be imported
- * - `users`: Jira users discovered in the project — surfaced for per-user import mapping
+ * Pre-import discovery response (aggregate counts + Jira user list) returned
+ * by `getJiraProjectInfo()` and rendered as the import wizard's summary card
+ * plus user-mapping picker rows.
  */
 export interface IJiraResponse {
   issues: number;
@@ -162,22 +91,9 @@ export interface IJiraResponse {
 }
 
 /**
- * Single Jira user projection from the discovery response (mirrors Atlassian's User schema subset).
- *
- * Returned as part of `IJiraResponse.users` and rendered in the user-mapping picker step
- * of the Jira import wizard.
- *
- * Fields with non-obvious semantics:
- * - `self`: Jira REST API URL pointing to this user (used for backend cross-reference)
- * - `accountId`: Atlassian's stable user id (preferred over `displayName` for matching)
- * - `accountType`: Atlassian account type (e.g. `atlassian` for cloud users, `app` for
- *   service accounts) — used to filter out non-human accounts in the picker
- * - `emailAddress`: Jira user's email (matched against Plane workspace members when the
- *   user picks the "map" directive)
- * - `avatarUrls`: per-size avatar URLs (see `IJiraResponseAvatarUrls`)
- * - `active`: false for deactivated Jira accounts — surfaced with a visual indicator
- *   so users avoid mapping to defunct accounts
- * - `locale`: Atlassian locale code (e.g. `en_US`); informational only in Plane
+ * Single Jira user projection (subset of Atlassian's User schema); `accountId`
+ * is Atlassian's stable id (preferred for matching over `displayName`), and
+ * `accountType` distinguishes human accounts from service accounts (`app`).
  */
 export interface IJiraResponseUser {
   self: string;
@@ -191,13 +107,9 @@ export interface IJiraResponseUser {
 }
 
 /**
- * Per-size avatar URLs for a Jira user (mirrors Atlassian's User.avatarUrls schema).
- *
- * Atlassian returns avatars at four fixed pixel dimensions. The Plane import wizard
- * picks the size most appropriate for its rendering context (32×32 for picker rows,
- * 48×48 for the confirmation summary).
- *
- * Keys are quoted because they start with digits (TypeScript literal-key requirement).
+ * Per-size avatar URLs for a Jira user (Atlassian's four fixed pixel
+ * dimensions); keys are quoted because TypeScript literal keys cannot start
+ * with digits.
  */
 export interface IJiraResponseAvatarUrls {
   "48x48": string;

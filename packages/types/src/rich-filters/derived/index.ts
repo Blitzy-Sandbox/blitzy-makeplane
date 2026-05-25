@@ -5,14 +5,9 @@
  */
 
 /**
- * Barrel module for derived rich-filter operator unions.
- *
- * Composes the core-tier and extended-tier per-field-type operator unions into the public
- * derived API: `TSupportedDateFilterOperators<V>`, `TAllAvailableDateFilterOperatorsForDisplay<V>`,
- * `TSupportedSelectFilterOperators<V>`, `TAllAvailableSelectFilterOperatorsForDisplay<V>`.
- *
- * Consumers: filter-config builders in `packages/utils/src/work-item-filters/configs/filters/`
- *            and the rich filter UI in `apps/web/core/components/rich-filters/`.
+ * Barrel composing core-tier and extended-tier per-field-type operator unions
+ * into the public derived API consumed by `packages/utils/src/work-item-filters/configs/filters/`
+ * and `apps/web/core/components/rich-filters/`.
  */
 
 import type { TFilterValue } from "../expression";

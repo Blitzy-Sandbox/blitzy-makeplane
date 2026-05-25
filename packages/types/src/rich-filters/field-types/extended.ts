@@ -16,18 +16,14 @@
 import type { TFilterValue } from "../expression";
 
 /**
- * Reserved extension registry for additional field-type discriminant tokens. Currently empty.
- * The empty `as const` literal is type-safe to merge into `FILTER_FIELD_TYPE` in `./index.ts`
- * even when no extended members exist.
+ * Reserved extension registry for additional field-type discriminant tokens;
+ * the empty `as const` literal merges safely into `FILTER_FIELD_TYPE`.
  */
 export const EXTENDED_FILTER_FIELD_TYPE = {} as const;
 
 // -------- UNION TYPES --------
 
 /**
- * Reserved extension union for additional field-type configurations. Currently `never`.
- *
- * @template _V - Reserved for parity with the core generic; intentionally unused in the
- *   current `never` body (the underscore-prefix signals this).
+ * Reserved widening point for additional field-type configurations; currently `never`.
  */
 export type TExtendedFilterFieldConfigs<_V extends TFilterValue = TFilterValue> = never;

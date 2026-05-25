@@ -5,15 +5,10 @@
  */
 
 /**
- * Issue-comment domain types — full persisted comments, lightweight reaction embeds,
- * the comments-panel callback contract, normalized lookup maps, and the public
- * deploy-app comment payloads.
- *
- * `TIssueComment` mirrors `apps/api/plane/db/models/issue.py::IssueComment`; consumed by
- * `apps/web/core/store/issue/issue-details/comment.store.ts` and the comments UI under
- * `apps/web/core/components/issues/issue-detail/`. The `TIssuePublicComment` family
- * belongs to the `apps/space` deploy surface — do NOT consume from authenticated
- * workspace contexts.
+ * Issue-comment domain types mirroring `apps/api/plane/db/models/issue.py::IssueComment`;
+ * consumed by `comment.store.ts` and `issue-detail/` UI, with separate
+ * `apps/space` public-comment shapes that must NOT be consumed from
+ * authenticated workspace contexts.
  */
 
 import type { JSONContent } from "../../editor";
@@ -29,10 +24,9 @@ import type {
 } from "./base";
 
 /**
- * Lightweight per-reaction record embedded in `TIssueComment.comment_reactions` for the
- * workspace UI; distinct from `TIssueCommentReaction` (the persisted standalone reaction
- * row from the API) — this shape inlines `actor_detail: IUserLite` so reaction tooltips
- * render at the embed site without a second user-fetch.
+ * Lightweight reaction embed inlined in `TIssueComment.comment_reactions`;
+ * distinct from the persisted standalone `TIssueCommentReaction` row — this
+ * shape inlines `actor_detail: IUserLite` so tooltips render without a second fetch.
  */
 export type TCommentReaction = {
   /** Reaction row primary key (same id space as `TIssueCommentReaction.id`). */
@@ -104,23 +98,14 @@ export type TIssueComment = {
   external_id: string | undefined;
   /** Slug identifying the external system that produced this comment when imported. */
   external_source: string | undefined;
-  /**
-   * Visibility control. See {@link EIssueCommentAccessSpecifier}:
-   * - `"INTERNAL"` — visible only to workspace members.
-   * - `"EXTERNAL"` — visible to external/guest viewers on the public deploy.
-   */
+  /** Visibility tag (see {@link EIssueCommentAccessSpecifier}): `"INTERNAL"` for workspace-only, `"EXTERNAL"` for public deploy viewers. */
   access: EIssueCommentAccessSpecifier;
 };
 
 /**
- * Callback contract injected into the comments-panel React subtree so every comment
- * widget can perform identical mutations regardless of which surface mounts it
- * (issue-detail, peek-overview, draft-issue modal).
- *
- * Keeps the panel itself stateless — all writes flow through these callbacks back into
- * the comment store, so the same panel tree can be wired against a workspace-issue store
- * or a draft-issue store interchangeably. Constructed in
- * `apps/web/core/components/issues/issue-detail/issue-activity/helper.tsx`.
+ * Comments-panel callback contract — keeps the panel stateless so the same
+ * subtree can be wired against a workspace-issue store or a draft-issue store
+ * (constructed in `issue-detail/issue-activity/helper.tsx`).
  */
 export type TCommentsOperations = {
   /** Copies the canonical permalink for the comment to the clipboard. */
@@ -190,16 +175,10 @@ export type TIssueCommentIdMap = {
 };
 
 /**
- * Public-comment shapes used by the `apps/space` deploy app — the unauthenticated public
- * comment view rendered on published project pages.
- *
- * These are intentionally separate from the workspace-authenticated comment types
- * (`TIssueComment`, `TCommentReaction`) because the public payloads carry a different
- * field surface (e.g., `is_member` flag) and a legacy rich-text serialization
- * (`Description` instead of {@link JSONContent}). Timestamps are also serialized as
- * `Date` (not ISO `string` as on the workspace shapes).
- *
- * Do NOT consume these from authenticated workspace contexts.
+ * `apps/space` public-comment shapes — unauthenticated payloads with a
+ * different field surface (`is_member`), legacy `Description` rich-text (not
+ * `JSONContent`), and `Date` timestamps (not ISO strings); do NOT consume
+ * from authenticated workspace contexts.
  */
 
 /**

@@ -5,16 +5,9 @@
  */
 
 /**
- * Barrel and composition module for rich-filter operators.
- *
- * Merges the core + extended operator registries via object spread into the public
- * runtime registries (`LOGICAL_OPERATOR`, `EQUALITY_OPERATOR`, `COLLECTION_OPERATOR`,
- * `COMPARISON_OPERATOR`, `MULTI_VALUE_OPERATORS`), and the corresponding TypeScript
- * unions (`TLogicalOperator`, ..., `TSupportedOperators`, `TAllAvailableOperatorsForDisplay`).
- *
- * Single canonical import path for the operator vocabulary across the codebase. The
- * runtime string tokens defined in `./core.ts` are part of the persisted wire format —
- * see that file for the breaking-change warning.
+ * Barrel merging the core + extended operator registries into the public runtime
+ * registries and the corresponding TypeScript unions; runtime string tokens are
+ * part of the persisted wire format (see `./core.ts`).
  */
 
 import type { TCoreSupportedOperators } from "./core";

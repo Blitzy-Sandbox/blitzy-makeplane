@@ -5,22 +5,9 @@
  */
 
 /**
- * Barrel module + shared embed shapes for the issue-activity domain.
- *
- * Re-exports `./issue_activity`, `./issue_comment`, and
- * `./issue_comment_reaction` so consumers can import every activity-domain
- * type from a single path.
- *
- * Additionally declares the four denormalized detail-embed shapes
- * (`workspace_detail`, `project_detail`, `issue_detail`, `actor_detail`) that
- * are inlined inside `TIssueActivity` and `TIssueComment` records, plus the
- * discriminated `TIssueActivityComment` union consumed by the activity-feed
- * renderer.
- *
- * Mirrors the denormalized snapshots emitted by
- * `apps/api/plane/db/models/issue.py::IssueActivity`. Consumed by
- * `apps/web/core/store/issue/issue-details/activity.store.ts` and the
- * components under `apps/web/core/components/issues/issue-detail/issue-activity/`.
+ * Activity-domain barrel + denormalized embed shapes (`workspace/project/issue/actor_detail`)
+ * mirroring snapshots from `apps/api/plane/db/models/issue.py::IssueActivity`;
+ * consumed by `activity.store.ts` and `issue-detail/issue-activity/` components.
  */
 
 export * from "./issue_activity";
