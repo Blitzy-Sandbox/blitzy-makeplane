@@ -5,19 +5,8 @@
  */
 
 /**
- * Auth constants barrel — re-exports login-medium labels, password policy
- * thresholds, auth-page/mode/step enums, and structured auth error contracts
- * shared by `apps/web`, `apps/admin`, and `apps/space` auth flows.
- *
- * Consumers: `apps/web/core/components/account/auth-forms/**`,
- * `apps/web/core/components/auth-screens/**`,
- * `apps/web/core/lib/wrappers/authentication-wrapper.tsx`,
- * `apps/web/helpers/authentication.helper.tsx`,
- * `apps/admin/app/(all)/(home)/**`, `apps/admin/components/instance/setup-form.tsx`,
- * `apps/space/components/account/auth-forms/**`,
- * `apps/space/helpers/authentication.helper.tsx`,
- * `packages/utils/src/auth.ts`, `packages/ui/src/auth-form/**`,
- * `packages/ui/src/form-fields/password/**`.
+ * Auth constants barrel — login-medium labels, password policy, auth page/mode/step
+ * enums, and structured auth error contracts shared by `apps/{web,admin,space}` auth flows.
  */
 
 import type { TLoginMediums } from "@plane/types";
@@ -25,23 +14,10 @@ import { CORE_LOGIN_MEDIUM_LABELS } from "./core";
 import { EXTENDED_LOGIN_MEDIUM_LABELS } from "./extended";
 
 /**
- * Password strength state identifiers surfaced by password input components
- * to drive criteria-met UI and submit-button enablement.
- *
- * Consumers: `packages/ui/src/auth-form/auth-password-input.tsx`,
- * `packages/ui/src/form-fields/password/{helper,indicator}.tsx`,
- * `packages/utils/src/auth.ts`,
- * `apps/web/core/components/account/auth-forms/{password,set-password,reset-password}.tsx`,
- * `apps/web/core/components/settings/profile/content/pages/security.tsx`,
- * `apps/web/core/components/onboarding/{profile-setup.tsx,steps/profile/root.tsx}`,
- * `apps/space/components/account/auth-forms/password.tsx`,
- * `apps/admin/components/instance/setup-form.tsx`.
- *
- * Values:
- * - EMPTY: no password entered yet
- * - LENGTH_NOT_VALID: password fails the minimum length requirement
- * - STRENGTH_NOT_VALID: password meets length but fails additional criteria
- * - STRENGTH_VALID: password satisfies every enabled criterion
+ * Password strength state identifiers (EMPTY / LENGTH_NOT_VALID / STRENGTH_NOT_VALID /
+ * STRENGTH_VALID) driving criteria-met UI and submit-button enablement.
+ * Consumers: `packages/ui/src/{auth-form,form-fields/password}/**`,
+ * `apps/web/core/components/account/auth-forms/**`, `apps/{space,admin}` auth forms.
  */
 export enum E_PASSWORD_STRENGTH {
   EMPTY = "empty",
@@ -51,27 +27,14 @@ export enum E_PASSWORD_STRENGTH {
 }
 
 /**
- * Minimum password length enforced by password inputs and validation utilities
- * across the auth flows. Bound to the `min_8_char` rule in `SPACE_PASSWORD_CRITERIA`.
- *
- * Consumers: same as `SPACE_PASSWORD_CRITERIA` (password inputs, criteria
- * indicators, `packages/utils/src/auth.ts`).
+ * Minimum password length (bound to `min_8_char` in `SPACE_PASSWORD_CRITERIA`).
  */
 export const PASSWORD_MIN_LENGTH = 8;
 
 /**
- * Password validation rules evaluated by password input UI to render
- * criteria-met indicators and gate form submission. Each entry pairs a stable
- * key, a human-readable label, and a synchronous predicate over the candidate
- * password. Only the `min_8_char` rule is enabled today; upper-case, number,
- * and special-character checks are intentionally commented out and left as
- * placeholders for future tightening of the policy.
- *
- * Consumers: `packages/ui/src/form-fields/password/{helper,indicator}.tsx`,
- * `packages/utils/src/auth.ts`,
- * `apps/web/core/components/account/auth-forms/{password,set-password,reset-password}.tsx`,
- * `apps/space/components/account/auth-forms/password.tsx`,
- * `apps/admin/components/instance/setup-form.tsx`.
+ * Password validation rules (`{key,label,isCriteriaValid}` triples); only `min_8_char`
+ * is enabled today (upper-case/number/special-char checks commented out for future).
+ * Consumers: `packages/ui/src/form-fields/password/**`, `packages/utils/src/auth.ts`.
  */
 export const SPACE_PASSWORD_CRITERIA = [
   {
@@ -97,20 +60,9 @@ export const SPACE_PASSWORD_CRITERIA = [
 ];
 
 /**
- * Page-level authentication requirement classification consumed by route
- * wrappers to gate rendering and trigger redirects.
- *
- * Consumers: `apps/web/core/lib/wrappers/authentication-wrapper.tsx`,
- * `apps/web/core/components/auth-screens/auth-base.tsx`,
- * `apps/web/core/components/account/auth-forms/auth-header.tsx`,
- * `apps/web/app/(all)/**` route entries.
- *
- * Values:
- * - PUBLIC: no auth required
- * - NON_AUTHENTICATED: must be signed out (e.g. sign-in/sign-up pages)
- * - SET_PASSWORD: signed in but must set a password before continuing
- * - ONBOARDING: signed in but onboarding flow not yet complete
- * - AUTHENTICATED: fully authenticated and onboarded
+ * Page-level auth requirement classification (PUBLIC / NON_AUTHENTICATED /
+ * SET_PASSWORD / ONBOARDING / AUTHENTICATED) consumed by route wrappers for redirects.
+ * Consumer: `apps/web/core/lib/wrappers/authentication-wrapper.tsx`.
  */
 export enum EAuthPageTypes {
   PUBLIC = "PUBLIC",
@@ -121,21 +73,9 @@ export enum EAuthPageTypes {
 }
 
 /**
- * Auth wrapper page-state identifier used while resolving the user/instance
- * bootstrap response before a final `EAuthPageTypes` decision is rendered.
- *
- * Consumers: `apps/web/core/lib/wrappers/authentication-wrapper.tsx`,
- * `apps/web/app/(home)/page.tsx`,
- * `apps/web/app/(all)/sign-up/page.tsx`,
- * `apps/web/app/(all)/accounts/{forgot-password,reset-password,set-password}/page.tsx`,
- * `apps/web/app/(all)/workspace-invitations/page.tsx`.
- *
- * Values:
- * - INIT: bootstrap fetch in flight
- * - PUBLIC: no auth gate applied
- * - NON_AUTHENTICATED: render an auth surface for an anonymous visitor
- * - ONBOARDING: render the onboarding surface
- * - AUTHENTICATED: render the post-auth surface
+ * Bootstrap auth-wrapper state (INIT / PUBLIC / NON_AUTHENTICATED / ONBOARDING /
+ * AUTHENTICATED) used during user/instance fetch before a final `EAuthPageTypes` renders.
+ * Consumer: `apps/web/core/lib/wrappers/authentication-wrapper.tsx`.
  */
 export enum EPageTypes {
   INIT = "INIT",
@@ -146,14 +86,8 @@ export enum EPageTypes {
 }
 
 /**
- * Selects which auth flow variant the shared auth form renders.
- *
- * Consumers: `apps/web/core/components/account/auth-forms/{auth-root,form-root,auth-header,unique-code,password}.tsx`,
- * `apps/space/components/account/auth-forms/auth-root.tsx`.
- *
- * Values:
- * - SIGN_IN: sign-in flow (existing account)
- * - SIGN_UP: sign-up flow (new account)
+ * Auth flow variant selector (SIGN_IN / SIGN_UP) for the shared auth form.
+ * Consumers: `apps/{web,space}/core/components/account/auth-forms/**`.
  */
 export enum EAuthModes {
   SIGN_IN = "SIGN_IN",
@@ -161,16 +95,9 @@ export enum EAuthModes {
 }
 
 /**
- * Progressive step identifier driving the multi-step auth form
- * (email → password or email → unique code).
- *
- * Consumers: `apps/web/core/components/account/auth-forms/{form-root,auth-root,unique-code,password}.tsx`,
- * `apps/space/components/account/auth-forms/auth-root.tsx`.
- *
- * Values:
- * - EMAIL: collect email
- * - PASSWORD: collect password (password-login flow)
- * - UNIQUE_CODE: collect magic-link OTP (magic-code flow)
+ * Multi-step auth form progression (EMAIL → PASSWORD for password flow or EMAIL →
+ * UNIQUE_CODE for magic-code flow).
+ * Consumers: `apps/{web,space}/core/components/account/auth-forms/**`.
  */
 export enum EAuthSteps {
   EMAIL = "EMAIL",
@@ -179,23 +106,8 @@ export enum EAuthSteps {
 }
 
 /**
- * Discriminator selecting how an auth error surface is rendered — full-width
- * banner, toast, or inline beneath a specific form field.
- *
- * Consumers: `apps/web/helpers/authentication.helper.tsx`,
- * `apps/space/helpers/authentication.helper.tsx`,
- * `apps/admin/app/(all)/(home)/auth-banner.tsx`,
- * `apps/web/core/components/account/auth-forms/{auth-root,form-root,reset-password}.tsx`,
- * `apps/space/components/account/auth-forms/auth-banner.tsx`,
- * `packages/utils/src/auth.ts`.
- *
- * Values:
- * - BANNER_ALERT: page-level banner above the form
- * - TOAST_ALERT: transient toast notification
- * - INLINE_FIRST_NAME: inline error beneath the first-name field
- * - INLINE_EMAIL: inline error beneath the email field
- * - INLINE_PASSWORD: inline error beneath the password field
- * - INLINE_EMAIL_CODE: inline error beneath the magic-code field
+ * Auth error surface rendering discriminator (BANNER / TOAST / INLINE per field).
+ * Consumers: `apps/{web,space}/helpers/authentication.helper.tsx`, `packages/utils/src/auth.ts`.
  */
 export enum EErrorAlertType {
   BANNER_ALERT = "BANNER_ALERT",
@@ -207,19 +119,9 @@ export enum EErrorAlertType {
 }
 
 /**
- * Structured auth-error payload returned by the error-mapping helpers so that
- * the UI can surface a typed alert (`type`), a stable error identifier (`code`),
- * a heading (`title`), and a body (`message`) without parsing raw strings.
- *
- * Consumers: `apps/web/helpers/authentication.helper.tsx`,
- * `apps/space/helpers/authentication.helper.tsx`,
- * `apps/web/core/components/account/auth-forms/{auth-root,form-root,reset-password}.tsx`,
- * `apps/space/components/account/auth-forms/{auth-root,auth-banner}.tsx`,
- * `packages/utils/src/auth.ts`.
- *
- * Fields:
- * - `message`: accepts plain strings or React nodes so localized links and
- *   formatting can be embedded.
+ * Structured auth-error payload (`type`/`code`/`title`/`message`) where `message`
+ * accepts React nodes to embed localized links/formatting.
+ * Consumers: `apps/{web,space}/helpers/authentication.helper.tsx`.
  */
 export type TAuthErrorInfo = {
   type: EErrorAlertType;
@@ -229,14 +131,9 @@ export type TAuthErrorInfo = {
 };
 
 /**
- * Admin-instance auth error codes returned by `apps/api`'s admin authentication
- * endpoints. The numeric string values mirror the backend codes one-for-one and
- * are echoed back by the admin UI's error-mapping helper.
- *
- * Consumers: `apps/admin/app/(all)/(home)/{auth-helpers,sign-in-form,auth-banner}.tsx`.
- *
- * Values are 4-digit stringified codes in the 5150–5190 range; see the
- * matching admin-error section in `EAuthErrorCodes` for parity.
+ * Admin-instance auth error codes (stringified 5150–5190) mirroring backend admin
+ * authentication endpoint responses; parity with admin section of `EAuthErrorCodes`.
+ * Consumer: `apps/admin/app/(all)/(home)/**`.
  */
 export enum EAdminAuthErrorCodes {
   // Admin
@@ -252,10 +149,8 @@ export enum EAdminAuthErrorCodes {
 }
 
 /**
- * Admin-instance counterpart to `TAuthErrorInfo` — uses `EAdminAuthErrorCodes`
- * for `code` so that admin UI helpers can render errors typed to admin flows.
- *
- * Consumers: `apps/admin/app/(all)/(home)/{auth-helpers,sign-in-form,auth-banner}.tsx`.
+ * Admin-instance counterpart to `TAuthErrorInfo` typed against `EAdminAuthErrorCodes`.
+ * Consumer: `apps/admin/app/(all)/(home)/**`.
  */
 export type TAdminAuthErrorInfo = {
   type: EErrorAlertType;
@@ -265,29 +160,10 @@ export type TAdminAuthErrorInfo = {
 };
 
 /**
- * Canonical end-user auth error codes returned by `apps/api`'s authentication
- * endpoints. The string values mirror the backend numeric codes verbatim so
- * the UI helpers can map them to localized `TAuthErrorInfo` payloads without
- * additional translation tables.
- *
- * Consumers: `apps/web/helpers/authentication.helper.tsx`,
- * `apps/space/helpers/authentication.helper.tsx`,
- * `apps/web/core/components/account/auth-forms/{auth-root,form-root,reset-password}.tsx`,
- * `apps/space/components/account/auth-forms/{auth-root,auth-banner}.tsx`,
- * `packages/utils/src/auth.ts`.
- *
- * Groups (see inline `// Group` comments in source):
- * - Global (5000–5019): instance/email/signup config errors
- * - Password strength (5020–5025): invalid/weak password, SMTP not configured
- * - Sign Up (5030–5055): sign-up validation, magic-code sign-up
- * - Sign In (5060–5085): sign-in validation, magic-code sign-in
- * - Magic both flows (5090–5102): invalid/expired/exhausted magic codes
- * - OAuth (5104–5121): provider not configured / provider error
- * - Reset Password (5125–5130): invalid/expired password token
- * - Change Password (5135–5140): incorrect old / missing / invalid new
- * - Set Password (5145): already set
- * - Admin (5150–5190): mirrored from `EAdminAuthErrorCodes`
- * - Rate limit (5900): request throttling
+ * End-user auth error codes (stringified backend codes) — see inline `// Group`
+ * markers below for ranges (Global 5000s, Password 5020s, Sign Up 5030s, Sign In
+ * 5060s, Magic 5090s, OAuth 5104+, Reset 5125+, Change 5135+, Set 5145, Admin 5150s, Rate 5900).
+ * Consumers: `apps/{web,space}/helpers/authentication.helper.tsx`, `packages/utils/src/auth.ts`.
  */
 export enum EAuthErrorCodes {
   // Global
@@ -355,13 +231,9 @@ export enum EAuthErrorCodes {
 }
 
 /**
- * Unified human-readable label map for every supported login medium, built by
- * merging `CORE_LOGIN_MEDIUM_LABELS` with `EXTENDED_LOGIN_MEDIUM_LABELS`. This
- * is the single source of truth UI should consume when translating a
- * normalized login-medium key (e.g. `email`, `github`) into display text.
- *
- * Consumers: `apps/web/ce/components/workspace/settings/useMemberColumns.tsx`,
- * and any future consumer needing a `TLoginMediums` → label lookup.
+ * Unified `TLoginMediums` → label map (merge of core + extended); the canonical
+ * lookup for translating login-medium keys (`email`, `github`, …) into display text.
+ * Consumer: `apps/web/ce/components/workspace/settings/useMemberColumns.tsx`.
  */
 export const LOGIN_MEDIUM_LABELS: Record<TLoginMediums, string> = {
   ...CORE_LOGIN_MEDIUM_LABELS,

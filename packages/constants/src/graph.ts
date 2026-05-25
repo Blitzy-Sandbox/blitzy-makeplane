@@ -5,10 +5,8 @@
  */
 
 /**
- * Default chart theme object consumed by the legacy Nivo charts. CSS custom properties
- * (`var(--*)`) bind colors to the active Plane theme so charts stay in sync with light/dark mode.
- *
- * Consumers: `apps/web/core/components/**` analytics/dashboard chart components built on Nivo.
+ * Default Nivo chart theme bound to the active Plane theme via CSS custom properties so charts stay in sync with light/dark mode.
+ * Consumers: analytics/dashboard chart components in `apps/web/core/components/**`.
  */
 export const CHARTS_THEME = {
   background: "transparent",

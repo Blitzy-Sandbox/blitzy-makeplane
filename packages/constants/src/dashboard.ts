@@ -4,6 +4,11 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Dashboard widget filter vocabulary consumed by the home dashboard widgets in
+ * `apps/web/core/components/dashboard/**` to drive duration/status filters.
+ */
+
 // types
 import type { TIssuesListTypes } from "@plane/types";
 

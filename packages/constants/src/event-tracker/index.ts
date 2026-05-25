@@ -5,20 +5,16 @@
  */
 
 /**
- * Event tracker barrel — re-exports the analytics tracking identifier
- * constants (event names and UI element identifiers) defined in `./core`.
+ * Event tracker barrel — re-exports analytics identifier constants from `./core`
+ * where `*_TRACKER_ELEMENTS` are attached as `data-ph-element` attributes (verified
+ * across `apps/web/core/components/**`) and `*_TRACKER_EVENTS` are string-name
+ * registries whose values match backend constants in
+ * `apps/api/plane/utils/analytics_events.py` (the backend Celery task
+ * `apps/api/plane/bgtasks/event_tracking_task.py` emits to PostHog server-side).
  *
- * These identifiers form the public analytics schema emitted by the web
- * frontend: `*_TRACKER_ELEMENTS` strings are attached to interactive React
- * elements as `data-ph-element` attributes for PostHog autocapture, and
- * `*_TRACKER_EVENTS` strings are used as event names passed to PostHog's
- * `capture()` API.
- *
- * Consumers: web components and route segments under
- * `apps/web/core/components/**` and `apps/web/app/**` import these
- * identifiers directly from `@plane/constants`. The backend Celery task
- * `apps/api/plane/bgtasks/event_tracking_task.py` relays a parallel set of
- * server-side events to the same PostHog project.
+ * // INTENT UNCLEAR: no client-side import of `*_TRACKER_EVENTS` was found in
+ * tracked source, so the front-end emission path (capture call site) cannot be
+ * confirmed.
  */
 
 export * from "./core";

@@ -4,6 +4,11 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * View access-level option catalog consumed by the project view create/edit
+ * form's access picker in `apps/web/core/components/views/**`.
+ */
+
 import { EViewAccess } from "@plane/types";
 
 /**

@@ -4,6 +4,12 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Issue filter operators, page-level filter registries, layout-aware filter
+ * options, and activity feed filter helpers consumed by issue filter UIs in
+ * `apps/web/core/components/issues/**` and `apps/web/core/store/issue/**`.
+ */
+
 import type {
   IIssueFilterOptions,
   ILayoutDisplayFiltersOptions,
@@ -17,19 +23,14 @@ import { ISSUE_DISPLAY_PROPERTIES_KEYS, SUB_ISSUES_DISPLAY_PROPERTIES_KEYS } fro
 import type { TIssueLayout } from "./layout";
 
 /**
- * Issue filter sidebar key — narrow union of the three filters surfaced in the
- * sidebar quick-filter menu (priority/state/labels).
- *
- * Consumers: `apps/web/core/components/issues/filters/**` sidebar quick-filter chips.
+ * Narrow sidebar quick-filter key union (priority/state/labels).
+ * Consumers: sidebar quick-filter chips in `apps/web/core/components/issues/filters/**`.
  */
 export type TIssueFilterKeys = "priority" | "state" | "labels";
 
 /**
- * Inverse map: server-side group-by tokens → client-facing filter keys. The
- * inverse of `EIssueGroupByToServerOptions` in `./common.ts` — used when reading a
- * persisted group-by string from the API and translating it back to the UI key.
- *
- * Consumers: `apps/web/core/store/issue/**` group-by deserializers.
+ * Inverse of `EIssueGroupByToServerOptions` in `./common.ts` — maps persisted server group-by tokens back to UI filter keys.
+ * Consumers: group-by deserializers in `apps/web/core/store/issue/**`.
  */
 export enum EServerGroupByToFilterOptions {
   "state_id" = "state",
@@ -45,19 +46,8 @@ export enum EServerGroupByToFilterOptions {
 }
 
 /**
- * Persistence bucket discriminator for the four classes of filter state the
- * issue list persists separately. Each value names a column on the per-user
- * filters payload returned by the issue filters API.
- *
- * Values:
- * - FILTERS ("rich_filters"): the full rich-filter expression (operators + values)
- * - DISPLAY_FILTERS ("display_filters"): group-by / order-by / sub-group-by + type
- * - DISPLAY_PROPERTIES ("display_properties"): per-column visibility toggles
- * - KANBAN_FILTERS ("kanban_filters"): kanban-specific group collapse/expand state
- *
- * The string values mirror persistence column names on the API contract — DO NOT rename.
- *
- * Consumers: `apps/web/core/store/issue/**` filter persistence + `apps/web/core/components/issues/filters/**`.
+ * Persistence bucket discriminator (rich filters, display filters, display properties, kanban-only state) whose values mirror per-user filter API column names — DO NOT rename.
+ * Consumers: filter persistence in `apps/web/core/store/issue/**` and filter UIs in `apps/web/core/components/issues/filters/**`.
  */
 export enum EIssueFilterType {
   FILTERS = "rich_filters",
@@ -67,10 +57,8 @@ export enum EIssueFilterType {
 }
 
 /**
- * Subset of `EIssueFilterType` supporting partial `PATCH`-style updates — excludes
- * `FILTERS` (rich filters), which are replaced atomically.
- *
- * Consumers: `apps/web/core/store/issue/**` filter update reducers.
+ * Subset of `EIssueFilterType` accepting PATCH-style partial updates; excludes `FILTERS`, which are replaced atomically.
+ * Consumers: filter update reducers in `apps/web/core/store/issue/**`.
  */
 export type TSupportedFilterTypeForUpdate =
   | EIssueFilterType.DISPLAY_FILTERS
@@ -78,10 +66,8 @@ export type TSupportedFilterTypeForUpdate =
   | EIssueFilterType.KANBAN_FILTERS;
 
 /**
- * Per-layout allowlist of filter keys exposed in the sidebar quick-filter menu.
- * Currently every layout exposes the same `[priority, state, labels]` triplet.
- *
- * Consumers: `apps/web/core/components/issues/issue-layouts/**` filter sidebars.
+ * Per-layout sidebar quick-filter allowlist; every layout currently exposes the same `[priority, state, labels]` triplet.
+ * Consumers: filter sidebars in `apps/web/core/components/issues/issue-layouts/**`.
  */
 export const ISSUE_DISPLAY_FILTERS_BY_LAYOUT: {
   [key in TIssueLayout]: Record<"filters", TIssueFilterKeys[]>;
@@ -104,16 +90,8 @@ export const ISSUE_DISPLAY_FILTERS_BY_LAYOUT: {
 };
 
 /**
- * Priority filter pill catalog — pairs each backend priority value with its i18n
- * label, Tailwind classes, and Material Symbols icon name.
- *
- * Cross-stack contract: priority `key` strings (`urgent`/`high`/`medium`/`low`/`none`)
- * MIRROR the `Issue.priority` CharField choices in
- * `apps/api/plane/db/models/issue.py` — DO NOT change these values without a
- * corresponding backend migration.
- *
- * Consumers: priority filter pills in `apps/web/core/components/issues/filters/**`
- * and priority badges across `apps/web/core/components/issues/**`.
+ * Priority filter pill catalog pairing each cross-stack priority `key` (mirroring `Issue.priority` choices in `apps/api/plane/db/models/issue.py`) with its i18n label, Tailwind classes, and Material Symbols icon.
+ * Consumers: priority pills and badges in `apps/web/core/components/issues/filters/**` and `apps/web/core/components/issues/**`.
  */
 export const ISSUE_PRIORITY_FILTERS: TIssueFilterPriorityObject[] = [
   {
@@ -149,20 +127,16 @@ export const ISSUE_PRIORITY_FILTERS: TIssueFilterPriorityObject[] = [
 ];
 
 /**
- * Per-layout filter/display options shape — keyed by layout name to its
- * `ILayoutDisplayFiltersOptions` (display properties + display filters + extra options).
- *
- * Consumers: `apps/web/core/components/issues/filters/**` page-aware filter config.
+ * Per-layout filter/display options shape keyed by layout name to its `ILayoutDisplayFiltersOptions`.
+ * Consumers: page-aware filter config in `apps/web/core/components/issues/filters/**`.
  */
 export type TFiltersLayoutOptions = {
   [layoutType: string]: ILayoutDisplayFiltersOptions;
 };
 
 /**
- * Page-level filter configuration shape — the allowed filter keys for the page
- * plus per-layout options keyed by layout name.
- *
- * Consumers: `apps/web/core/components/issues/filters/**` page filter builders.
+ * Page-level filter configuration shape pairing allowed filter keys with per-layout options.
+ * Consumers: page filter builders in `apps/web/core/components/issues/filters/**`.
  */
 export type TFilterPropertiesByPageType = {
   filters: TWorkItemFilterProperty[];
@@ -170,25 +144,16 @@ export type TFilterPropertiesByPageType = {
 };
 
 /**
- * Top-level registry shape — page type to its filter configuration.
- *
- * Consumers: `apps/web/core/components/issues/filters/**` page-aware filter resolvers.
+ * Top-level registry shape mapping each page type to its filter configuration.
+ * Consumers: page-aware filter resolvers in `apps/web/core/components/issues/filters/**`.
  */
 export type TIssueFiltersToDisplayByPageType = {
   [pageType: string]: TFilterPropertiesByPageType;
 };
 
 /**
- * Page-keyed filter registry: for each issue page type (`profile_issues`,
- * `archived_issues`, `my_issues`, `issues`, `sub_work_items`) declares the allowed
- * filter keys and the per-layout display properties / filters / extra options.
- *
- * This is the source of truth for which group-by / order-by options and which
- * display properties are available on each page × layout combination.
- *
- * Consumers: `apps/web/core/components/issues/filters/**` and
- * `apps/web/core/components/issues/issue-layouts/**` for page-aware filter
- * menus and column-visibility menus.
+ * Source-of-truth page-keyed filter registry (`profile_issues`, `archived_issues`, `my_issues`, `issues`, `sub_work_items`) declaring allowed filter keys plus per-layout display properties/filters/extra options.
+ * Consumers: page-aware filter and column-visibility menus in `apps/web/core/components/issues/filters/**` and `apps/web/core/components/issues/issue-layouts/**`.
  */
 export const ISSUE_DISPLAY_FILTERS_BY_PAGE: TIssueFiltersToDisplayByPageType = {
   profile_issues: {
@@ -377,21 +342,16 @@ export const ISSUE_DISPLAY_FILTERS_BY_PAGE: TIssueFiltersToDisplayByPageType = {
 };
 
 /**
- * Maps an `EIssuesStoreType` to the page-type filter registry it should use.
- * Currently `PROJECT` → `issues`; extend here as new stores adopt rich filters.
- *
- * Consumers: `apps/web/core/store/issue/**` filter resolution.
+ * Maps each `EIssuesStoreType` to its page-type filter registry (currently `PROJECT` → `issues`); extend as new stores adopt rich filters.
+ * Consumers: filter resolution in `apps/web/core/store/issue/**`.
  */
 export const ISSUE_STORE_TO_FILTERS_MAP: Partial<Record<EIssuesStoreType, TFilterPropertiesByPageType>> = {
   [EIssuesStoreType.PROJECT]: ISSUE_DISPLAY_FILTERS_BY_PAGE.issues,
 };
 
 /**
- * Allowlist of filter keys available on the sub-work-item filter strip when
- * rendered inside a work-item page — a tighter subset than the full work-item
- * filter set (only priority/state/issue_type/assignees/date filters).
- *
- * Consumers: `apps/web/core/components/issues/issue-detail/**` sub-work-item filter strip.
+ * Tighter sub-work-item filter allowlist for work-item pages (priority/state/issue_type/assignees/dates only).
+ * Consumers: sub-work-item filter strip in `apps/web/core/components/issues/issue-detail/**`.
  */
 export const SUB_WORK_ITEM_AVAILABLE_FILTERS_FOR_WORK_ITEM_PAGE: (keyof IIssueFilterOptions)[] = [
   "priority",
@@ -403,17 +363,8 @@ export const SUB_WORK_ITEM_AVAILABLE_FILTERS_FOR_WORK_ITEM_PAGE: (keyof IIssueFi
 ];
 
 /**
- * Issue activity feed filter categories — partitions the activity stream into
- * filterable buckets the user can toggle in the activity panel.
- *
- * Values:
- * - ACTIVITY: generic property-change activity entries (anything not in another bucket)
- * - COMMENT: user-authored comments
- * - STATE: state/workflow change activities
- * - ASSIGNEE: assignee change activities
- * - DEFAULT: activity types always preserved regardless of filter selection (e.g., system entries)
- *
- * Consumers: `apps/web/core/components/issues/issue-detail/**` activity panel filter chips.
+ * Activity feed filter buckets (ACTIVITY, COMMENT, STATE, ASSIGNEE, DEFAULT) — `DEFAULT` is implicit/always-preserved while the rest are user-toggleable in the activity panel.
+ * Consumers: activity panel filter chips in `apps/web/core/components/issues/issue-detail/**`.
  */
 export enum EActivityFilterType {
   ACTIVITY = "ACTIVITY",
@@ -435,10 +386,8 @@ export type TActivityFilters = EActivityFilterType;
 export type TActivityFilterOptionsKey = Exclude<TActivityFilters, EActivityFilterType.DEFAULT>;
 
 /**
- * i18n label registry per activity filter type — drives the activity filter menu's
- * label text.
- *
- * Consumers: `apps/web/core/components/issues/issue-detail/**` activity filter menu.
+ * i18n label registry per activity filter type driving the activity filter menu labels.
+ * Consumers: activity filter menu in `apps/web/core/components/issues/issue-detail/**`.
  */
 export const ACTIVITY_FILTER_TYPE_OPTIONS: Record<TActivityFilterOptionsKey, { labelTranslationKey: string }> = {
   [EActivityFilterType.ACTIVITY]: {
@@ -456,10 +405,8 @@ export const ACTIVITY_FILTER_TYPE_OPTIONS: Record<TActivityFilterOptionsKey, { l
 };
 
 /**
- * Shape of a single activity filter chip — pairs the filter key with its
- * translation key, current selection state, and click handler.
- *
- * Consumers: `apps/web/core/components/issues/issue-detail/**` activity filter chips.
+ * Activity filter chip shape pairing filter key with translation key, selection state, and click handler.
+ * Consumers: activity filter chips in `apps/web/core/components/issues/issue-detail/**`.
  */
 export type TActivityFilterOption = {
   key: TActivityFilters;
@@ -469,11 +416,8 @@ export type TActivityFilterOption = {
 };
 
 /**
- * Default selected activity filters on first render — all user-toggleable
- * categories are pre-selected so the feed shows the full activity stream.
- *
- * Consumers: `apps/web/core/components/issues/issue-detail/**` activity panel
- * initial filter state.
+ * Default activity filter selection on first render — every user-toggleable bucket pre-selected so the feed shows the full stream.
+ * Consumers: activity panel initial filter state in `apps/web/core/components/issues/issue-detail/**`.
  */
 export const defaultActivityFilters: TActivityFilters[] = [
   EActivityFilterType.ACTIVITY,
@@ -483,15 +427,8 @@ export const defaultActivityFilters: TActivityFilters[] = [
 ];
 
 /**
- * Returns the subset of activity items matching the selected filter categories.
- * Items whose `activity_type` is `EActivityFilterType.DEFAULT` are ALWAYS retained
- * (regardless of the filter set) so system-generated activity entries remain visible.
- *
- * @param activity - Full activity/comment timeline as returned by the API.
- * @param filters - Currently selected filter categories.
- * @returns Filtered timeline preserving `DEFAULT` entries.
- *
- * Consumers: `apps/web/core/components/issues/issue-detail/**` activity panel rendering.
+ * Returns activity items matching the selected filter categories; `DEFAULT` entries are always retained so system-generated activity remains visible.
+ * Consumers: activity panel rendering in `apps/web/core/components/issues/issue-detail/**`.
  */
 export const filterActivityOnSelectedFilters = (
   activity: TIssueActivityComment[],
@@ -503,19 +440,14 @@ export const filterActivityOnSelectedFilters = (
   });
 
 /**
- * Feature flag gating the experimental issue-dependencies UI (blocked-by / blocking
- * graphs). Set to `true` to surface dependency widgets in the issue detail view.
- *
- * Consumers: dependency-related components in `apps/web/core/components/issues/**`.
+ * Feature flag gating the experimental issue-dependencies UI (blocked-by / blocking graphs); set `true` to surface dependency widgets.
+ * Consumers: dependency components in `apps/web/core/components/issues/**`.
  */
 export const ENABLE_ISSUE_DEPENDENCIES = false;
 
 /**
- * Activity-type allowlist that is always rendered in the activity panel
- * (`COMMENT` is intentionally excluded — comments are surfaced via a separate
- * user toggle on the activity feed).
- *
- * Consumers: `apps/web/core/components/issues/issue-detail/**` activity panel renderer.
+ * Activity-type allowlist always rendered in the activity panel; `COMMENT` is excluded because comments are surfaced via a separate user toggle.
+ * Consumers: activity panel renderer in `apps/web/core/components/issues/issue-detail/**`.
  */
 export const BASE_ACTIVITY_FILTER_TYPES = [
   EActivityFilterType.ACTIVITY,

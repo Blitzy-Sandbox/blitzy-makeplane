@@ -4,6 +4,11 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Notification panel tab catalog and unread-count seed value consumed by
+ * `apps/web/core/components/notifications/**` and the notification MobX store.
+ */
+
 import type { TUnreadNotificationsCount } from "@plane/types";
 
 /**
@@ -30,18 +35,8 @@ export enum ENotificationFilterType {
 }
 
 /**
- * Notification list loader-state machine identifiers — drives the right spinner/skeleton
- * for each lifecycle stage (initial load, write mutation, pagination fetch, etc.).
- *
- * Consumers: `apps/web/core/store/notifications/**` for loader state and the panel
- * UI components in `apps/web/core/components/notifications/**`.
- *
- * Values:
- * - INIT_LOADER: first fetch on panel open
- * - MUTATION_LOADER: optimistic mutation in flight (mark read/snooze/etc.)
- * - PAGINATION_LOADER: subsequent page fetch
- * - REFRESH: manual or interval-based refresh
- * - MARK_ALL_AS_READY: bulk mark-all-as-read in flight (note: source value is `mark-all-as-read`)
+ * Loader-state machine identifiers (init, mutation, pagination, refresh, mark-all) driving the right spinner/skeleton for each notification lifecycle stage.
+ * Consumers: `apps/web/core/store/notifications/**` loader state and panel UI in `apps/web/core/components/notifications/**`.
  */
 export enum ENotificationLoader {
   INIT_LOADER = "init-loader",

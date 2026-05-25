@@ -5,13 +5,8 @@
  */
 
 /**
- * Set of supported theme identifiers — the source of truth that gates which
- * `next-themes`-compatible theme strings are valid for the Plane UI.
- *
- * Consumers: `apps/web/core/store/theme.store.ts` and theme switchers in
- * `apps/web/core/components/**` profile/preferences pages.
- *
- * Values: light, dark, light-contrast, dark-contrast, custom (user-defined palette).
+ * Whitelist of `next-themes`-compatible theme identifiers (light, dark, light/dark-contrast, custom) that gate valid Plane UI theme strings.
+ * Consumers: `apps/web/core/store/theme.store.ts` and theme switchers in `apps/web/core/components/**` profile/preferences.
  */
 export const THEMES = ["light", "dark", "light-contrast", "dark-contrast", "custom"];
 

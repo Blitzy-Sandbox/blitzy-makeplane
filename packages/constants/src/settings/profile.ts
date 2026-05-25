@@ -4,16 +4,17 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Profile settings tab groups and per-tab metadata consumed by the profile
+ * settings shell at `apps/web/core/components/settings/profile/**`.
+ */
+
 // plane imports
 import type { TProfileSettingsTabs } from "@plane/types";
 
 /**
- * Top-level grouping of profile settings tabs — `YOUR_PROFILE` holds personal
- * info and preferences; `DEVELOPER` holds developer-facing tabs (API tokens).
- * Used as the discriminant for sectioned rendering in the profile settings sidebar.
- *
- * Consumers: `apps/web/core/components/settings/profile/**` and
- * `apps/web/core/components/profile/settings/**`.
+ * Discriminant for sectioned profile settings sidebar rendering (`YOUR_PROFILE` = personal info/preferences, `DEVELOPER` = API tokens).
+ * Consumers: `apps/web/core/components/settings/profile/**` and `apps/web/core/components/profile/settings/**`.
  */
 export enum PROFILE_SETTINGS_CATEGORY {
   YOUR_PROFILE = "your profile",
@@ -43,15 +44,8 @@ export const PROFILE_SETTINGS_CATEGORY_LABELS: Record<PROFILE_SETTINGS_CATEGORY,
 };
 
 /**
- * Profile settings registry — the canonical record of every tab on the profile
- * settings page, keyed by `TProfileSettingsTabs` (`general`, `security`,
- * `preferences`, `notifications`, `api-tokens`). Each entry pairs a route key
- * with its i18n label token used by the sidebar and tab content router.
- *
- * Consumers: `apps/web/core/components/settings/profile/**` (sidebar, content
- * router, tab pages), `apps/web/core/components/profile/settings/**`, and the
- * power-k command palette at
- * `apps/web/core/components/power-k/ui/pages/open-entity/**`.
+ * Canonical record of every profile settings tab (`general`/`security`/`preferences`/`notifications`/`api-tokens`) keyed by `TProfileSettingsTabs` with i18n labels for sidebar and content router.
+ * Consumers: `apps/web/core/components/{settings/profile,profile/settings}/**` and the power-k command palette at `apps/web/core/components/power-k/ui/pages/open-entity/**`.
  */
 export const PROFILE_SETTINGS: Record<
   TProfileSettingsTabs,
@@ -91,10 +85,7 @@ export const PROFILE_SETTINGS: Record<
 export const PROFILE_SETTINGS_TABS: TProfileSettingsTabs[] = Object.keys(PROFILE_SETTINGS) as TProfileSettingsTabs[];
 
 /**
- * Category-bucketed view of `PROFILE_SETTINGS` — `YOUR_PROFILE` holds
- * `general` + `preferences` + `notifications` + `security`; `DEVELOPER` holds
- * `api-tokens`. Drives the sectioned, ordered sidebar rendering.
- *
+ * Category-bucketed `PROFILE_SETTINGS` view (`YOUR_PROFILE` = general/preferences/notifications/security, `DEVELOPER` = api-tokens) driving sectioned sidebar rendering.
  * Consumers: `apps/web/core/components/settings/profile/sidebar/**`.
  */
 export const GROUPED_PROFILE_SETTINGS: Record<

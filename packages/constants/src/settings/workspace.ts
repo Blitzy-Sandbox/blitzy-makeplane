@@ -4,19 +4,19 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Workspace settings tab groups, per-tab metadata, and role-based access maps
+ * consumed by the workspace settings shell at
+ * `apps/web/core/components/settings/workspace/**`.
+ */
+
 // plane imports
 import type { TWorkspaceSettingsItem, TWorkspaceSettingsTabs } from "@plane/types";
 import { EUserWorkspaceRoles } from "@plane/types";
 
 /**
- * Top-level grouping of workspace settings tabs — `ADMINISTRATION`
- * (general/members/billing/export), `FEATURES` (currently empty placeholder
- * for future feature toggles), `DEVELOPER` (webhooks). Drives sectioned
- * sidebar rendering and is used as the discriminant for
- * `GROUPED_WORKSPACE_SETTINGS`.
- *
- * Consumers: `apps/web/core/components/settings/workspace/**` and
- * `apps/web/core/components/workspace/settings/**`.
+ * Discriminant for sectioned workspace settings sidebar (`ADMINISTRATION` = general/members/billing/export, `FEATURES` = future toggles placeholder, `DEVELOPER` = webhooks) used by `GROUPED_WORKSPACE_SETTINGS`.
+ * Consumers: `apps/web/core/components/{settings/workspace,workspace/settings}/**`.
  */
 export enum WORKSPACE_SETTINGS_CATEGORY {
   ADMINISTRATION = "administration",
@@ -49,17 +49,8 @@ export const WORKSPACE_SETTINGS_CATEGORY_LABELS: Record<WORKSPACE_SETTINGS_CATEG
 };
 
 /**
- * Workspace settings registry — the canonical record of every tab on the
- * workspace settings page, keyed by `TWorkspaceSettingsTabs`. Each entry
- * carries a route-relative `href`, an `i18n_label`, an `access` role list
- * (`EUserWorkspaceRoles`) that gates visibility, and a `highlight(pathname,
- * baseUrl)` predicate the sidebar uses to determine the active tab via exact
- * pathname match.
- *
- * Consumers: `apps/web/core/components/settings/workspace/**` (sidebar,
- * content router, tab pages), `apps/web/core/components/workspace/settings/**`,
- * `apps/web/core/components/web-hooks/**`, and the power-k command palette at
- * `apps/web/core/components/power-k/ui/pages/open-entity/workspace-settings-menu.tsx`.
+ * Canonical record of every workspace settings tab keyed by `TWorkspaceSettingsTabs` with route-relative `href`, i18n label, `access` role gate (`EUserWorkspaceRoles`), and exact-pathname `highlight(pathname, baseUrl)` predicate.
+ * Consumers: `apps/web/core/components/{settings/workspace,workspace/settings,web-hooks}/**` and the power-k command palette at `apps/web/core/components/power-k/ui/pages/open-entity/workspace-settings-menu.tsx`.
  */
 export const WORKSPACE_SETTINGS: Record<TWorkspaceSettingsTabs, TWorkspaceSettingsItem> = {
   general: {
@@ -113,11 +104,7 @@ export const WORKSPACE_SETTINGS_ACCESS = Object.fromEntries(
 );
 
 /**
- * Category-bucketed view of `WORKSPACE_SETTINGS` — `ADMINISTRATION` holds
- * `general` + `members` + `billing-and-plans` + `export`; `FEATURES` is an
- * empty placeholder for future feature toggles; `DEVELOPER` holds `webhooks`.
- * Drives the sectioned, ordered sidebar rendering.
- *
+ * Category-bucketed `WORKSPACE_SETTINGS` view (`ADMINISTRATION` = general/members/billing/export, `FEATURES` = empty placeholder, `DEVELOPER` = webhooks) driving sectioned sidebar rendering.
  * Consumers: `apps/web/core/components/settings/workspace/sidebar/**`.
  */
 export const GROUPED_WORKSPACE_SETTINGS: Record<WORKSPACE_SETTINGS_CATEGORY, TWorkspaceSettingsItem[]> = {

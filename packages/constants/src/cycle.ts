@@ -4,23 +4,17 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Cycle vocabulary and filter option catalogs consumed by cycle list/detail
+ * surfaces in `apps/web/core/components/cycles/**` and cycle MobX stores in
+ * `apps/web/core/store/cycle*`.
+ */
+
 // types
 /**
- * Catalog of cycle lifecycle states with i18n keys and theme color tokens.
- *
- * Each entry binds a `value` (one of `current` | `upcoming` | `completed` | `draft`) to
- * its localized label/title and Tailwind color classes used to render the cycle's
- * status pill. The `value` strings are derived from the start/end date relationship
- * computed in `apps/web/core/store/cycle.store.ts`, NOT from a server-side enum.
- *
- * Consumers: `apps/web/core/components/cycles/**` status badges/pills/lists and
- * `apps/web/core/store/cycle.store.ts` for status assignment logic.
- *
- * Values:
- * - current: cycle is in progress (today between start_date and end_date)
- * - upcoming: cycle's start_date is in the future
- * - completed: cycle's end_date has passed
- * - draft: cycle is created but missing start_date/end_date
+ * Cycle lifecycle states (`current`/`upcoming`/`completed`/`draft`) with i18n keys
+ * and Tailwind tokens; `value` is derived client-side from start/end dates in
+ * `apps/web/core/store/cycle.store.ts`, not from a server enum.
  */
 export const CYCLE_STATUS: {
   i18n_label: string;

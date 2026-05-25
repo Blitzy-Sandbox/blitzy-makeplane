@@ -4,6 +4,12 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Chart styling primitives and color-scheme palettes consumed by analytics
+ * recharts visualizations in `apps/web/core/components/analytics/**` and the
+ * dashboard widget surface.
+ */
+
 import type { TChartColorScheme } from "@plane/types";
 import { ChartXAxisProperty } from "@plane/types";
 
@@ -63,18 +69,9 @@ export const CHART_X_AXIS_DATE_PROPERTIES: ChartXAxisProperty[] = [
 ];
 
 /**
- * Visual presentation modes available for a chart widget — chosen by the user in
- * the widget config form and mapped to the appropriate recharts composition.
- *
- * Values:
- * - BASIC: single series, single dimension
- * - STACKED: multi-series stacked along the x-axis
- * - GROUPED: multi-series side-by-side groups
- * - MULTI_LINE: multi-series line chart
- * - COMPARISON: paired comparison (e.g., this vs. last period)
- * - PROGRESS: progress-bar style toward a target
- *
- * Consumers: chart-widget config + renderers in `apps/web/core/components/dashboards/**`.
+ * Chart widget visual presentation modes (BASIC / STACKED / GROUPED / MULTI_LINE /
+ * COMPARISON / PROGRESS) chosen in widget config and mapped to recharts compositions.
+ * Consumer: `apps/web/core/components/dashboards/**`.
  */
 export enum EChartModels {
   BASIC = "BASIC",
@@ -86,17 +83,10 @@ export enum EChartModels {
 }
 
 /**
- * Curated chart color palettes used by dashboard widgets. Each entry exposes a
- * `light` and `dark` hex array tuned for theme contrast; the `key` matches the
- * `TChartColorScheme` discriminant persisted on the dashboard widget config.
- *
- * Palettes:
- * - modern: vivid jewel tones for general-purpose dashboards
- * - horizon: warm sunset-leaning palette for analytics widgets
- * - earthen: earth-tone palette emphasizing greens and warm browns
- *
- * Consumers: chart color resolver in `apps/web/core/components/dashboards/**`,
- * widget settings UI for picking a scheme.
+ * Curated chart color palettes (`modern`/`horizon`/`earthen`) — each `key` matches
+ * the `TChartColorScheme` discriminant on the widget config; `light`/`dark` arrays
+ * are tuned for theme contrast.
+ * Consumer: `apps/web/core/components/dashboards/**`.
  */
 export const CHART_COLOR_PALETTES: {
   key: TChartColorScheme;

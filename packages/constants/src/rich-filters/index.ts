@@ -5,15 +5,8 @@
  */
 
 /**
- * Rich-filters constants barrel — re-exports filter-option / visibility
- * contracts (from `./option`) and operator → display-label maps (from
- * `./operator-labels`) so the rich-filter chip UI and its backing stores
- * have a single stable import path for both surfaces.
- *
- * Consumers: `packages/shared-state/src/store/rich-filters/` (filter,
- * config-manager, filter-helpers), `packages/shared-state/src/store/work-item-filters/filter.store.ts`,
- * and `apps/web/core/components/work-item-filters/filters-hoc/` resolve
- * rich-filter constants through this barrel via `@plane/constants`.
+ * Rich-filters barrel re-exporting filter-option/visibility contracts from `./option` and operator→label maps from `./operator-labels` for the rich-filter chip UI and backing stores.
+ * Consumers: `packages/shared-state/src/store/{rich-filters,work-item-filters}/**` and `apps/web/core/components/work-item-filters/filters-hoc/**`.
  */
 
 export * from "./operator-labels";

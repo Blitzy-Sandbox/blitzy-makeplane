@@ -70,16 +70,8 @@ export enum EUserPermissionsLevel {
 export type TUserPermissionsLevel = EUserPermissionsLevel;
 
 /**
- * User role with numeric weight — higher number = higher privilege. Mirrors the
- * `WorkspaceMember.role` and `ProjectMember.role` IntegerField choices in
- * `apps/api/plane/db/models/workspace.py` and `project.py`. The numeric values are
- * part of the cross-stack contract and must not be changed without a coordinated
- * backend update.
- *
- * Values:
- * - ADMIN (20): full administrative access
- * - MEMBER (15): standard collaborator access
- * - GUEST  (5):  read-mostly external collaborator
+ * Role enum with numeric weight (higher = more privilege): ADMIN=20, MEMBER=15, GUEST=5 — mirrors `WorkspaceMember.role` / `ProjectMember.role` IntegerField choices in `apps/api/plane/db/models/{workspace,project}.py`.
+ * The numeric values are a cross-stack contract; do not change without a coordinated backend update.
  */
 export enum EUserPermissions {
   ADMIN = 20,
@@ -116,10 +108,7 @@ export type TUserAllowedPermissions = {
 };
 
 /**
- * Default workspace/project permission table — initial entries grant dashboard read
- * to all workspace roles (admin, member, guest); extend by adding more entries as
- * features ship. The project table starts empty and is populated per-feature.
- *
+ * Default workspace/project permission table — workspace entry grants dashboard read to admin/member/guest; project table starts empty and is populated per feature.
  * Consumers: permission checks in `apps/web/core/components/auth/**` and route guards.
  */
 export const USER_ALLOWED_PERMISSIONS: TUserAllowedPermissions = {

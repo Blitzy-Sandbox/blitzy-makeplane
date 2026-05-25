@@ -4,16 +4,17 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Member spreadsheet column metadata and sidebar tracker element identifiers
+ * consumed by `apps/web/core/components/{workspace,project}/settings/**` and
+ * the project/workspace member MobX stores.
+ */
+
 // Member property constants - Single source of truth for member spreadsheet properties
 
 /**
- * Sort-order key for the project members spreadsheet. The leading `-` denotes
- * descending order, mirroring DRF's `ordering=` query-parameter convention even
- * though the sort is applied client-side by `parseOrderKey` in the member store.
- *
- * Consumers: `apps/web/core/store/member/utils.ts` (`IMemberFilters.order_by`,
- * `parseOrderKey`) and `apps/web/core/components/project/member-header-column.tsx`
- * (column-header sort affordances).
+ * Project members spreadsheet sort key (DRF `-` prefix denotes descending) — sort is applied client-side by `parseOrderKey`.
+ * Consumers: `apps/web/core/store/member/utils.ts` and column-header affordances in `apps/web/core/components/project/member-header-column.tsx`.
  */
 export type TMemberOrderByOptions =
   | "display_name"
@@ -28,13 +29,8 @@ export type TMemberOrderByOptions =
   | "-role";
 
 /**
- * Display-properties toggle map for the project members spreadsheet — drives
- * which member columns are shown in the table. Each boolean key maps 1:1 to a
- * column rendered by the member-header / member-row components.
- *
- * Consumers: `apps/web/core/components/project/member-header-column.tsx` keys
- * each column header off this interface; matches the row-rendering shape used
- * by the project members table.
+ * Toggle map driving column visibility in the project members table — each boolean key maps 1:1 to a header/row column.
+ * Consumers: `apps/web/core/components/project/member-header-column.tsx` and the project members row renderer.
  */
 export interface IProjectMemberDisplayProperties {
   full_name: boolean;
@@ -45,15 +41,8 @@ export interface IProjectMemberDisplayProperties {
 }
 
 /**
- * Per-property metadata for member spreadsheet columns — pairs each
- * `IProjectMemberDisplayProperties` key with its i18n title, ascending and
- * descending sort keys/titles, lucide-react icon name, and whether sorting is
- * enabled. Single source of truth so column headers and sort affordances stay
- * in lockstep.
- *
- * Consumers: `apps/web/core/components/project/member-header-column.tsx` reads
- * the entry for the current column to render its icon, localized header label,
- * and ascending/descending sort buttons.
+ * Per-column metadata (i18n title, asc/desc sort keys + titles, lucide-react icon, sort-enabled flag) keeping member spreadsheet headers and sort affordances in lockstep.
+ * Consumers: `apps/web/core/components/project/member-header-column.tsx`.
  */
 export const MEMBER_PROPERTY_DETAILS: {
   [key in keyof IProjectMemberDisplayProperties]: {

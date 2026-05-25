@@ -4,18 +4,19 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Project settings tab groups, per-tab metadata, and role-based access maps
+ * consumed by the project settings shell at
+ * `apps/web/core/components/settings/project/**`.
+ */
+
 // plane imports
 import { EUserProjectRoles } from "@plane/types";
 import type { TProjectSettingsItem, TProjectSettingsTabs } from "@plane/types";
 
 /**
- * Top-level grouping of project settings tabs — `GENERAL` (general + members),
- * `FEATURES` (toggleable per-feature settings), `WORK_STRUCTURE` (states/labels/
- * estimates), `EXECUTION` (automations). Drives sectioned sidebar rendering and
- * is used as a discriminant for `GROUPED_PROJECT_SETTINGS`.
- *
- * Consumers: `apps/web/core/components/settings/project/**` and
- * `apps/web/core/components/project/settings/**`.
+ * Discriminant for sectioned project settings sidebar (`GENERAL`/`FEATURES`/`WORK_STRUCTURE`/`EXECUTION`) used by `GROUPED_PROJECT_SETTINGS`.
+ * Consumers: `apps/web/core/components/{settings/project,project/settings}/**`.
  */
 export enum PROJECT_SETTINGS_CATEGORY {
   GENERAL = "general",
@@ -51,17 +52,8 @@ export const PROJECT_SETTINGS_CATEGORY_LABELS: Record<PROJECT_SETTINGS_CATEGORY,
 };
 
 /**
- * Project settings registry — the canonical record of every tab on the project
- * settings page, keyed by `TProjectSettingsTabs`. Each entry carries a
- * route-relative `href`, an `i18n_label`, an `access` role list
- * (`EUserProjectRoles`) that gates visibility, and a `highlight(pathname,
- * baseUrl)` predicate the sidebar uses to determine the active tab via exact
- * pathname match.
- *
- * Consumers: `apps/web/core/components/settings/project/**` (sidebar, content
- * router, tab pages), `apps/web/core/components/project/settings/**`, and the
- * power-k command palette at
- * `apps/web/core/components/power-k/ui/pages/open-entity/project-settings-menu.tsx`.
+ * Canonical record of every project settings tab keyed by `TProjectSettingsTabs` with route-relative `href`, i18n label, `access` role gate (`EUserProjectRoles`), and exact-pathname `highlight(pathname, baseUrl)` predicate for active-tab matching.
+ * Consumers: `apps/web/core/components/{settings/project,project/settings}/**` and the power-k command palette at `apps/web/core/components/power-k/ui/pages/open-entity/project-settings-menu.tsx`.
  */
 export const PROJECT_SETTINGS: Record<TProjectSettingsTabs, TProjectSettingsItem> = {
   general: {
@@ -153,11 +145,7 @@ export const PROJECT_SETTINGS: Record<TProjectSettingsTabs, TProjectSettingsItem
 export const PROJECT_SETTINGS_FLAT_MAP: TProjectSettingsItem[] = Object.values(PROJECT_SETTINGS);
 
 /**
- * Category-bucketed view of `PROJECT_SETTINGS` — `GENERAL` holds `general` +
- * `members`; `FEATURES` holds the five `features_*` tabs; `WORK_STRUCTURE`
- * holds `states` + `labels` + `estimates`; `EXECUTION` holds `automations`.
- * Drives the sectioned, ordered sidebar rendering.
- *
+ * Category-bucketed `PROJECT_SETTINGS` view (`GENERAL` = general/members, `FEATURES` = five `features_*`, `WORK_STRUCTURE` = states/labels/estimates, `EXECUTION` = automations) driving sectioned sidebar rendering.
  * Consumers: `apps/web/core/components/settings/project/sidebar/**`.
  */
 export const GROUPED_PROJECT_SETTINGS: Record<PROJECT_SETTINGS_CATEGORY, TProjectSettingsItem[]> = {

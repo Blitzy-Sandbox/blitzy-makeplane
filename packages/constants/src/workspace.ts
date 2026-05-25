@@ -4,6 +4,12 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Workspace vocabulary — onboarding org-size buckets, role labels, static view
+ * catalogs, and the global-search result shape seed — consumed by
+ * `apps/web/core/components/workspace/**` and workspace MobX stores.
+ */
+
 import type { TStaticViewTypes, IWorkspaceSearchResults } from "@plane/types";
 import { EUserWorkspaceRoles } from "@plane/types";
 
@@ -188,13 +194,8 @@ export const IMPORTERS_LIST = [
 ];
 
 /**
- * Available data exporters (CSV, Excel, JSON) shown in the workspace export
- * settings. The `i18n_description` for `xlsx` and `json` intentionally reuses
- * `exporter.csv.description` as a pre-existing shared description string — not
- * a copy-paste error to be corrected.
- *
- * Consumers: export settings UI in `apps/web/core/components/workspace/**`, paired
- * with `apps/api/plane/bgtasks/export_task.py` server-side job.
+ * Data exporters (CSV/Excel/JSON) shown in workspace export settings — `xlsx`/`json` intentionally reuse `exporter.csv.description` as a shared i18n string (not a copy-paste error).
+ * Consumers: export settings UI in `apps/web/core/components/workspace/**`, paired with the `apps/api/plane/bgtasks/export_task.py` server-side job.
  */
 export const EXPORTERS_LIST = [
   {
@@ -304,10 +305,7 @@ export const WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS_LINKS: IWorkspaceSidebar
 ];
 
 /**
- * Workspace sidebar entries always present (do not depend on feature flags):
- * home, inbox, your-work, stickies, drafts, projects. `your-work` and `drafts`
- * are hidden from guests.
- *
+ * Always-present workspace sidebar entries (home, inbox, your-work, stickies, drafts, projects); `your-work` and `drafts` are hidden from guests.
  * Consumers: workspace sidebar in `apps/web/core/components/workspace/**`.
  */
 export const WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS: Record<string, IWorkspaceSidebarNavigationItem> = {

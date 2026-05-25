@@ -4,6 +4,12 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Workflow state vocabulary — state group catalog with color tokens and the
+ * drag-and-drop payload type — consumed by project state settings in
+ * `apps/web/core/components/states/**` and the state MobX store.
+ */
+
 import type { TStateGroups } from "@plane/types";
 
 /**
@@ -18,14 +24,8 @@ export type TDraggableData = {
 };
 
 /**
- * Canonical metadata for each workflow state group (backlog/unstarted/started/
- * completed/cancelled) — labels, default state name created when a new project
- * is provisioned, and color tokens.
- *
- * Mirrors the state-group set defined in `apps/api/plane/db/models/state.py`.
- *
- * Consumers: `apps/web/core/components/states/**` state-group headers and the
- * state distribution renderer in dashboards/cycles/modules.
+ * Canonical metadata (label, default state name on new project, color token) per workflow state group, mirroring the set in `apps/api/plane/db/models/state.py`.
+ * Consumers: state-group headers in `apps/web/core/components/states/**` and distribution renderers in dashboards/cycles/modules.
  */
 export const STATE_GROUPS: {
   [key in TStateGroups]: {
@@ -78,10 +78,7 @@ export const ARCHIVABLE_STATE_GROUPS = [STATE_GROUPS.completed.key, STATE_GROUPS
  */
 export const COMPLETED_STATE_GROUPS = [STATE_GROUPS.completed.key];
 /**
- * State-group keys whose issues count as "pending" — backlog/unstarted/started/cancelled.
- * Note: `cancelled` is intentionally included in pending for dashboard "not yet
- * completed" buckets.
- *
+ * State-group keys whose issues count as "pending" — backlog/unstarted/started/cancelled (cancelled is intentionally bucketed as "not yet completed").
  * Consumers: dashboard pending-issues widgets in `apps/web/core/components/dashboard/**`.
  */
 export const PENDING_STATE_GROUPS = [
@@ -92,10 +89,7 @@ export const PENDING_STATE_GROUPS = [
 ];
 
 /**
- * Distribution payload-field mapping per state group — names the API response keys
- * that hold the issue count and estimate-point total for that group (used by the
- * dashboard/cycle/module distribution charts).
- *
+ * API response-key mapping per state group — names the issue-count and estimate-point fields used by dashboard/cycle/module distribution charts.
  * Consumers: cycle/module distribution widgets in `apps/web/core/components/**`.
  */
 export const STATE_DISTRIBUTION = {
@@ -154,9 +148,7 @@ export const PROGRESS_STATE_GROUPS_DETAILS = [
 ];
 
 /**
- * Feature flag that hides the workflow-pro CTA in the state settings page when set
- * to `false`. Set to `true` to surface the upgrade prompt for advanced workflow features.
- *
+ * Feature flag that gates the workflow-pro upgrade CTA on the state settings page (`false` hides it).
  * Consumers: `apps/web/core/components/states/**`.
  */
 export const DISPLAY_WORKFLOW_PRO_CTA = false;

@@ -4,19 +4,18 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * User profile catalogs — profile-page tab visibility, calendar week-start options,
+ * and time-format options — consumed by `apps/web/core/components/profile/**` and
+ * the user settings MobX store.
+ */
+
 // plane imports
 import { EStartOfTheWeek } from "@plane/types";
 
 /**
- * Profile-page tab list shown to viewers (non-admins) of another user's profile —
- * exposes only the "summary" tab so non-admins cannot navigate into the profile
- * owner's assigned/created/subscribed/activity work-item streams.
- *
- * Each entry carries an i18n label key, a relative `route` segment appended to the
- * profile base URL, and a `selected` path fragment used to match the active tab.
- *
- * Consumers: profile page tab navigation in
- * `apps/web/app/(all)/[workspaceSlug]/(projects)/profile/[userId]/{navbar,layout,header}.tsx`.
+ * Non-admin profile tab list — restricted to the "summary" tab so viewers cannot navigate to the owner's assigned/created/subscribed/activity streams.
+ * Consumers: profile tab navigation in `apps/web/app/(all)/[workspaceSlug]/(projects)/profile/[userId]/{navbar,layout,header}.tsx`.
  */
 export const PROFILE_VIEWER_TAB = [
   {
@@ -28,13 +27,8 @@ export const PROFILE_VIEWER_TAB = [
 ];
 
 /**
- * Profile-page tab list shown to admins (or the profile owner themselves) — extends
- * `PROFILE_VIEWER_TAB` with the assigned/created/subscribed/activity tabs that
- * surface the profile owner's work-item streams.
- *
- * Consumers spread this array after `PROFILE_VIEWER_TAB` to assemble the full
- * admin tab order; see
- * `apps/web/app/(all)/[workspaceSlug]/(projects)/profile/[userId]/{navbar,layout,header}.tsx`.
+ * Admin/owner profile tab list extending `PROFILE_VIEWER_TAB` with assigned/created/subscribed/activity tabs over the owner's work-item streams.
+ * Consumers: `apps/web/app/(all)/[workspaceSlug]/(projects)/profile/[userId]/{navbar,layout,header}.tsx` (spread after `PROFILE_VIEWER_TAB`).
  */
 export const PROFILE_ADMINS_TAB = [
   {
@@ -64,13 +58,7 @@ export const PROFILE_ADMINS_TAB = [
 ];
 
 /**
- * Preference cards rendered on the user-preferences page — each entry models one
- * configurable preference surface (currently only `theme`); new preference
- * entries (e.g., notification defaults, density) are appended to this array.
- *
- * `title` and `description` are i18n keys, not pre-translated strings — the
- * preferences page resolves them via the i18n provider at render time.
- *
+ * Preference cards (`title`/`description` are i18n keys resolved at render time) for the user-preferences page; currently only `theme`, extended as new preferences ship.
  * Consumers: user preferences page in `apps/web/core/components/profile/**`.
  */
 export const PREFERENCE_OPTIONS: {
@@ -86,20 +74,8 @@ export const PREFERENCE_OPTIONS: {
 ];
 
 /**
- * Start-of-week dropdown options for the user-preferences page — pairs each
- * `EStartOfTheWeek` enum value (the numeric weekday persisted on the user
- * profile) with its English day label rendered in the dropdown.
- *
- * The order reflects the dropdown render order (Sunday → Saturday) and must
- * remain in lockstep with the `EStartOfTheWeek` enum exported from `@plane/types`.
- *
- * Consumers: `apps/web/core/components/profile/start-of-week-preference.tsx`
- * and the power-K preferences menu in
- * `apps/web/core/components/power-k/ui/pages/preferences/start-of-week-menu.tsx`.
- *
- * @description The options for the start of the week
- * @type {Array<{value: EStartOfTheWeek, label: string}>}
- * @constant
+ * Start-of-week dropdown options (Sunday → Saturday) pairing each `EStartOfTheWeek` weekday value with its English label; order must stay in lockstep with the `EStartOfTheWeek` enum.
+ * Consumers: `apps/web/core/components/profile/start-of-week-preference.tsx` and the power-K preferences menu.
  */
 export const START_OF_THE_WEEK_OPTIONS = [
   {

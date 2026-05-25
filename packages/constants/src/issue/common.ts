@@ -4,6 +4,12 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Shared issue/work-item vocabulary — priorities, group-by/order-by options,
+ * display properties, spreadsheet columns, and the filter↔issue field map
+ * consumed across `apps/web/core/components/issues/**` and issue MobX stores.
+ */
+
 import type {
   TIssueGroupByOptions,
   TIssueOrderByOptions,
@@ -14,37 +20,20 @@ import type {
 } from "@plane/types";
 
 /**
- * String sentinel for the "All Issues" global workspace view — used both as a
- * display label and as a route/view-id discriminator throughout the issue layer.
- *
- * Consumers: `apps/web/core/components/issues/issue-layouts/spreadsheet/roots/workspace-root.tsx`,
- * `apps/web/core/components/issues/issue-layouts/gantt/base-gantt-root.tsx`,
- * `apps/web/core/components/issues/issue-layouts/list/default.tsx`,
- * `apps/web/core/components/issues/issue-detail-widgets/sub-issues/**`, and
- * `apps/web/core/store/issue/helpers/base-issues.store.ts` for the
- * workspace-wide all-issues view.
+ * String sentinel doubling as display label and route/view-id discriminator for the global workspace "All Issues" view.
+ * Consumers: workspace issue layout roots and `apps/web/core/store/issue/helpers/base-issues.store.ts`.
  */
 export const ALL_ISSUES = "All Issues";
 
 /**
- * Issue priority value union — **cross-stack contract**: these string literals
- * MIRROR the `Issue.priority` CharField choices declared in
- * `apps/api/plane/db/models/issue.py`. Changing any value here requires a
- * corresponding backend migration; DO NOT alter.
- *
- * Consumers: every priority-aware component in `apps/web/core/components/issues/**`,
- * the priority filter pills in `./filter.ts`, the form default in `./modal.ts`,
- * and `apps/api/plane/app/serializers/issue.py` validation.
+ * Cross-stack priority union mirroring the `Issue.priority` CharField choices in `apps/api/plane/db/models/issue.py` — changing values requires a backend migration.
+ * Consumers: priority-aware components in `apps/web/core/components/issues/**`, `./filter.ts` pills, and `apps/api/plane/app/serializers/issue.py`.
  */
 export type TIssuePriorities = "urgent" | "high" | "medium" | "low" | "none";
 
 /**
- * Shape of a single priority filter pill entry — pairs the priority `key` with
- * its i18n translation key, Tailwind class string, and Material Symbols icon
- * name. The `icon` field resolves to a glyph rendered by `@plane/ui`.
- *
- * Consumers: `./filter.ts` (`ISSUE_PRIORITY_FILTERS`) and the priority filter
- * chip components in `apps/web/core/components/issues/issue-layouts/filters/**`.
+ * Shape of a priority filter pill pairing the `key` with i18n title key, Tailwind class string, and a Material Symbols `icon` rendered by `@plane/ui`.
+ * Consumers: `./filter.ts` (`ISSUE_PRIORITY_FILTERS`) and priority filter chips in `apps/web/core/components/issues/issue-layouts/filters/**`.
  */
 export type TIssueFilterPriorityObject = {
   key: TIssuePriorities;
@@ -54,17 +43,8 @@ export type TIssueFilterPriorityObject = {
 };
 
 /**
- * Client-side group-by key → backend Django ORM filter token map. Used when
- * serializing the active group-by selection into the API query string (e.g.,
- * group_by=state translates to `state_id` for the Django ORM filter).
- *
- * Note: `team_project` and `project` both map to `project_id` on the server
- * side because the Django ORM uses the same `project_id` column for both; the
- * eslint-disable comment on the duplicate value guards this intentional
- * collision.
- *
- * Consumers: `apps/web/core/store/issue/helpers/issue-filter-helper.store.ts`
- * group-by serialization for the API query string.
+ * Client→server group-by key map (e.g., `state`→`state_id`); `team_project` and `project` intentionally collide on `project_id` because Django uses the same column for both.
+ * Consumers: group-by API query serialization in `apps/web/core/store/issue/helpers/issue-filter-helper.store.ts`.
  */
 export enum EIssueGroupByToServerOptions {
   "state" = "state_id",
@@ -82,14 +62,8 @@ export enum EIssueGroupByToServerOptions {
 }
 
 /**
- * Inverse of `EIssueGroupByToServerOptions` for the response-side: maps the
- * server-returned group-by token to the client-facing property name on
- * `TIssue` / `IIssueFilterOptions` (e.g., the API field `assignees__id` becomes
- * the client field `assignee_ids`). Used when reading paginated grouped issues
- * back from the API.
- *
- * Consumers: `apps/web/core/store/issue/helpers/issue-filter-helper.store.ts`
- * group response deserialization and grouped-list rendering helpers.
+ * Inverse of `EIssueGroupByToServerOptions` mapping server tokens back to `TIssue`/`IIssueFilterOptions` client property names (e.g., `assignees__id`→`assignee_ids`) when reading grouped issues.
+ * Consumers: group response deserialization in `apps/web/core/store/issue/helpers/issue-filter-helper.store.ts`.
  */
 export enum EIssueGroupBYServerToProperty {
   "state_id" = "state_id",
@@ -105,21 +79,8 @@ export enum EIssueGroupBYServerToProperty {
 }
 
 /**
- * Comment access specifier — controls who can read a given issue comment.
- *
- * Cross-stack contract: matches the `IssueComment.access` CharField choices in
- * `apps/api/plane/db/models/issue.py`. DO NOT change without a backend
- * migration.
- *
- * Values:
- * - EXTERNAL: visible to guests / external collaborators (deploy-board surface)
- * - INTERNAL: visible only to workspace members (admin + member roles)
- *
- * Consumers: `apps/web/core/components/comments/comment-create.tsx`,
- * `apps/web/core/components/comments/quick-actions.tsx`,
- * `apps/web/core/components/comments/card/display.tsx`, and the editor
- * toolbars under `apps/web/core/components/editor/**` that render the
- * access toggle.
+ * Cross-stack comment visibility specifier (EXTERNAL = guests/deploy-board, INTERNAL = workspace members) mirroring `IssueComment.access` CharField choices in `apps/api/plane/db/models/issue.py`.
+ * Consumers: comment create/display/quick-action components in `apps/web/core/components/comments/**` and editor toolbar access toggles.
  */
 export enum EIssueCommentAccessSpecifier {
   EXTERNAL = "EXTERNAL",
@@ -127,19 +88,8 @@ export enum EIssueCommentAccessSpecifier {
 }
 
 /**
- * Virtual row kinds emitted by the issue list renderer for layout-aware
- * rendering — the virtualized list uses these tags to pick the row component
- * to render at each index.
- *
- * Values:
- * - HEADER: a group header row (in grouped list / kanban)
- * - ISSUE: a regular issue row
- * - NO_ISSUES: empty-state row for a group with no items
- * - QUICK_ADD: inline create-issue affordance row
- *
- * Consumers: `apps/web/core/components/issues/issue-layouts/calendar/base-calendar-root.tsx`
- * and the virtualized list / kanban renderers under
- * `apps/web/core/components/issues/issue-layouts/{list,kanban}/**`.
+ * Virtual row-kind tags (HEADER, ISSUE, NO_ISSUES, QUICK_ADD) emitted by the issue list renderer so the virtualized list picks the right row component per index.
+ * Consumers: virtualized list/kanban/calendar renderers in `apps/web/core/components/issues/issue-layouts/{list,kanban,calendar}/**`.
  */
 export enum EIssueListRow {
   HEADER = "HEADER",
@@ -149,15 +99,8 @@ export enum EIssueListRow {
 }
 
 /**
- * Priority catalog with plain English labels (no i18n) — used by lightweight
- * surfaces that do not have access to the i18n provider (toolbars, dropdowns,
- * power-K menus). For i18n-aware pills see `ISSUE_PRIORITY_FILTERS` in
- * `./filter.ts`.
- *
- * Consumers: `apps/web/core/components/dropdowns/priority.tsx`,
- * `apps/web/core/components/readonly/priority.tsx`,
- * `apps/web/core/components/power-k/ui/pages/context-based/work-item/priorities-menu.tsx`,
- * and other priority pickers without translation context.
+ * Plain-English priority catalog (no i18n) for lightweight surfaces without an i18n provider; for translated pills see `ISSUE_PRIORITY_FILTERS` in `./filter.ts`.
+ * Consumers: `apps/web/core/components/{dropdowns,readonly}/priority.tsx` and `power-k/ui/pages/context-based/work-item/priorities-menu.tsx`.
  */
 export const ISSUE_PRIORITIES: {
   key: TIssuePriorities;
@@ -186,14 +129,8 @@ export const ISSUE_PRIORITIES: {
 ];
 
 /**
- * Group-by axes on which drag-and-drop issue reordering is permitted —
- * dragging an issue card from one group bucket to another mutates the
- * corresponding field on the issue (e.g., dragging in a `state`-grouped
- * board changes the issue's `state_id`).
- *
- * Consumers: `apps/web/core/components/issues/issue-layouts/kanban/kanban-group.tsx`
- * and `apps/web/core/components/issues/issue-layouts/list/list-group.tsx`
- * drag handlers.
+ * Group-by axes that permit drag-and-drop card reordering — dragging across buckets mutates the matching field on the issue (e.g., `state`-grouped board changes `state_id`).
+ * Consumers: kanban/list group drag handlers in `apps/web/core/components/issues/issue-layouts/{kanban,list}/**`.
  */
 export const DRAG_ALLOWED_GROUPS: TIssueGroupByOptions[] = [
   "state",
@@ -205,13 +142,8 @@ export const DRAG_ALLOWED_GROUPS: TIssueGroupByOptions[] = [
 ];
 
 /**
- * Narrow union of `EIssuesStoreType` values that can host the issue-create
- * modal. Excludes store types like `WORKSPACE_DRAFT` and `ARCHIVED` that do
- * not expose a create-issue surface.
- *
- * Consumers: `apps/web/core/components/issues/issue-modal/**` modal store
- * discriminator and issue-create entry points across project, cycle, module,
- * view, profile, and team surfaces.
+ * Narrow union of `EIssuesStoreType` values that can host the issue-create modal — excludes types without a create surface (e.g., `WORKSPACE_DRAFT`, `ARCHIVED`).
+ * Consumers: modal store discriminators and create entry points in `apps/web/core/components/issues/issue-modal/**`.
  */
 export type TCreateModalStoreTypes =
   | EIssuesStoreType.TEAM
@@ -225,14 +157,8 @@ export type TCreateModalStoreTypes =
   | EIssuesStoreType.TEAM_PROJECT_WORK_ITEMS;
 
 /**
- * Group-by dropdown options for the issue list — pairs each
- * `TIssueGroupByOptions` value with its i18n translation key. Inline
- * `// required this on …` comments tag entries that are only meaningful on
- * specific page types (team-issues / my-issues) so the dropdown can be
- * filtered per surface.
- *
- * Consumers: `apps/web/core/components/issues/issue-layouts/filters/**`
- * group-by dropdown.
+ * Group-by dropdown options pairing each `TIssueGroupByOptions` with an i18n key; inline `required this on …` comments tag entries valid only on specific surfaces (team-issues / my-issues).
+ * Consumers: group-by dropdown in `apps/web/core/components/issues/issue-layouts/filters/**`.
  */
 export const ISSUE_GROUP_BY_OPTIONS: {
   key: TIssueGroupByOptions;
@@ -252,13 +178,8 @@ export const ISSUE_GROUP_BY_OPTIONS: {
 ];
 
 /**
- * Order-by dropdown options. The `-` prefix on values like `-created_at`
- * mirrors DRF's `ordering=` query parameter syntax (descending order); the
- * unprefixed form denotes ascending order.
- *
- * Consumers: `apps/web/core/components/issues/issue-layouts/filters/**`
- * order-by dropdown and `apps/api/plane/app/views/issue/**` `get_queryset`
- * ordering handling.
+ * Order-by dropdown options whose `-` prefix mirrors DRF's `ordering=` descending syntax (unprefixed = ascending).
+ * Consumers: order-by dropdown in `apps/web/core/components/issues/issue-layouts/filters/**` and `apps/api/plane/app/views/issue/**` `get_queryset`.
  */
 export const ISSUE_ORDER_BY_OPTIONS: {
   key: TIssueOrderByOptions;
@@ -273,13 +194,8 @@ export const ISSUE_ORDER_BY_OPTIONS: {
 ];
 
 /**
- * Allowlist of issue display-property column keys available across the
- * list / kanban / calendar / spreadsheet layouts. Drives the
- * column-visibility (display-properties) menu.
- *
- * Consumers: `apps/web/core/components/issues/issue-layouts/filters/**`
- * display-properties menu and the column renderers in
- * `apps/web/core/components/issues/issue-layouts/**`.
+ * Allowlist of display-property keys available across list/kanban/calendar/spreadsheet layouts, driving the column-visibility menu.
+ * Consumers: display-properties menu and column renderers in `apps/web/core/components/issues/issue-layouts/**`.
  */
 export const ISSUE_DISPLAY_PROPERTIES_KEYS: (keyof IIssueDisplayProperties)[] = [
   "assignee",
@@ -301,12 +217,8 @@ export const ISSUE_DISPLAY_PROPERTIES_KEYS: (keyof IIssueDisplayProperties)[] = 
 ];
 
 /**
- * Restricted subset of display properties available on sub-issue tables
- * (nested inside a parent issue) — sub-issue rows render a tighter property
- * set than top-level issue rows to keep the nested table compact.
- *
- * Consumers: `apps/web/core/components/issues/issue-detail/**` sub-issue
- * table column-visibility menu.
+ * Tighter display-property subset for nested sub-issue tables to keep the inline view compact.
+ * Consumers: sub-issue table column-visibility menu in `apps/web/core/components/issues/issue-detail/**`.
  */
 export const SUB_ISSUES_DISPLAY_PROPERTIES_KEYS: (keyof IIssueDisplayProperties)[] = [
   "key",
@@ -318,14 +230,8 @@ export const SUB_ISSUES_DISPLAY_PROPERTIES_KEYS: (keyof IIssueDisplayProperties)
 ];
 
 /**
- * Display property catalog with i18n title keys — drives the labels in the
- * column-visibility (display-properties) menu. Note: `created_on` and
- * `updated_on` are intentionally absent here because they are
- * spreadsheet-only audit columns; see `SPREADSHEET_PROPERTY_DETAILS` for
- * those.
- *
- * Consumers: `apps/web/core/components/issues/issue-layouts/filters/**`
- * display-properties menu.
+ * Display-property catalog with i18n title keys; `created_on`/`updated_on` are intentionally absent here as spreadsheet-only audit columns documented in `SPREADSHEET_PROPERTY_DETAILS`.
+ * Consumers: display-properties menu in `apps/web/core/components/issues/issue-layouts/filters/**`.
  */
 export const ISSUE_DISPLAY_PROPERTIES: {
   key: keyof IIssueDisplayProperties;
@@ -371,13 +277,8 @@ export const ISSUE_DISPLAY_PROPERTIES: {
 ];
 
 /**
- * Spreadsheet layout column order (left-to-right). A SUPERSET of
- * `ISSUE_DISPLAY_PROPERTIES_KEYS` because spreadsheet rows expose extra
- * date / audit columns (`created_on`, `updated_on`) that are not present in
- * the other layouts.
- *
- * Consumers: `apps/web/core/components/issues/issue-layouts/spreadsheet/**`
- * column ordering.
+ * Spreadsheet column order (left-to-right) — a superset of `ISSUE_DISPLAY_PROPERTIES_KEYS` that adds spreadsheet-only audit columns `created_on`/`updated_on`.
+ * Consumers: column ordering in `apps/web/core/components/issues/issue-layouts/spreadsheet/**`.
  */
 export const SPREADSHEET_PROPERTY_LIST: (keyof IIssueDisplayProperties)[] = [
   "state",
@@ -397,20 +298,8 @@ export const SPREADSHEET_PROPERTY_LIST: (keyof IIssueDisplayProperties)[] = [
 ];
 
 /**
- * Per-column metadata for the spreadsheet layout — for each property exposes
- * its i18n title, ascending / descending sort keys + display titles, and the
- * `@plane/ui` icon name to render in the column header.
- *
- * **Cross-stack contract:** The `ascendingOrderKey` / `descendingOrderKey`
- * strings (e.g., `assignees__first_name`, `issue_module__module__name`,
- * `-target_date`) are DRF `ordering=` query tokens that target Django ORM
- * field lookups including double-underscore join traversals. They are sent
- * verbatim to `apps/api/plane/app/views/issue/**` `get_queryset` and resolved
- * against `apps/api/plane/db/models/issue.py` and related model fields. DO
- * NOT change without updating the backend query construction.
- *
- * Consumers: `apps/web/core/components/issues/issue-layouts/spreadsheet/columns/header-column.tsx`
- * column headers and sort controls.
+ * Per-column spreadsheet metadata (i18n title, asc/desc DRF `ordering=` tokens with Django ORM join traversals, header icon) — sort tokens are sent verbatim to `apps/api/plane/app/views/issue/**` `get_queryset`, so changes require backend updates.
+ * Consumers: column headers and sort controls in `apps/web/core/components/issues/issue-layouts/spreadsheet/columns/header-column.tsx`.
  */
 export const SPREADSHEET_PROPERTY_DETAILS: {
   [key in keyof IIssueDisplayProperties]: {
@@ -537,19 +426,8 @@ export const SPREADSHEET_PROPERTY_DETAILS: {
 };
 
 /**
- * Filter-API field name → `TIssue` property name map. When a filter
- * expression (e.g., `assignees: [userId]`) needs to be applied against an
- * in-memory issue object, this map translates the filter key to the
- * corresponding issue field (`assignee_ids`) so a runtime check like
- * `issue[FILTER_TO_ISSUE_MAP.assignees]` works without a separate switch
- * statement.
- *
- * The `as const` modifier is essential — without it the value type widens to
- * `string` and the lookup loses key-narrowing against `keyof TIssue`.
- *
- * Consumers: `apps/web/core/components/issues/issue-layouts/utils.tsx` and
- * the in-memory filter application helpers under
- * `apps/web/core/store/issue/helpers/**`.
+ * Filter-key → `TIssue` property map for in-memory filter application (e.g., `assignees`→`assignee_ids`); the `as const` modifier preserves key narrowing against `keyof TIssue`.
+ * Consumers: `apps/web/core/components/issues/issue-layouts/utils.tsx` and in-memory filter helpers in `apps/web/core/store/issue/helpers/**`.
  */
 // Map filter keys to their corresponding issue property keys
 export const FILTER_TO_ISSUE_MAP: Partial<Record<keyof IIssueFilterOptions, keyof TIssue>> = {

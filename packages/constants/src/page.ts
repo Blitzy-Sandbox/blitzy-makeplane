@@ -5,17 +5,8 @@
  */
 
 /**
- * Access-level enum for Plane pages — controls which workspace members can read/edit a page.
- *
- * The integer encoding mirrors the backend `Page.access` IntegerField choices in
- * `apps/api/plane/db/models/page.py`, so the numeric values are part of the cross-stack contract.
- *
- * Consumers: `apps/web/core/components/pages/**`, `apps/web/core/store/pages/**`,
- * `apps/api/plane/app/serializers/page.py`.
- *
- * Values:
- * - PUBLIC (0): page is visible to all workspace members with project access
- * - PRIVATE (1): page is visible only to the owner and explicit collaborators
+ * Page access level (`PUBLIC=0` / `PRIVATE=1`) whose integer encoding mirrors the `Page.access` IntegerField in `apps/api/plane/db/models/page.py`.
+ * Consumers: `apps/web/core/components/pages/**`, `apps/web/core/store/pages/**`, and `apps/api/plane/app/serializers/page.py`.
  */
 export enum EPageAccess {
   PUBLIC = 0,

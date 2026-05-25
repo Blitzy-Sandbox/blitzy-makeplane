@@ -5,27 +5,16 @@
  */
 
 /**
- * Application base URLs and external/marketing links for the Plane monorepo.
- *
- * **Build-time env contract**: Frontend env vars (`VITE_*`) are baked in at build time
- * by Vite; changing them requires a rebuild, not a redeploy. Backend Node services
- * (e.g., `apps/live`) read the same `process.env` keys at runtime, so the same
- * variable name serves both layers but is resolved at different lifecycle phases.
- *
- * Consumers: every API service in `apps/web/core/services/**`, app shell layouts
- * in `apps/web/app/**`, `apps/admin/app/**`, `apps/space/app/**`, and the live
- * collaboration server in `apps/live/src/**`.
+ * App base URLs and marketing links — frontend `VITE_*` env vars are baked at
+ * build time (rebuild required), while Node services read the same `process.env`
+ * keys at runtime.
+ * Consumers: `apps/web/core/services/**`, `apps/{web,admin,space}/app/**`, `apps/live/src/**`.
  */
 
 /**
- * Base URL of the Django API service (`apps/api`). Combined with `API_BASE_PATH` to
- * produce `API_URL`. Falls back to an empty string when `VITE_API_BASE_URL` is unset
- * — useful for same-origin deployments where the API is served from the same domain.
- *
- * Build-time-baked: changing `VITE_API_BASE_URL` requires a frontend rebuild.
- *
- * Consumers: `apps/web/core/services/**` axios instances and any frontend code
- * that constructs API URLs.
+ * Django API service base URL — composed with `API_BASE_PATH` into `API_URL`;
+ * empty default supports same-origin deployments. Build-time-baked (`VITE_*`).
+ * Consumer: `apps/web/core/services/**`.
  */
 export const API_BASE_URL = process.env.VITE_API_BASE_URL || "";
 /**
@@ -40,11 +29,9 @@ export const API_BASE_PATH = process.env.VITE_API_BASE_PATH || "";
 export const API_URL = encodeURI(`${API_BASE_URL}${API_BASE_PATH}`);
 // God Mode Admin App Base Url
 /**
- * Base URL of the "God Mode" admin shell (`apps/admin`). Combined with
- * `ADMIN_BASE_PATH` to produce `GOD_MODE_URL`. Build-time-baked via
- * `VITE_ADMIN_BASE_URL`; an empty default supports same-origin deployments.
- *
- * Consumers: instance-admin links in workspace settings and the upgrade flow.
+ * "God Mode" admin shell (`apps/admin`) base URL — composed with `ADMIN_BASE_PATH`
+ * into `GOD_MODE_URL`; build-time-baked.
+ * Consumer: instance-admin links in workspace settings and the upgrade flow.
  */
 export const ADMIN_BASE_URL = process.env.VITE_ADMIN_BASE_URL || "";
 /**
@@ -60,11 +47,9 @@ export const ADMIN_BASE_PATH = process.env.VITE_ADMIN_BASE_PATH || "";
 export const GOD_MODE_URL = encodeURI(`${ADMIN_BASE_URL}${ADMIN_BASE_PATH}`);
 // Publish App Base Url
 /**
- * Base URL of the public-facing Plane Publish site (`apps/space`). Combined with
- * `SPACE_BASE_PATH` to produce `SITES_URL`. Build-time-baked via
- * `VITE_SPACE_BASE_URL`; an empty default supports same-origin deployments.
- *
- * Consumers: project/page publish flows that generate shareable public links.
+ * Plane Publish site (`apps/space`) base URL — composed with `SPACE_BASE_PATH` into
+ * `SITES_URL`; build-time-baked.
+ * Consumer: project/page publish flows.
  */
 export const SPACE_BASE_URL = process.env.VITE_SPACE_BASE_URL || "";
 /**
@@ -80,13 +65,9 @@ export const SPACE_BASE_PATH = process.env.VITE_SPACE_BASE_PATH || "";
 export const SITES_URL = encodeURI(`${SPACE_BASE_URL}${SPACE_BASE_PATH}`);
 // Live App Base Url
 /**
- * Base URL of the Hocuspocus real-time collaboration server (`apps/live`).
- * Combined with `LIVE_BASE_PATH` to produce `LIVE_URL`. Build-time-baked via
- * `VITE_LIVE_BASE_URL` for browser bundles; the same variable is read at runtime
- * by Node services that need to reach the live server.
- *
- * Consumers: collaborative document editors in `@plane/editor` that open
- * WebSocket connections to the live server.
+ * Hocuspocus collaboration server (`apps/live`) base URL — composed with
+ * `LIVE_BASE_PATH` into `LIVE_URL`; build-time-baked for browser, runtime-read by Node.
+ * Consumer: `@plane/editor` collaborative document WebSocket clients.
  */
 export const LIVE_BASE_URL = process.env.VITE_LIVE_BASE_URL || "";
 /**
@@ -102,13 +83,9 @@ export const LIVE_BASE_PATH = process.env.VITE_LIVE_BASE_PATH || "";
 export const LIVE_URL = encodeURI(`${LIVE_BASE_URL}${LIVE_BASE_PATH}`);
 // Web App Base Url
 /**
- * Base URL of the main Plane client app (`apps/web`). Combined with
- * `WEB_BASE_PATH` to produce `WEB_URL`. Build-time-baked via `VITE_WEB_BASE_URL`;
- * an empty default supports same-origin deployments where the web app is the
- * primary host.
- *
- * Consumers: cross-app navigation (e.g., from `apps/admin` or `apps/space` back
- * into the main app) and absolute-link generation in emails and webhooks.
+ * Main client (`apps/web`) base URL — composed with `WEB_BASE_PATH` into `WEB_URL`;
+ * build-time-baked.
+ * Consumers: cross-app navigation and absolute-link generation in emails/webhooks.
  */
 export const WEB_BASE_URL = process.env.VITE_WEB_BASE_URL || "";
 /**
@@ -124,24 +101,18 @@ export const WEB_BASE_PATH = process.env.VITE_WEB_BASE_PATH || "";
 export const WEB_URL = encodeURI(`${WEB_BASE_URL}${WEB_BASE_PATH}`);
 // plane website url
 /**
- * Marketing website root for the Plane product. Defaults to `https://plane.so` and
- * is overridable via `VITE_WEBSITE_URL` for white-labeled/self-hosted deployments.
- * Build-time-baked.
+ * Plane marketing website root (default `https://plane.so`, build-time-baked).
  */
 export const WEBSITE_URL = process.env.VITE_WEBSITE_URL || "https://plane.so";
 // support email
 /**
- * Support contact email. Defaults to `support@plane.so` and is overridable via
- * `VITE_SUPPORT_EMAIL` for self-hosted deployments with their own support inbox.
- * Build-time-baked.
+ * Support contact email (default `support@plane.so`, build-time-baked).
  */
 export const SUPPORT_EMAIL = process.env.VITE_SUPPORT_EMAIL || "support@plane.so";
 // marketing links
 /**
- * External marketing links (static, NOT env-driven) used by upgrade/billing CTAs.
- *
- * Consumers: workspace settings billing pages, upgrade modals, and the empty-state
- * "Talk to sales" CTAs.
+ * Static (non-env) marketing links for upgrade/billing CTAs.
+ * Consumers: workspace billing pages, upgrade modals, and "Talk to sales" CTAs.
  */
 export const MARKETING_PRICING_PAGE_LINK = "https://plane.so/pricing";
 export const MARKETING_CONTACT_US_PAGE_LINK = "https://plane.so/contact";

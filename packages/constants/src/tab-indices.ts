@@ -5,14 +5,8 @@
  */
 
 /**
- * Keyboard-accessibility source of truth: field-name orderings that define the tab
- * sequence inside Plane's modal forms. Each array is consumed by the corresponding
- * form to compute `tabIndex` values (via `Array.prototype.indexOf`) so that
- * Tab/Shift+Tab navigation moves through fields in the documented logical order.
- *
- * Editing these arrays changes the keyboard navigation order of the affected form
- * and is a deliberate accessibility decision — preserve the relative ordering of
- * existing entries when adding new fields.
+ * Keyboard-accessibility source of truth: field-name orderings consumed by each modal form to compute `tabIndex` via `Array.prototype.indexOf` so Tab/Shift+Tab navigates in the documented logical order.
+ * Editing these arrays changes keyboard navigation order — preserve relative ordering of existing entries when adding new fields.
  */
 
 /**

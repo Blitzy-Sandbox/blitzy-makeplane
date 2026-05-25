@@ -4,17 +4,17 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Intake/inbox issue review vocabulary (status pills, source/order options)
+ * consumed by `apps/web/core/components/inbox/**` and the intake MobX store.
+ */
+
 import type { TInboxIssueStatus } from "@plane/types";
 import { EInboxIssueStatus } from "@plane/types";
 
 /**
- * Inbox/intake issue status catalog — pairs each `EInboxIssueStatus` value with its
- * i18n title/description keys for rendering status pills and review CTAs.
- *
- * Consumers: `apps/web/core/components/inbox/inbox-issue-status.tsx` for the status
- * pill, and `apps/web/core/components/inbox/inbox-filter/{filters,applied-filters}/status.tsx`
- * for status filter dropdowns. The `i18n_description` field is a function so callers
- * can lazily resolve the translation key per render context.
+ * Pairs each `EInboxIssueStatus` with i18n title/description keys for status pills; `i18n_description` is a function so callers can lazily resolve per render context.
+ * Consumers: `apps/web/core/components/inbox/inbox-issue-status.tsx` and `inbox-filter/{filters,applied-filters}/status.tsx`.
  */
 export const INBOX_STATUS: {
   key: string;
@@ -55,11 +55,8 @@ export const INBOX_STATUS: {
 ];
 
 /**
- * Order-by field options for the inbox issue list (created_at / updated_at / sequence_id).
- *
- * Consumers: `apps/web/core/components/inbox/inbox-filter/sorting/order-by.tsx` —
- * the sort field selector dropdown. `key` values are the Django ORM lookups
- * accepted by the inbox list API; `i18n_label` is the i18n key for the visible label.
+ * Order-by field options whose `key` values are Django ORM lookups accepted by the inbox list API (created_at / updated_at / sequence_id).
+ * Consumers: `apps/web/core/components/inbox/inbox-filter/sorting/order-by.tsx`.
  */
 export const INBOX_ISSUE_ORDER_BY_OPTIONS = [
   {
@@ -77,10 +74,8 @@ export const INBOX_ISSUE_ORDER_BY_OPTIONS = [
 ];
 
 /**
- * Sort direction options (ascending / descending) for the inbox issue list.
- *
- * Consumers: `apps/web/core/components/inbox/inbox-filter/sorting/order-by.tsx` —
- * paired with `INBOX_ISSUE_ORDER_BY_OPTIONS` to compose the inbox sort query.
+ * Sort direction options paired with `INBOX_ISSUE_ORDER_BY_OPTIONS` to compose the inbox sort query.
+ * Consumers: `apps/web/core/components/inbox/inbox-filter/sorting/order-by.tsx`.
  */
 export const INBOX_ISSUE_SORT_BY_OPTIONS = [
   {
@@ -94,17 +89,8 @@ export const INBOX_ISSUE_SORT_BY_OPTIONS = [
 ];
 
 /**
- * Relative past-duration filter tokens used by the inbox "filter by recent activity" control.
- *
- * Consumers: `apps/web/core/store/inbox/project-inbox.store.ts` (filter state) and
- * `packages/utils/src/intake.ts` (date-range resolver that maps each token to a
- * concrete start/end timestamp).
- *
- * Values:
- * - TODAY (`"today"`): today only
- * - YESTERDAY (`"yesterday"`): yesterday only
- * - LAST_7_DAYS (`"last_7_days"`) / LAST_30_DAYS (`"last_30_days"`):
- *   rolling 7/30-day windows ending today
+ * Relative past-duration tokens (today, yesterday, rolling 7/30-day windows) for the inbox "recent activity" filter.
+ * Consumers: `apps/web/core/store/inbox/project-inbox.store.ts` and the date-range resolver in `packages/utils/src/intake.ts`.
  */
 export enum EPastDurationFilters {
   TODAY = "today",
@@ -114,12 +100,8 @@ export enum EPastDurationFilters {
 }
 
 /**
- * Dropdown option list paired with `EPastDurationFilters` for the past-duration filter UI.
- *
- * Consumers: `apps/web/core/components/inbox/inbox-filter/filters/date.tsx` (option
- * picker) and `apps/web/core/components/inbox/inbox-filter/applied-filters/date.tsx`
- * (applied-filter chip). `name` is the user-visible label; `value` is the
- * `EPastDurationFilters` token persisted in filter state.
+ * Dropdown option list for the past-duration filter UI, pairing display `name` with the `EPastDurationFilters` token persisted in filter state.
+ * Consumers: `apps/web/core/components/inbox/inbox-filter/{filters,applied-filters}/date.tsx`.
  */
 export const PAST_DURATION_FILTER_OPTIONS: {
   name: string;

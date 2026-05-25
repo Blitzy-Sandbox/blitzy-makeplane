@@ -4,25 +4,23 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Issue layout catalogs (list/kanban/calendar/spreadsheet/gantt) and the
+ * `TIssueLayout` string union consumed by issue layout switchers and roots in
+ * `apps/web/core/components/issues/issue-layouts/**` and `apps/space/**`.
+ */
+
 import { EIssueLayoutTypes } from "@plane/types";
 
 /**
- * String-union of supported issue layout names (lowercase). Distinct from the
- * `EIssueLayoutTypes` enum imported from `@plane/types` — `TIssueLayout` is the
- * literal-string form used by site-facing surfaces (`apps/space`) that don't
- * import the enum runtime.
- *
- * Consumers: `apps/space/**` (Plane Publish public site) and the
- * `SITES_ISSUE_LAYOUTS` catalog below.
+ * Lowercase literal-string union of layout names — used by site-facing surfaces that avoid the `EIssueLayoutTypes` enum runtime.
+ * Consumers: `apps/space/**` (Plane Publish) and the `SITES_ISSUE_LAYOUTS` catalog below.
  */
 export type TIssueLayout = "list" | "kanban" | "calendar" | "spreadsheet" | "gantt";
 
 /**
- * Contract for the full issue layout metadata map — keyed by `EIssueLayoutTypes`
- * enum value, each entry exposes its `key`, an `i18n_title` (page title) and
- * `i18n_label` (compact layout-switcher label).
- *
- * Consumers: `ISSUE_LAYOUT_MAP` (this file).
+ * Shape of the layout metadata map keyed by `EIssueLayoutTypes` with `key`, page-title `i18n_title`, and compact `i18n_label`.
+ * Consumers: `ISSUE_LAYOUT_MAP` in this file.
  */
 export type TIssueLayoutMap = Record<
   EIssueLayoutTypes,
@@ -34,12 +32,8 @@ export type TIssueLayoutMap = Record<
 >;
 
 /**
- * Layout catalog for the public Plane Publish site (`apps/space`) — exposes only
- * `list` and `kanban` because the public site does not implement
- * calendar/spreadsheet/gantt layouts. Each entry pairs the layout name with a
- * `lucide-react` icon name and an i18n key for the switcher label.
- *
- * Consumers: `apps/space/**` public-site issue layout switcher components.
+ * Public Plane Publish site layout catalog exposing only `list` and `kanban` (calendar/spreadsheet/gantt are not implemented on the public site) with `lucide-react` icon name and i18n label per entry.
+ * Consumers: public-site layout switcher components in `apps/space/**`.
  */
 export const SITES_ISSUE_LAYOUTS: {
   key: TIssueLayout;
@@ -59,20 +53,8 @@ export const SITES_ISSUE_LAYOUTS: {
 ];
 
 /**
- * Full issue layout metadata map for the main app (`apps/web`) — covers all
- * five layout types. Each entry binds an `EIssueLayoutTypes` enum value to its
- * page-title and compact-label i18n keys.
- *
- * Layout purposes and components:
- * - LIST: vertical list view → `apps/web/core/components/issues/issue-layouts/list/**`
- * - KANBAN: grouped column board → `apps/web/core/components/issues/issue-layouts/kanban/**`
- * - CALENDAR: month-grid by due date → `apps/web/core/components/issues/issue-layouts/calendar/**`
- * - SPREADSHEET: virtualized data table with sortable columns → `apps/web/core/components/issues/issue-layouts/spreadsheet/**`
- * - GANTT: timeline/dependency view → `apps/web/core/components/issues/issue-layouts/gantt/**`
- *
- * Consumers: `apps/web/core/components/issues/issue-layouts/**` layout switcher
- * and per-layout root components; `apps/web/core/components/issues/filters/**`
- * for layout-aware filter/display-property menus.
+ * Full `apps/web` layout metadata map covering all five layout types (LIST, KANBAN, CALENDAR, SPREADSHEET, GANTT), binding each `EIssueLayoutTypes` value to page-title and compact-label i18n keys.
+ * Consumers: layout switcher and per-layout roots in `apps/web/core/components/issues/issue-layouts/**`, plus layout-aware filter menus in `apps/web/core/components/issues/filters/**`.
  */
 export const ISSUE_LAYOUT_MAP: TIssueLayoutMap = {
   [EIssueLayoutTypes.LIST]: {
@@ -103,13 +85,8 @@ export const ISSUE_LAYOUT_MAP: TIssueLayoutMap = {
 };
 
 /**
- * Array projection of `ISSUE_LAYOUT_MAP` via `Object.values(...)` — provides an
- * iteration-friendly form for `.map()`-based renderers like the layout switcher
- * toolbar. Order matches the insertion order of `ISSUE_LAYOUT_MAP`
- * (LIST → KANBAN → CALENDAR → SPREADSHEET → GANTT).
- *
- * Consumers: `apps/web/core/components/issues/issue-layouts/**` switcher
- * rendering and tests that iterate all layouts.
+ * Iteration-friendly `Object.values(...)` projection of `ISSUE_LAYOUT_MAP` for `.map()`-based renderers, preserving insertion order (LIST → KANBAN → CALENDAR → SPREADSHEET → GANTT).
+ * Consumers: switcher rendering in `apps/web/core/components/issues/issue-layouts/**`.
  */
 export const ISSUE_LAYOUTS: {
   key: EIssueLayoutTypes;

@@ -4,6 +4,11 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Estimate-system catalog and input limits consumed by project estimate settings
+ * in `apps/web/core/components/estimates/**` and the estimate MobX store.
+ */
+
 // plane imports
 import type { TEstimateSystems } from "@plane/types";
 
@@ -17,20 +22,9 @@ import type { TEstimateSystems } from "@plane/types";
 export const MAX_ESTIMATE_POINT_INPUT_LENGTH = 20;
 
 /**
- * Identifiers for the supported estimate systems on a project.
- *
- * The string values mirror the `EstimateType` text choices on the backend
- * `Estimate` model in `apps/api/plane/db/models/estimate.py`, plus the
- * enterprise-only `time` system.
- *
- * Values:
- * - `POINTS` (`"points"`): numeric story points (Fibonacci / Linear / Squares).
- * - `CATEGORIES` (`"categories"`): qualitative buckets (t-shirt sizes, Easy→Hard).
- * - `TIME` (`"time"`): time-based estimates — gated to enterprise edition
- *   deployments (see `ESTIMATE_SYSTEMS.time.is_ee`).
- *
- * Consumers: estimate system picker and template chooser in
- * `apps/web/core/components/estimates/**` and the project settings estimate page.
+ * Supported estimate systems (POINTS/CATEGORIES/TIME) — values mirror backend
+ * `Estimate.EstimateType` text choices; `TIME` is enterprise-only (see `is_ee`).
+ * Consumer: `apps/web/core/components/estimates/**`.
  */
 export enum EEstimateSystem {
   POINTS = "points",
@@ -39,18 +33,9 @@ export enum EEstimateSystem {
 }
 
 /**
- * Lifecycle stage of the estimate edit/switch wizard — drives which form is
- * rendered in the project settings estimate flow.
- *
- * Values:
- * - `CREATE` (`"create"`): creating a brand-new estimate system from scratch.
- * - `EDIT` (`"edit"`): editing the points of the currently active estimate system.
- * - `SWITCH` (`"switch"`): replacing the active estimate system with a different
- *   system or template (involves a data-migration step).
- *
- * Consumers: stage discriminator consumed by the estimate update components in
- * `apps/web/core/components/estimates/**`; paired with the `TEstimateUpdateStageKeys`
- * union exported from `@plane/types`.
+ * Estimate edit/switch wizard stage (CREATE / EDIT / SWITCH) — `SWITCH` triggers
+ * data migration to a different system or template.
+ * Consumer: `apps/web/core/components/estimates/**` (paired with `TEstimateUpdateStageKeys`).
  */
 export enum EEstimateUpdateStages {
   CREATE = "create",
@@ -71,22 +56,10 @@ export const estimateCount = {
 };
 
 /**
- * Catalog of estimate-system templates, keyed by `EEstimateSystem` string value.
- *
- * Each system (`points` / `categories` / `time`) exposes one or more named
- * templates (Fibonacci, Linear, Squares, T-Shirt Sizes, Easy-to-Hard, Hours,
- * plus a `custom` template hidden from the picker via `hide: true`) with their
- * default point values and i18n keys for the system name and template title.
- *
- * Non-obvious fields:
- * - `is_available`: whether the system is selectable in the current build.
- * - `is_ee`: when `true`, the system is gated to enterprise edition deployments
- *   (currently only the `time` system).
- * - `templates[*].hide`: when `true`, the template is omitted from the picker
- *   but still selectable internally as the "custom" starting point.
- *
- * Consumers: estimate system picker and template chooser in
- * `apps/web/core/components/estimates/**`.
+ * Estimate-system template catalog keyed by `EEstimateSystem` — `is_ee=true` gates
+ * to enterprise (currently `time` only); `templates[*].hide=true` omits from picker
+ * but remains selectable as "custom" starting point.
+ * Consumer: `apps/web/core/components/estimates/**`.
  */
 export const ESTIMATE_SYSTEMS: TEstimateSystems = {
   points: {
