@@ -4,6 +4,12 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Default chart theme object consumed by the legacy Nivo charts. CSS custom properties
+ * (`var(--*)`) bind colors to the active Plane theme so charts stay in sync with light/dark mode.
+ *
+ * Consumers: `apps/web/core/components/**` analytics/dashboard chart components built on Nivo.
+ */
 export const CHARTS_THEME = {
   background: "transparent",
   text: {
@@ -32,6 +38,12 @@ export const CHARTS_THEME = {
   },
 };
 
+/**
+ * Default outer margin (in pixels) applied to chart containers to leave room for axis
+ * labels and tooltip overflow.
+ *
+ * Consumers: chart wrapper components in `apps/web/core/components/**`.
+ */
 export const CHART_DEFAULT_MARGIN = {
   top: 50,
   right: 50,
