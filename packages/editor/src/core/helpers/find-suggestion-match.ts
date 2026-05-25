@@ -4,9 +4,23 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Custom TipTap suggestion-match finder that extracts query text under a trigger character (`@`, `:`, `/`) across decorated text spans.
+ *
+ * Replaces the default `findSuggestionMatch` from `@tiptap/suggestion` because the default only inspects `nodeBefore.text`, which loses content when the trigger and the in-flight query span different marks (e.g., the user starts typing `@bob` mid-bold-run).
+ */
+
 import { escapeForRegEx } from "@tiptap/core";
 import type { Trigger, SuggestionMatch } from "@tiptap/suggestion";
 
+/**
+ * Matches a TipTap suggestion trigger at the current cursor position by scanning the entire current paragraph (via `textBetween`) rather than just `nodeBefore.text`, so triggers and queries that straddle bold/italic/link marks are still detected.
+ *
+ * Wired into `extensions/emoji/emoji.ts` as `findSuggestionMatch: customFindSuggestionMatch`; the same shape is reused by mentions and slash-command suggestion configurations.
+ *
+ * @param config - TipTap `Trigger` config (char, allowSpaces, allowToIncludeChar, allowedPrefixes, startOfLine, $position).
+ * @returns A `SuggestionMatch` with `range`, `query`, and `text` when a match is found inside the current paragraph; `null` when the cursor is in a non-textblock node or no trigger is found.
+ */
 export function customFindSuggestionMatch(config: Trigger): SuggestionMatch | null {
   const { char, allowSpaces: allowSpacesOption, allowToIncludeChar, allowedPrefixes, startOfLine, $position } = config;
 
