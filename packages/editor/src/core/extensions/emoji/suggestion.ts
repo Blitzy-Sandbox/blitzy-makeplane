@@ -4,6 +4,21 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Tiptap suggestion configuration for the emoji autocomplete popup.
+ *
+ * Bound to the emoji node's `addOptions().suggestion` in `./emoji.ts`; the
+ * trigger character `:` is declared there (`addOptions().suggestion.char`), not
+ * here. This module supplies the dataset lookup (`items`), the space-disallow
+ * flag (`allowSpaces`), and the React popup lifecycle
+ * (`render` → `onStart` / `onUpdate` / `onKeyDown` / `onExit`) wired to
+ * {@link EmojisListDropdown} via Tiptap's {@link ReactRenderer}, with
+ * floating-UI positioning managed by {@link updateFloatingUIFloaterPosition}.
+ * Mirrors the `mentions/` and `slash-commands/` extension folders for pattern
+ * consistency (same `ReactRenderer` + floating-UI + `useImperativeHandle`
+ * approach).
+ */
+
 import type { EmojiOptions, EmojiStorage } from "@tiptap/extension-emoji";
 import { ReactRenderer } from "@tiptap/react";
 import type { Editor } from "@tiptap/react";
@@ -18,8 +33,60 @@ import { EmojisListDropdown } from "./components/emojis-list";
 import type { EmojisListDropdownProps, EmojiItem } from "./components/emojis-list";
 import type { ExtendedEmojiStorage } from "./emoji";
 
+/**
+ * Shortcodes displayed when the user types `:` with no follow-up query (the
+ * "empty query" state). Resolved against the editor's configured emoji dataset
+ * at lookup time; missing entries are silently dropped and the result is
+ * capped at 5.
+ */
 const DEFAULT_EMOJIS = ["+1", "-1", "smile", "orange_heart", "eyes"];
 
+/**
+ * Concrete `EmojiOptions["suggestion"]` consumed by the emoji node's
+ * `addOptions().suggestion` in `./emoji.ts` (the `:` trigger character is
+ * declared upstream there, not here).
+ *
+ * `items({ editor, query })`:
+ *   - Empty query: resolves {@link DEFAULT_EMOJIS} against
+ *     `editor.storage.emoji.emojis` (capped at 5; missing entries dropped).
+ *   - Non-empty query: case-insensitive prefix match across each emoji's
+ *     `shortcodes` OR `tags` arrays, capped at 5. Returns `EmojiItem[]`
+ *     consumed by the React dropdown.
+ *
+ * `allowSpaces: false` — closes the suggestion the instant the user types a
+ * space after `:` (emoji shortcodes never contain spaces).
+ *
+ * `render()` returns the Tiptap lifecycle handlers and closes over three
+ * pieces of local state for the popup's lifetime: the `ReactRenderer`
+ * instance (`component`), the floating-UI teardown function (`cleanup`)
+ * returned by {@link updateFloatingUIFloaterPosition}, and an `editorRef`
+ * retained so the internal `handleClose` helper can still reach the editor
+ * on paths where the caller does not pass one (e.g. the `Escape` key path).
+ *
+ * `handleClose(editor?)` is an internal helper invoked by `onExit` and the
+ * `Escape` key path: it destroys the React renderer, deregisters
+ * {@link CORE_EXTENSIONS.EMOJI} from the editor's active dropbar set, clears
+ * {@link ExtendedEmojiStorage}.`forceOpen`, and tears down floating-UI
+ * position tracking.
+ *
+ * Lifecycle hooks:
+ *   - `onStart`: mounts {@link EmojisListDropdown} via {@link ReactRenderer},
+ *     reads `forceOpen` from {@link ExtendedEmojiStorage} (the flag external
+ *     callers such as a toolbar button use to open the picker without a
+ *     query), registers {@link CORE_EXTENSIONS.EMOJI} as the active dropbar
+ *     extension, and starts floating-UI position tracking. No-ops when
+ *     `props.clientRect` is absent.
+ *   - `onUpdate`: re-reads `forceOpen`, forwards updated props (including the
+ *     new query) to the dropdown, then cleans up the previous floating-UI
+ *     subscription and re-anchors a new one.
+ *   - `onKeyDown`: swallows {@link DROPDOWN_NAVIGATION_KEYS} + `Escape` so
+ *     they don't reach the editor; `Escape` invokes `handleClose` and
+ *     returns `true`; the remaining navigation keys are forwarded to the
+ *     imperative `onKeyDown` exposed by {@link EmojisListDropdown} via
+ *     `useImperativeHandle`.
+ *   - `onExit`: removes the rendered element from the DOM and runs
+ *     `handleClose(editor)` to deregister the dropbar and clear `forceOpen`.
+ */
 export const emojiSuggestion: EmojiOptions["suggestion"] = {
   items: ({ editor, query }: { editor: Editor; query: string }): EmojiItem[] => {
     const { emojis } = editor.storage.emoji as EmojiStorage;
