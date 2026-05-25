@@ -8,7 +8,13 @@ import type { IPaymentProduct, TBillingFrequency, TProductBillingFrequency } fro
 import { EProductSubscriptionEnum } from "@plane/types";
 
 /**
- * Default billing frequency for each product subscription type
+ * Default billing frequency for each product subscription type.
+ *
+ * `FREE` and `ONE` (lifetime) have no recurring frequency; paid tiers default to
+ * monthly so the UI toggle starts on the lower-commitment option.
+ *
+ * Consumers: workspace billing settings in `apps/web/core/components/workspace/**`
+ * and `apps/web/core/components/account/profile/**`.
  */
 export const DEFAULT_PRODUCT_BILLING_FREQUENCY: TProductBillingFrequency = {
   [EProductSubscriptionEnum.FREE]: undefined,
@@ -19,7 +25,12 @@ export const DEFAULT_PRODUCT_BILLING_FREQUENCY: TProductBillingFrequency = {
 };
 
 /**
- * Subscription types that support billing frequency toggle (monthly/yearly)
+ * Subscription types that support billing frequency toggle (monthly/yearly).
+ *
+ * Used to conditionally render the frequency switch — `FREE` and `ONE` are excluded
+ * because they have no recurring frequency.
+ *
+ * Consumers: workspace billing/upgrade modals in `apps/web/core/components/workspace/**`.
  */
 export const SUBSCRIPTION_WITH_BILLING_FREQUENCY = [
   EProductSubscriptionEnum.PRO,
@@ -28,8 +39,14 @@ export const SUBSCRIPTION_WITH_BILLING_FREQUENCY = [
 ];
 
 /**
- * Mapping of product subscription types to their respective payment product details
- * Used to provide information about each product's pricing and features
+ * Mapping of product subscription types to their respective payment product details.
+ * Used to provide information about each product's pricing and features.
+ *
+ * Each product carries a monthly + yearly `prices` entry (`unit_amount` in cents).
+ * `is_active=false` (Enterprise) hides the inline checkout flow and surfaces the
+ * "Talk to Sales" CTA instead.
+ *
+ * Consumers: pricing tables + upgrade modals in `apps/web/core/components/workspace/**`.
  */
 export const PLANE_COMMUNITY_PRODUCTS: Record<string, IPaymentProduct> = {
   [EProductSubscriptionEnum.PRO]: {
@@ -115,13 +132,23 @@ export const PLANE_COMMUNITY_PRODUCTS: Record<string, IPaymentProduct> = {
 };
 
 /**
- * URL for the "Talk to Sales" page where users can contact sales team
+ * URL for the "Talk to Sales" page where users can contact sales team.
+ *
+ * Consumers: pricing / upgrade CTAs in `apps/web/core/components/workspace/**`,
+ * and as a fallback for tiers without a self-service checkout (`FREE`, `ONE`,
+ * `ENTERPRISE`).
  */
 export const TALK_TO_SALES_URL = "https://plane.so/talk-to-sales";
 
 /**
- * Mapping of subscription types to their respective upgrade/redirection URLs based on billing frequency
- * Used for self-hosted installations to redirect users to appropriate upgrade pages
+ * Mapping of subscription types to their respective upgrade/redirection URLs based
+ * on billing frequency. Used for self-hosted installations to redirect users to
+ * appropriate upgrade pages.
+ *
+ * Pro and Business tiers route to `https://app.plane.so/upgrade/...?plan={month|year}`;
+ * other tiers fall back to `TALK_TO_SALES_URL`.
+ *
+ * Consumers: workspace upgrade flows in `apps/web/core/components/workspace/**`.
  */
 export const SUBSCRIPTION_REDIRECTION_URLS: Record<EProductSubscriptionEnum, Record<TBillingFrequency, string>> = {
   [EProductSubscriptionEnum.FREE]: {
@@ -147,8 +174,13 @@ export const SUBSCRIPTION_REDIRECTION_URLS: Record<EProductSubscriptionEnum, Rec
 };
 
 /**
- * Mapping of subscription types to their respective marketing webpage URLs
- * Used to direct users to learn more about each plan's features and pricing
+ * Mapping of subscription types to their respective marketing webpage URLs.
+ * Used to direct users to learn more about each plan's features and pricing.
+ *
+ * `FREE`, `ONE`, and (currently) `ENTERPRISE` route to sales; `PRO` and `BUSINESS`
+ * link to their marketing landing pages.
+ *
+ * Consumers: pricing tables and "Learn more" links in `apps/web/core/components/workspace/**`.
  */
 export const SUBSCRIPTION_WEBPAGE_URLS: Record<EProductSubscriptionEnum, string> = {
   [EProductSubscriptionEnum.FREE]: TALK_TO_SALES_URL,
