@@ -176,7 +176,8 @@ export const USER_ROLES = [
  * `provider` matches a corresponding importer in the backend importer registry.
  *
  * Consumers: import settings UI in `apps/web/core/components/workspace/**`, paired
- * with `apps/api/plane/app/views/integration/**` import endpoints.
+ * with the importer model at `apps/api/plane/db/models/importer.py` and integration
+ * models at `apps/api/plane/db/models/integration/**`.
  */
 export const IMPORTERS_LIST = [
   {
@@ -222,7 +223,7 @@ export const EXPORTERS_LIST = [
  * The four built-in global views available to every workspace (cannot be deleted):
  * all-issues, assigned-to-me, created-by-me, subscribed.
  *
- * Consumers: workspace global views shell in `apps/web/core/components/workspace-views/**`.
+ * Consumers: workspace global views shell in `apps/web/core/components/workspace/views/**`.
  */
 export const DEFAULT_GLOBAL_VIEWS_LIST: {
   key: TStaticViewTypes;
@@ -385,7 +386,7 @@ export const IS_FAVORITE_MENU_OPEN = "is_favorite_menu_open";
  * initial value in search hooks/stores so consumers can rely on every resource
  * key (workspace, project, issue, cycle, module, issue_view, page) being present.
  *
- * Consumers: global command palette / search in `apps/web/core/components/command-palette/**`.
+ * Consumers: global command palette / search in `apps/web/ce/components/command-palette/**`.
  */
 export const WORKSPACE_DEFAULT_SEARCH_RESULT: IWorkspaceSearchResults = {
   results: {

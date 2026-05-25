@@ -54,7 +54,7 @@ export const SITES_ISSUE_LAYOUTS: {
 
 /**
  * Full `apps/web` layout metadata map covering all five layout types (LIST, KANBAN, CALENDAR, SPREADSHEET, GANTT), binding each `EIssueLayoutTypes` value to page-title and compact-label i18n keys.
- * Consumers: layout switcher and per-layout roots in `apps/web/core/components/issues/issue-layouts/**`, plus layout-aware filter menus in `apps/web/core/components/issues/filters/**`.
+ * Consumers: layout switcher and per-layout roots in `apps/web/core/components/issues/issue-layouts/**`, plus layout-aware filter menus in `apps/web/core/components/issues/issue-layouts/filters/**`.
  */
 export const ISSUE_LAYOUT_MAP: TIssueLayoutMap = {
   [EIssueLayoutTypes.LIST]: {

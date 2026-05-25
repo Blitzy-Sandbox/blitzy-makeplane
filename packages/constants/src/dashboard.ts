@@ -5,8 +5,9 @@
  */
 
 /**
- * Dashboard widget filter vocabulary consumed by the home dashboard widgets in
- * `apps/web/core/components/dashboard/**` to drive duration/status filters.
+ * Dashboard widget filter vocabulary consumed by the dashboard helper at
+ * `apps/web/helpers/dashboard.helper.ts` and the home dashboard widgets in
+ * `apps/web/core/components/home/widgets/**` to drive duration/status filters.
  */
 
 // types
@@ -16,7 +17,7 @@ import type { TIssuesListTypes } from "@plane/types";
  * Duration filter tokens for dashboard widgets — drives "Due today / this week / month" filters
  * across the dashboard surface.
  *
- * Consumers: `apps/web/core/components/dashboard/**` widgets and `apps/web/core/store/dashboard.store.ts`.
+ * Consumers: `apps/web/helpers/dashboard.helper.ts` and `apps/web/core/store/dashboard.store.ts`.
  *
  * Values:
  * - NONE: no duration filter (all time)
@@ -38,7 +39,9 @@ export enum EDurationFilters {
  * Dropdown option list for the dashboard's duration filter, pairing each `EDurationFilters`
  * key with its English label (i18n is resolved at the call site).
  *
- * Consumers: `apps/web/core/components/dashboard/**` duration filter dropdowns.
+ * Consumers: analytics duration filter at `apps/web/core/components/analytics/select/duration.tsx`,
+ * inbox date filter at `apps/web/core/components/inbox/inbox-filter/`, the analytics store at
+ * `apps/web/core/store/analytics.store.ts`, and `apps/web/helpers/dashboard.helper.ts`.
  */
 export const DURATION_FILTER_OPTIONS: {
   key: EDurationFilters;
@@ -71,11 +74,12 @@ export const DURATION_FILTER_OPTIONS: {
 ];
 
 // random background colors for project cards
+// INTENT UNCLEAR: PROJECT_BACKGROUND_COLORS has no consumer in tracked source — originally
+// intended for the legacy workspace dashboard project grid; the home dashboard at
+// apps/web/core/components/home/widgets/ does not currently import this constant.
 /**
  * Tailwind background-color tokens used to randomize project card backgrounds on the
  * dashboard project grid, giving each project a visually distinct appearance.
- *
- * Consumers: `apps/web/core/components/dashboard/**` project card components.
  */
 export const PROJECT_BACKGROUND_COLORS = [
   "bg-gray-500/20",
@@ -89,11 +93,12 @@ export const PROJECT_BACKGROUND_COLORS = [
 ];
 
 // assigned and created issues widgets tabs list
+// INTENT UNCLEAR: FILTERED_ISSUES_TABS_LIST has no consumer in tracked source — was
+// intended for the legacy assigned/created issue widgets; the home dashboard widget at
+// apps/web/core/components/home/widgets/ does not currently import this constant.
 /**
  * Tab definitions for the "Assigned" and "Created" issue widgets when an explicit
  * duration filter is active — surfaces `upcoming` / `overdue` / `completed` slices.
- *
- * Consumers: `apps/web/core/components/dashboard/**` assigned/created issue widgets.
  */
 export const FILTERED_ISSUES_TABS_LIST: {
   key: TIssuesListTypes;
@@ -114,11 +119,12 @@ export const FILTERED_ISSUES_TABS_LIST: {
 ];
 
 // assigned and created issues widgets tabs list
+// INTENT UNCLEAR: UNFILTERED_ISSUES_TABS_LIST has no consumer in tracked source — was
+// intended for the legacy assigned/created issue widgets; the home dashboard widget at
+// apps/web/core/components/home/widgets/ does not currently import this constant.
 /**
  * Tab definitions for the "Assigned" and "Created" issue widgets when no duration
  * filter is applied — surfaces `pending` / `completed` slices.
- *
- * Consumers: `apps/web/core/components/dashboard/**` assigned/created issue widgets.
  */
 export const UNFILTERED_ISSUES_TABS_LIST: {
   key: TIssuesListTypes;
@@ -134,11 +140,11 @@ export const UNFILTERED_ISSUES_TABS_LIST: {
   },
 ];
 
+// INTENT UNCLEAR: TLinkOptions has no consumer in tracked source — was intended for
+// dashboard link/CTA helpers but no current site imports it.
 /**
  * Options payload shape used by dashboard link/quick-action helpers — carries the
  * acting user id (or `undefined` while the user store is still bootstrapping).
- *
- * Consumers: `apps/web/core/components/dashboard/**` link/CTA helpers.
  */
 export type TLinkOptions = {
   userId: string | undefined;

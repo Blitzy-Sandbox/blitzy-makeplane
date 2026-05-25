@@ -9,7 +9,7 @@
  * pricing comparison card for the highest tier.
  *
  * Consumers: workspace settings billing pages, upgrade modals in
- * `apps/web/core/components/workspace-billing/**`.
+ * `apps/web/core/components/workspace/billing/**`.
  */
 export const ENTERPRISE_PLAN_FEATURES = [
   "Private + managed deployments",
@@ -25,7 +25,7 @@ export const ENTERPRISE_PLAN_FEATURES = [
  * pricing comparison card for the mid-high tier.
  *
  * Consumers: workspace settings billing pages, upgrade modals in
- * `apps/web/core/components/workspace-billing/**`.
+ * `apps/web/core/components/workspace/billing/**`.
  */
 export const BUSINESS_PLAN_FEATURES = [
   "Project Templates",
@@ -41,7 +41,7 @@ export const BUSINESS_PLAN_FEATURES = [
  * pricing comparison card for the entry paid tier.
  *
  * Consumers: workspace settings billing pages, upgrade modals in
- * `apps/web/core/components/workspace-billing/**`.
+ * `apps/web/core/components/workspace/billing/**`.
  */
 export const PRO_PLAN_FEATURES = [
   "Dashboards + Reports",
@@ -57,7 +57,7 @@ export const PRO_PLAN_FEATURES = [
  * prompts on self-hosted instances.
  *
  * Consumers: workspace settings billing pages, upgrade modals in
- * `apps/web/core/components/workspace-billing/**`.
+ * `apps/web/core/components/workspace/billing/**`.
  */
 export const ONE_PLAN_FEATURES = [
   "OIDC + SAML for SSO",
@@ -73,7 +73,7 @@ export const ONE_PLAN_FEATURES = [
  * "what you get by upgrading" benefits shown in workspace billing pages.
  *
  * Consumers: workspace settings billing pages, upgrade modals in
- * `apps/web/core/components/workspace-billing/**`.
+ * `apps/web/core/components/workspace/billing/**`.
  */
 export const FREE_PLAN_UPGRADE_FEATURES = [
   "OIDC + SAML for SSO",

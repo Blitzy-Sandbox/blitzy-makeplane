@@ -44,7 +44,7 @@ export const HEADER_GITHUB_ICON = "header_github_icon";
 
 /**
  * `data-ph-element` identifiers for the global ⌘K / Ctrl-K command palette.
- * Consumer: `apps/web/core/components/command-palette/**`.
+ * Consumer: `apps/web/ce/components/command-palette/**`.
  */
 export const COMMAND_PALETTE_TRACKER_ELEMENTS = {
   COMMAND_PALETTE_SHORTCUT_KEY: "command_palette_shortcut_key",

@@ -14,7 +14,7 @@ import type { TProfileSettingsTabs } from "@plane/types";
 
 /**
  * Discriminant for sectioned profile settings sidebar rendering (`YOUR_PROFILE` = personal info/preferences, `DEVELOPER` = API tokens).
- * Consumers: `apps/web/core/components/settings/profile/**` and `apps/web/core/components/profile/settings/**`.
+ * Consumers: `apps/web/core/components/settings/profile/**`.
  */
 export enum PROFILE_SETTINGS_CATEGORY {
   YOUR_PROFILE = "your profile",
@@ -45,7 +45,7 @@ export const PROFILE_SETTINGS_CATEGORY_LABELS: Record<PROFILE_SETTINGS_CATEGORY,
 
 /**
  * Canonical record of every profile settings tab (`general`/`security`/`preferences`/`notifications`/`api-tokens`) keyed by `TProfileSettingsTabs` with i18n labels for sidebar and content router.
- * Consumers: `apps/web/core/components/{settings/profile,profile/settings}/**` and the power-k command palette at `apps/web/core/components/power-k/ui/pages/open-entity/**`.
+ * Consumers: `apps/web/core/components/settings/profile/**` and the power-k command palette at `apps/web/core/components/power-k/ui/pages/open-entity/**`.
  */
 export const PROFILE_SETTINGS: Record<
   TProfileSettingsTabs,

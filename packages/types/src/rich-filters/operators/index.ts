@@ -84,8 +84,8 @@ export type TComparisonOperator = (typeof COMPARISON_OPERATOR)[keyof typeof COMP
 
 /**
  * Canonical union of all operators that can appear on a `TFilterConditionNode.operator`.
- * Unions the core + extended comparison-family operator unions. **Does NOT include
- * logical operators** — those live on group-node `logicalOperator` fields.
+ * Unions the core + extended comparison-family operator unions. Does NOT include
+ * logical operators — those live on group-node `logicalOperator` fields.
  */
 export type TSupportedOperators = TCoreSupportedOperators | TExtendedSupportedOperators;
 

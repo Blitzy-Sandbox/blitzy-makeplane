@@ -10,9 +10,9 @@
  * Models the legacy workspace dashboard surface — widget keys, per-widget filter shapes,
  * response envelopes, and the deprecated `TDeprecatedDashboard` record. The newer home
  * dashboard (see `./home.ts`) supersedes this for net-new development, but these types
- * remain in use by the dashboard widget loaders in `apps/web/core/components/dashboard/`
- * and the dashboard service in `apps/web/core/services/`. Mirrors the dashboard tables
- * in `apps/api/plane/db/models/`.
+ * remain in use by the home-dashboard widget helpers in `apps/web/core/components/home/widgets/manage/widget.helpers.ts`,
+ * the dashboard service in `apps/web/core/services/dashboard.service.ts`, and the
+ * dashboard store at `apps/web/core/store/dashboard.store.ts`.
  */
 
 import type { EDurationFilters } from "./enums";

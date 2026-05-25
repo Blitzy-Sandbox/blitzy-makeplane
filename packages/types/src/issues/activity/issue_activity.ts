@@ -6,7 +6,7 @@
 
 /**
  * Issue-activity audit-trail row + normalized lookup contracts (`TIssueActivity`, `TIssueActivityMap`, `TIssueActivityIdMap`), mirroring `apps/api/plane/db/models/issue.py::IssueActivity` and produced by `apps/api/plane/bgtasks/issue_activities_task.py::issue_activity` via the `ACTIVITY_MAPPER` dispatch table.
- * Consumed by `apps/web/core/store/issue/issue-details/activity.store.ts` and the activity-feed components in `apps/web/core/components/issues/issue-detail/issue-activity/`.
+ * Consumed by `apps/web/ce/store/issue/issue-details/activity.store.ts` and the activity-feed components in `apps/web/core/components/issues/issue-detail/issue-activity/`.
  */
 
 // local imports

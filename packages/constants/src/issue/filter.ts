@@ -24,7 +24,7 @@ import type { TIssueLayout } from "./layout";
 
 /**
  * Narrow sidebar quick-filter key union (priority/state/labels).
- * Consumers: sidebar quick-filter chips in `apps/web/core/components/issues/filters/**`.
+ * Consumers: sidebar quick-filter chips in `apps/web/core/components/issues/issue-layouts/filters/**`.
  */
 export type TIssueFilterKeys = "priority" | "state" | "labels";
 
@@ -47,7 +47,7 @@ export enum EServerGroupByToFilterOptions {
 
 /**
  * Persistence bucket discriminator (rich filters, display filters, display properties, kanban-only state) whose values mirror per-user filter API column names — DO NOT rename.
- * Consumers: filter persistence in `apps/web/core/store/issue/**` and filter UIs in `apps/web/core/components/issues/filters/**`.
+ * Consumers: filter persistence in `apps/web/core/store/issue/**` and filter UIs in `apps/web/core/components/issues/issue-layouts/filters/**`.
  */
 export enum EIssueFilterType {
   FILTERS = "rich_filters",
@@ -91,7 +91,7 @@ export const ISSUE_DISPLAY_FILTERS_BY_LAYOUT: {
 
 /**
  * Priority filter pill catalog pairing each cross-stack priority `key` (mirroring `Issue.priority` choices in `apps/api/plane/db/models/issue.py`) with its i18n label, Tailwind classes, and Material Symbols icon.
- * Consumers: priority pills and badges in `apps/web/core/components/issues/filters/**` and `apps/web/core/components/issues/**`.
+ * Consumers: priority pills and badges in `apps/web/core/components/issues/issue-layouts/filters/**` and `apps/web/core/components/issues/**`.
  */
 export const ISSUE_PRIORITY_FILTERS: TIssueFilterPriorityObject[] = [
   {
@@ -128,7 +128,7 @@ export const ISSUE_PRIORITY_FILTERS: TIssueFilterPriorityObject[] = [
 
 /**
  * Per-layout filter/display options shape keyed by layout name to its `ILayoutDisplayFiltersOptions`.
- * Consumers: page-aware filter config in `apps/web/core/components/issues/filters/**`.
+ * Consumers: page-aware filter config in `apps/web/core/components/issues/issue-layouts/filters/**`.
  */
 export type TFiltersLayoutOptions = {
   [layoutType: string]: ILayoutDisplayFiltersOptions;
@@ -136,7 +136,7 @@ export type TFiltersLayoutOptions = {
 
 /**
  * Page-level filter configuration shape pairing allowed filter keys with per-layout options.
- * Consumers: page filter builders in `apps/web/core/components/issues/filters/**`.
+ * Consumers: page filter builders in `apps/web/core/components/issues/issue-layouts/filters/**`.
  */
 export type TFilterPropertiesByPageType = {
   filters: TWorkItemFilterProperty[];
@@ -145,7 +145,7 @@ export type TFilterPropertiesByPageType = {
 
 /**
  * Top-level registry shape mapping each page type to its filter configuration.
- * Consumers: page-aware filter resolvers in `apps/web/core/components/issues/filters/**`.
+ * Consumers: page-aware filter resolvers in `apps/web/core/components/issues/issue-layouts/filters/**`.
  */
 export type TIssueFiltersToDisplayByPageType = {
   [pageType: string]: TFilterPropertiesByPageType;
@@ -153,7 +153,7 @@ export type TIssueFiltersToDisplayByPageType = {
 
 /**
  * Source-of-truth page-keyed filter registry (`profile_issues`, `archived_issues`, `my_issues`, `issues`, `sub_work_items`) declaring allowed filter keys plus per-layout display properties/filters/extra options.
- * Consumers: page-aware filter and column-visibility menus in `apps/web/core/components/issues/filters/**` and `apps/web/core/components/issues/issue-layouts/**`.
+ * Consumers: page-aware filter and column-visibility menus in `apps/web/core/components/issues/issue-layouts/filters/**` and `apps/web/core/components/issues/issue-layouts/**`.
  */
 export const ISSUE_DISPLAY_FILTERS_BY_PAGE: TIssueFiltersToDisplayByPageType = {
   profile_issues: {

@@ -41,7 +41,7 @@ export const ISSUE_FORM_TAB_INDICES = [
  * Tab order for the intake-issue create form — same as the issue form minus the
  * `feeling_lucky` AI assist button and the draft button (intake issues are not drafts).
  *
- * Consumers: `apps/web/core/components/intake/**`.
+ * Consumers: `apps/web/core/components/inbox/modals/create-modal/**`.
  */
 export const INTAKE_ISSUE_CREATE_FORM_TAB_INDICES = [
   "name",

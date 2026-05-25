@@ -4,6 +4,9 @@
  * See the LICENSE file for details.
  */
 
+// INTENT UNCLEAR: EAuthenticationPageType has no consumer in tracked source — the
+// closest auth flows live in apps/web/core/lib/wrappers/authentication-wrapper.tsx and
+// apps/web/core/components/account/auth-forms/, but neither imports this enum directly.
 /**
  * Authentication-gate type for a page route — drives the auth provider wrapper that
  * redirects users to/away from a route based on their authentication state.
@@ -12,8 +15,6 @@
  * - STATIC: page is accessible regardless of auth state
  * - NOT_AUTHENTICATED: only accessible to unauthenticated users (e.g., sign-in page)
  * - AUTHENTICATED: only accessible to authenticated users (default for app pages)
- *
- * Consumers: `apps/web/core/components/auth/**` page guards.
  */
 export enum EAuthenticationPageType {
   STATIC = "STATIC",
@@ -107,9 +108,11 @@ export type TUserAllowedPermissions = {
   };
 };
 
+// INTENT UNCLEAR: USER_ALLOWED_PERMISSIONS has no consumer in tracked source — the
+// permission gating logic lives in apps/web/core/store/user/permissions.store.ts and the
+// route layouts, but neither imports this table directly.
 /**
  * Default workspace/project permission table — workspace entry grants dashboard read to admin/member/guest; project table starts empty and is populated per feature.
- * Consumers: permission checks in `apps/web/core/components/auth/**` and route guards.
  */
 export const USER_ALLOWED_PERMISSIONS: TUserAllowedPermissions = {
   workspace: {

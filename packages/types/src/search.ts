@@ -9,7 +9,7 @@
  *
  * Models the search request payload and per-entity result envelopes returned by the
  * `apps/api/plane/app/views/search/` endpoints. Consumed by the universal search box
- * in `apps/web/core/components/command-palette/` and `@`-mention pickers in the
+ * in `apps/web/ce/components/command-palette/` and `@`-mention pickers in the
  * `@plane/editor` rich-text wrapper.
  */
 

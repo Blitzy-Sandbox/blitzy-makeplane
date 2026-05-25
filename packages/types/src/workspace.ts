@@ -16,7 +16,7 @@
  * Consumed widely across `apps/web/core/store/workspace/`,
  * `apps/web/core/components/workspace/`, the onboarding flow under
  * `apps/web/core/components/onboarding/`, the search command palette in
- * `apps/web/core/components/command-palette/`, and the workspace permission gates in
+ * `apps/web/ce/components/command-palette/`, and the workspace permission gates in
  * `apps/api/plane/app/permissions/workspace.py`.
  */
 
@@ -42,7 +42,7 @@ import type { IWorkspaceViewProps } from "./view-props";
  * (e.g. `EUserWorkspaceRoles.ADMIN` checks for member-management screens) and by
  * issue/workspace-draft components to restrict create/edit actions to ADMIN/MEMBER.
  *
- * IMPORTANT: This enum is **distinct from** `EUserPermissions` (declared in
+ * IMPORTANT: This enum is distinct from `EUserPermissions` (declared in
  * `./enums.ts`). The two enums share the same numeric values (5 / 15 / 20) but model
  * different scopes — `EUserPermissions` is the platform-wide role identifier used
  * uniformly by stores and constants, whereas `EUserWorkspaceRoles` is workspace-scoped
@@ -346,7 +346,7 @@ export interface IWorkspaceProjectSearchResult {
  * consistency — consumers can iterate without checking presence.
  *
  * Consumed by the command-palette / spotlight search in
- * `apps/web/core/components/command-palette/` to render grouped result sections.
+ * `apps/web/ce/components/command-palette/` to render grouped result sections.
  */
 export interface IWorkspaceSearchResults {
   results: {

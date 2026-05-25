@@ -4,9 +4,13 @@
  * See the LICENSE file for details.
  */
 
+// INTENT UNCLEAR: no direct apps/api Django model mirror found for project links —
+// the closest Link-family models are IssueLink (apps/api/plane/db/models/issue.py),
+// ModuleLink (apps/api/plane/db/models/module.py), and WorkspaceUserLink
+// (apps/api/plane/db/models/workspace.py); the backend persistence path for
+// project-scoped links is not identifiable from tracked source.
 /**
- * Project link contracts mirroring `apps/api/plane/db/models/project.py::ProjectLink`;
- * consumed by the home dashboard widget at
+ * Project link contracts consumed by the home dashboard widget at
  * `apps/web/core/components/home/widgets/links/`.
  */
 

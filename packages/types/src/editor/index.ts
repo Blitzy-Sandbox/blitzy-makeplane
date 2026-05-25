@@ -13,8 +13,9 @@
  * Consumers:
  * - `@plane/editor` (core types and helpers — `packages/editor/src/core/types/editor.ts`,
  *   `packages/editor/src/core/helpers/yjs-utils.ts`, `packages/editor/src/core/helpers/parser.ts`)
- * - `apps/web/core/components/issues/issue-detail/description/` and
- *   `apps/web/core/components/pages/` (description editors and page editors)
+ * - `apps/web/core/components/issues/issue-modal/components/description-editor.tsx` and
+ *   `apps/web/core/components/editor/rich-text/description-input/` (issue description editors)
+ *   plus `apps/web/core/components/pages/` (page editors)
  * - `apps/live/src/extensions/title-sync.ts` (real-time title sync)
  * - `packages/types/src/issues/activity/issue_comment.ts` (comment activity entries)
  *

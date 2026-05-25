@@ -7,7 +7,7 @@
 /**
  * Workflow state vocabulary — state group catalog with color tokens and the
  * drag-and-drop payload type — consumed by project state settings in
- * `apps/web/core/components/states/**` and the state MobX store.
+ * `apps/web/core/components/project-states/**` and the state MobX store.
  */
 
 import type { TStateGroups } from "@plane/types";
@@ -16,7 +16,7 @@ import type { TStateGroups } from "@plane/types";
  * Drag-and-drop payload type carried while dragging a workflow state row between
  * state groups in the project state settings.
  *
- * Consumers: `apps/web/core/components/states/**` drag-drop handlers.
+ * Consumers: `apps/web/core/components/project-states/**` drag-drop handlers.
  */
 export type TDraggableData = {
   groupKey: TStateGroups;
@@ -25,7 +25,7 @@ export type TDraggableData = {
 
 /**
  * Canonical metadata (label, default state name on new project, color token) per workflow state group, mirroring the set in `apps/api/plane/db/models/state.py`.
- * Consumers: state-group headers in `apps/web/core/components/states/**` and distribution renderers in dashboards/cycles/modules.
+ * Consumers: state-group headers in `apps/web/core/components/project-states/**` and distribution renderers in dashboards/cycles/modules.
  */
 export const STATE_GROUPS: {
   [key in TStateGroups]: {
@@ -79,7 +79,7 @@ export const ARCHIVABLE_STATE_GROUPS = [STATE_GROUPS.completed.key, STATE_GROUPS
 export const COMPLETED_STATE_GROUPS = [STATE_GROUPS.completed.key];
 /**
  * State-group keys whose issues count as "pending" — backlog/unstarted/started/cancelled (cancelled is intentionally bucketed as "not yet completed").
- * Consumers: dashboard pending-issues widgets in `apps/web/core/components/dashboard/**`.
+ * Consumers: dashboard pending-issues helpers in `apps/web/helpers/dashboard.helper.ts` and home dashboard widgets in `apps/web/core/components/home/widgets/**`.
  */
 export const PENDING_STATE_GROUPS = [
   STATE_GROUPS.backlog.key,
@@ -149,6 +149,6 @@ export const PROGRESS_STATE_GROUPS_DETAILS = [
 
 /**
  * Feature flag that gates the workflow-pro upgrade CTA on the state settings page (`false` hides it).
- * Consumers: `apps/web/core/components/states/**`.
+ * Consumers: `apps/web/core/components/project-states/**`.
  */
 export const DISPLAY_WORKFLOW_PRO_CTA = false;

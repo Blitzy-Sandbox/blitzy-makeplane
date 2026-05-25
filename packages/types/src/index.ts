@@ -7,16 +7,16 @@
 /**
  * `@plane/types` — shared compile-time type surface for the Plane monorepo.
  *
- * **Package role:** canonical source of truth for cross-boundary type contracts shared
+ * Package role: canonical source of truth for cross-boundary type contracts shared
  * across every app and package — `apps/api` (mirrored as Django serializers/models),
  * `apps/web`, `apps/admin`, `apps/space`, `apps/live`, and the sibling packages
  * `@plane/ui`, `@plane/editor`, `@plane/constants`, `@plane/decorators`.
  *
- * **Runtime footprint:** ZERO. The package is type-only — every re-export below is
+ * Runtime footprint: ZERO. The package is type-only — every re-export below is
  * erased at build time. JSDoc on these types is purely a documentation / IDE-hint
  * mechanism; `tsc` parses the comments but emits nothing.
  *
- * **Domain organization** (each category aggregates one or more re-exports below):
+ * Domain organization (each category aggregates one or more re-exports below):
  * - Issues: core work-item model, attachments, links, relations, sub-issues, reactions,
  *   activity, comments, labels (`./issues/`, `./issues.ts`)
  * - Projects, cycles, modules, pages: domain entities and their filter shapes
@@ -51,7 +51,7 @@
  *   `./command-palette.ts`, `./pragmatic.ts`, `./stickies.ts`, `./search.ts`,
  *   `./publish.ts`, `./timezone.ts`, `./waitlist.ts`, `./payment.ts`)
  *
- * **Per-entity documentation:** see each target file's module-level JSDoc plus the
+ * Per-entity documentation: see each target file's module-level JSDoc plus the
  * per-type JSDoc above each `export interface` / `export type` / `export enum`
  * declaration. Each documented type lists its consumers, non-obvious field semantics,
  * discriminated union variants, and any backend mirror in `apps/api`.

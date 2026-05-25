@@ -15,7 +15,7 @@
  * Map of command palette actions keyed by stable string id.
  *
  * Each entry pairs a localized title/description with the callback executed when the user
- * selects the action. Consumers: command palette view in `apps/web/core/components/command-palette/`.
+ * selects the action. Consumers: command palette view in `apps/web/ce/components/command-palette/`.
  */
 export type TCommandPaletteActionList = Record<string, { title: string; description: string; action: () => void }>;
 

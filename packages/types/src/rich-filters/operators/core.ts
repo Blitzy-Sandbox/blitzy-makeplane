@@ -9,8 +9,8 @@
  *
  * Declares the runtime operator-token registries (logical / equality / collection /
  * comparison families) as frozen `as const` objects so that the value-level tokens and
- * the corresponding TypeScript unions stay synchronized. **These string tokens are part
- * of the persisted wire format** — adapters in `packages/shared-state/src/store/work-item-filters/`
+ * the corresponding TypeScript unions stay synchronized. These string tokens are part
+ * of the persisted wire format — adapters in `packages/shared-state/src/store/work-item-filters/`
  * serialize them to disk, and changing any token is a breaking schema migration.
  */
 
