@@ -4,6 +4,23 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * `@plane/constants` — Shared, statically-typed constants for the Plane monorepo.
+ *
+ * This barrel re-exports 40 domain-organized constant modules consumed across
+ * `apps/web`, `apps/admin`, `apps/space`, `apps/live`, and sibling packages.
+ *
+ * Public surface (alphabetical):
+ *   ai, analytics, auth, chart, cycle, dashboard, emoji, endpoints, estimates,
+ *   event-tracker, file, filter, graph, icon, instance, intake, issue, label,
+ *   members, metadata, module, notification, page, payment, profile, project,
+ *   rich-filters, settings, sidebar, spreadsheet, state, stickies, subscription,
+ *   swr, tab-indices, themes, user, views, workspace, workspace-drafts.
+ *
+ * Consumers import from `@plane/constants` directly; sub-module deep imports are
+ * not part of the supported API surface.
+ */
+
 export * from "./ai";
 export * from "./analytics";
 export * from "./auth";
