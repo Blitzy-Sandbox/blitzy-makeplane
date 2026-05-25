@@ -4,6 +4,26 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Custom keyboard mappings and list-merging plugin for the Plane editor.
+ *
+ * Exports `CustomKeymap`, a from-scratch TipTap `Extension` that orchestrates
+ * the editor's custom keyboard shortcuts and a transaction-level ProseMirror
+ * plugin that merges adjacent sibling lists.
+ *
+ * Provides:
+ *   - The `selectTextWithinNodeBoundaries` command (collapses selection to
+ *     the active block's boundaries; used by the `Mod-a` keymap)
+ *   - A ProseMirror plugin (`ordered-list-merging`) that auto-joins adjacent
+ *     same-type list nodes (`orderedList`, `bulletList`, `taskList`) after
+ *     every transaction
+ *   - A `Mod-a` keyboard shortcut with two-press select-all behavior
+ *     (first press: current block scope; second press: full document)
+ *
+ * Consumers: registered alongside other core extensions when building the
+ * editor configuration in `packages/editor/src/core/extensions/*`.
+ */
+
 import { Extension } from "@tiptap/core";
 import type { NodeType } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
@@ -23,6 +43,18 @@ declare module "@tiptap/core" {
   }
 }
 
+/**
+ * Walks the supplied transactions' position mappings and returns a flat array
+ * of `[from, to, from, to, ...]` pairs spanning every changed range.
+ *
+ * Used by `autoJoin` to limit the scan for joinable list boundaries to
+ * positions actually affected by the recent edit, avoiding a full-document
+ * traversal.
+ *
+ * @param transactions - Read-only list of ProseMirror transactions whose
+ *   mapping steps describe the document edits to scan.
+ * @returns Flat array of paired positions; consume via index strides of 2.
+ */
 function collectRanges(transactions: readonly Transaction[]): Array<number> {
   const ranges: Array<number> = [];
   for (const tr of transactions) {
@@ -34,6 +66,24 @@ function collectRanges(transactions: readonly Transaction[]): Array<number> {
   return ranges;
 }
 
+/**
+ * Identifies adjacent same-type sibling nodes within the supplied ranges and
+ * joins them into a single node.
+ *
+ * Joinable points are computed by walking each range's shared-depth parent,
+ * looking for consecutive children with matching types in `nodeTypes`, and
+ * collecting the boundary positions. Joins are applied in reverse order so
+ * later mutations do not invalidate earlier positions. `canJoin` from
+ * `@tiptap/pm/transform` guards against joins that would violate the schema
+ * (e.g., differing list attributes).
+ *
+ * @param ranges - Flat `[from, to, ...]` pairs from `collectRanges` to scan.
+ * @param newTr - The transaction to mutate with join steps when applicable.
+ * @param nodeTypes - Node types that are eligible to be merged when adjacent
+ *   (e.g., `orderedList`, `bulletList`, `taskList`).
+ * @returns `true` when at least one join occurred so the caller can dispatch
+ *   `newTr`; `false` when nothing was merged.
+ */
 function autoJoin(ranges: Array<number>, newTr: Transaction, nodeTypes: NodeType[]) {
   const doc = newTr.doc;
   // Figure out which joinable points exist inside those ranges,
@@ -71,6 +121,38 @@ function autoJoin(ranges: Array<number>, newTr: Transaction, nodeTypes: NodeType
   return joined;
 }
 
+/**
+ * Custom keymap extension wiring `Mod-a` select-all progression and a
+ * list-merging post-transaction plugin.
+ *
+ * Adds command: `selectTextWithinNodeBoundaries` — collapses the current
+ * selection to the active block's boundaries (`$from.start()` to `$to.end()`).
+ * Used internally by the `Mod-a` shortcut and exposed for downstream toolbar
+ * or menu code via the `customKeymap` Commands interface.
+ *
+ * Registers ProseMirror plugin: `ordered-list-merging` — via
+ * `appendTransaction`, auto-joins adjacent same-type sibling lists
+ * (`orderedList`, `taskList`, `bulletList`) into a single node after every
+ * transaction. The plugin returns the mutated transaction when at least one
+ * join occurred so ProseMirror applies it atomically.
+ *
+ * Registers keyboard shortcut: `Mod-a` (Ctrl/Cmd-A) — two-press select-all:
+ *   - First press: selects text within the active block's boundaries
+ *     (detected when the selection does not already span the full block)
+ *   - Second press: selects the entire document via `commands.selectAll()`
+ *
+ * WHY the list-merging plugin: ProseMirror does not auto-join sibling lists
+ * after edits (e.g., deleting a separator paragraph between two bullet
+ * lists). Without merging, two visually-contiguous lists remain structurally
+ * separate, breaking drag-handle UX, list reordering, and Markdown
+ * serialization. `appendTransaction` runs once per round of dispatched
+ * transactions, making this normalization efficient on batched edits.
+ *
+ * WHY the two-press `Mod-a`: when editing a paragraph in a long document,
+ * users typically want "select this paragraph" — not "select the whole
+ * document". The two-press progression mirrors IDE-style scope expansion
+ * (single press = current scope; second press = wider scope).
+ */
 export const CustomKeymap = Extension.create({
   name: "customKeymap",
 
