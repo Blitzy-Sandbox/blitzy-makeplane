@@ -4,6 +4,25 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Floating side-menu extension for the Plane editor.
+ *
+ * Mounts an absolutely-positioned `<div id="editor-side-menu">` adjacent to
+ * the editor DOM and repositions it on `mousemove` to align with the block
+ * node under the cursor. The drag-handle (`@/plugins/drag-handle`) and
+ * AI-handle (`@/plugins/ai-handle`) attach their interactive elements to
+ * this shared container, which is created as a closure-scoped singleton per
+ * editor instance inside the plugin's `view()` initializer.
+ *
+ * Public API:
+ *   - {@link SideMenuExtension} — the TipTap extension factory consumed by
+ *     the editor extensions registry.
+ *   - {@link SideMenuPluginProps} — configuration shape passed to the
+ *     underlying ProseMirror plugin.
+ *   - {@link SideMenuHandleOptions} — return shape implemented by handle
+ *     plugin factories (`AIHandlePlugin`, `DragHandlePlugin`).
+ */
+
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
@@ -18,6 +37,20 @@ type Props = {
   dragDropEnabled: boolean;
 };
 
+/**
+ * Configuration for the side-menu ProseMirror plugin.
+ *
+ * - `dragHandleWidth`: horizontal pixel width reserved for the drag-handle UI.
+ *   Also used as the horizontal probe offset (`+50 + dragHandleWidth`) when
+ *   resolving the block node under the cursor.
+ * - `handlesConfig.ai`: whether to mount the AI handle inside the side-menu
+ *   container.
+ * - `handlesConfig.dragDrop`: whether to mount the drag-and-drop handle inside
+ *   the side-menu container.
+ * - `scrollThreshold.up` / `.down`: pixel distance from the viewport edge at
+ *   which auto-scroll engages during an in-progress drag operation; consumed
+ *   by `DragHandlePlugin`.
+ */
 export type SideMenuPluginProps = {
   dragHandleWidth: number;
   handlesConfig: {
@@ -30,6 +63,13 @@ export type SideMenuPluginProps = {
   };
 };
 
+/**
+ * Shape returned by handle plugin factories (`DragHandlePlugin`,
+ * `AIHandlePlugin`) — supplies a `view` initializer that mounts the handle's
+ * DOM element into the shared `editor-side-menu` container, plus an optional
+ * `domEvents` map used by `SideMenu` to forward mouse/drag events from the
+ * editor surface to each handle.
+ */
 export type SideMenuHandleOptions = {
   view: (view: EditorView, sideMenu: HTMLDivElement | null) => void;
   domEvents?: {
@@ -37,6 +77,42 @@ export type SideMenuHandleOptions = {
   };
 };
 
+/**
+ * Builds the floating side-menu TipTap extension that hosts drag and AI
+ * handles next to every block node in the editor.
+ *
+ * The extension registers a single ProseMirror plugin (via
+ * `addProseMirrorPlugins`) keyed under {@link CORE_EXTENSIONS.SIDE_MENU} and
+ * hard-codes the side-menu geometry: `dragHandleWidth = 24` and
+ * `scrollThreshold = { up: 200, down: 150 }`. The `aiEnabled` and
+ * `dragDropEnabled` props from `Props` toggle the AI and drag-drop handle
+ * mounts respectively.
+ *
+ * Behavior contract enforced by the underlying plugin:
+ *   - Mounts a `<div id="editor-side-menu">` next to `view.dom.parentElement`.
+ *   - On `mousemove`, repositions to align with the block under the cursor
+ *     (offset by `+50 + dragHandleWidth` so the cursor never has to hover on
+ *     the side menu itself); hides if the resolved node is a list container
+ *     (`ul`, `ol`) because list MARKERS do not get their own handle.
+ *   - Vertically centers on the first line of the block via the
+ *     `(lineHeight - 20) / 2` plus `paddingTop` adjustment.
+ *   - Horizontally subtracts 20px when AI is enabled (room for the AI
+ *     button) and an additional 18px (or 5px inside table cells) for
+ *     `ul:not([data-type=taskList]) li, ol li` so the menu aligns with the
+ *     visual left edge of the list item rather than its marker.
+ *   - Inside table cells (`td`/`th`), applies the smaller (5px) list-item
+ *     adjustment because table-cell list-items render with different
+ *     padding than document-level list-items.
+ *   - On `table` nodes, nudges 8px down and 8px left to clear the table border.
+ *   - On `mousewheel`, hides (the user is scrolling, not editing).
+ *   - On plugin destroy, hides the menu.
+ *
+ * Drag and AI handles are wired by `core/plugins/drag-handle.ts` and
+ * `core/plugins/ai-handle.ts`; each receives the mounted container reference
+ * directly via `dragHandleView(view, editorSideMenu)` and
+ * `aiHandleView(view, editorSideMenu)` — the extension does NOT register
+ * `editor.storage` for the container.
+ */
 export const SideMenuExtension = (props: Props) => {
   const { aiEnabled, dragDropEnabled } = props;
 
@@ -57,6 +133,12 @@ export const SideMenuExtension = (props: Props) => {
   });
 };
 
+/**
+ * Captures absolute viewport coordinates of an element as `{ top, left, width }`.
+ *
+ * Wraps `getBoundingClientRect()` so callers can mutate `top`/`left`/`width`
+ * during positioning math without affecting the source element's layout.
+ */
 const absoluteRect = (node: Element) => {
   const data = node.getBoundingClientRect();
 
@@ -67,6 +149,28 @@ const absoluteRect = (node: Element) => {
   };
 };
 
+/**
+ * Constructs the ProseMirror plugin that mounts and repositions the
+ * `#editor-side-menu` container.
+ *
+ * Internal singleton-per-editor: the `editorSideMenu` div is created once at
+ * factory invocation and appended to `view.dom.parentElement` inside the
+ * plugin's `view()` callback. The drag-handle and AI-handle plugins
+ * (`DragHandlePlugin`, `AIHandlePlugin`) are instantiated at factory time so
+ * their `domEvents` maps can be forwarded from this plugin's
+ * `handleDOMEvents` (mousemove, dragenter, drop, dragend).
+ *
+ * Hide/show triggers:
+ *   - `mousemove` over a non-list block — show and reposition.
+ *   - `mousemove` over a `ul`/`ol` container — hide (markers don't need
+ *     their own handle).
+ *   - `mousewheel` — hide (user is scrolling, not editing).
+ *   - Plugin destroy — hide.
+ *
+ * Registered only by {@link SideMenuExtension}, which supplies a fixed
+ * `dragHandleWidth = 24`, AI/dragDrop flags from `Props`, and scroll
+ * thresholds `{ up: 200, down: 150 }`.
+ */
 const SideMenu = (options: SideMenuPluginProps) => {
   const { handlesConfig } = options;
   const editorSideMenu: HTMLDivElement | null = document.createElement("div");
