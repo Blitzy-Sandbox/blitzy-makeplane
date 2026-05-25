@@ -4,6 +4,19 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Interactive mention suggestion dropdown — the React UI that appears after a `@` trigger
+ * while typing in any editor that wires `CustomMentionExtension`.
+ *
+ * Renders a `FloatingOverlay`-backed popover containing a debounced (300ms) list of
+ * grouped search matches resolved through the caller-injected `searchCallback`. The list
+ * supports arrow-key navigation, Enter to select, mouse hover to highlight, click to
+ * select, and outside-click / Escape to close.
+ *
+ * Mounted by `renderMentionsDropdown` (see `./utils.ts`) inside a `ReactRenderer`, with
+ * positioning anchored via floating-ui (see `@/helpers/floating-ui`).
+ */
+
 import { FloatingOverlay } from "@floating-ui/react";
 import type { SuggestionProps } from "@tiptap/suggestion";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
@@ -17,11 +30,74 @@ import { DROPDOWN_NAVIGATION_KEYS, getNextValidIndex } from "@/helpers/tippy";
 // types
 import type { TMentionHandler, TMentionSection, TMentionSuggestion } from "@/types";
 
+/**
+ * Props consumed by `MentionsListDropdown`.
+ *
+ * Composition:
+ *   - `SuggestionProps<TMentionSection, TMentionSuggestion>` — TipTap suggestion props
+ *     including `command` (callback invoked on selection), `query` (current text after
+ *     the `@` trigger), `items`, `clientRect`, `editor`, etc. Provided by
+ *     `@tiptap/suggestion` at the lifecycle hook boundary.
+ *   - `Pick<TMentionHandler, "searchCallback">` — async query resolver injected by the
+ *     consumer; ultimately calls Plane's workspace member search API.
+ *   - `onClose: () => void` — fired on outside-click or Escape; routed back to the
+ *     `renderMentionsDropdown.onStart` `handleClose` so the active-dropbar marker is
+ *     cleared and the React renderer is destroyed.
+ */
 export type MentionsListDropdownProps = SuggestionProps<TMentionSection, TMentionSuggestion> &
   Pick<TMentionHandler, "searchCallback"> & {
     onClose: () => void;
   };
 
+/**
+ * Mention suggestion list — a `forwardRef` React component that exposes an imperative
+ * `onKeyDown` handler to `@tiptap/suggestion`.
+ *
+ * State:
+ *   - `sections: TMentionSection[]` — grouped results returned by the latest `searchCallback`.
+ *   - `selectedIndex: { section, item }` — keyboard/hover-driven highlight; reset to
+ *     `{ section: 0, item: 0 }` whenever `sections` changes.
+ *   - `isLoading: boolean` — true between the first keystroke and the next debounced
+ *     `searchCallback` resolution.
+ *
+ * Search delegation (NOT a static list):
+ *   The component invokes `searchCallback(query)` via a `lodash-es/debounce` wrapper at
+ *   300ms. The callback is supplied by the editor consumer (web, live, plane-editor)
+ *   and ultimately calls Plane's workspace member search API. The debounce cancels on
+ *   unmount to prevent setState-on-unmounted-component warnings.
+ *
+ * Imperative API (exposed via `useImperativeHandle`):
+ *   - `onKeyDown({ event })` — Called from `renderMentionsDropdown.onKeyDown` (utils.ts).
+ *       * `Enter` → invokes `command({ ...item, id: uuidv4() })` for the current selection;
+ *         the regenerated UUID is the mention node's per-insertion ProseMirror attribute.
+ *       * `ArrowUp` / `ArrowDown` → moves `selectedIndex` via `getNextValidIndex` (wraps
+ *         across sections); returns true so the editor does not also move the caret.
+ *       * Any other key → returns false; TipTap's default handling proceeds.
+ *
+ * Accessibility / keyboard behavior:
+ *   - Arrow keys navigate sections and items (wraps).
+ *   - Enter inserts the highlighted item as a mention node.
+ *   - Escape closes the dropdown (handled upstream in `utils.ts`'s `onKeyDown` to ensure
+ *     the active-dropbar marker is cleared before unmount).
+ *   - The highlighted item auto-scrolls into view via `useLayoutEffect` whenever
+ *     `selectedIndex` changes (looks up `#mention-item-<sectionIdx>-<itemIdx>` in the
+ *     scroll container).
+ *   - `useOutsideClickDetector` (`@plane/hooks`) closes the dropdown on outside click.
+ *   - `FloatingOverlay` (`@floating-ui/react`) renders a `zIndex: 99` backdrop with
+ *     `lockScroll`; the panel itself is `zIndex: 100`. `onClick` / `onMouseDown` stop
+ *     propagation so clicks inside the panel don't escape to the editor surface.
+ *
+ * Side effects:
+ *   - Invokes `searchCallback` (network call to Plane workspace member API via the
+ *     consumer's service layer).
+ *   - Invokes `command()` from TipTap's suggestion plugin on selection — this writes a
+ *     mention node into the editor document.
+ *   - Does NOT call any Plane API directly; does NOT navigate.
+ *   - On selection error or search error, logs to `console.error` (non-fatal).
+ *
+ * @param props - `MentionsListDropdownProps`.
+ * @param ref - Forwarded ref expecting a `CommandListInstance` (imperative `onKeyDown`).
+ */
 export const MentionsListDropdown = forwardRef(function MentionsListDropdown(props: MentionsListDropdownProps, ref) {
   const { command, query, searchCallback, onClose } = props;
   // states
