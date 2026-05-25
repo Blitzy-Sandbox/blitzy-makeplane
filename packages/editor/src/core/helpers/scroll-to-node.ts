@@ -4,6 +4,12 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Editor viewport-scrolling helpers for table-of-contents navigation and programmatic cursor scrolling.
+ *
+ * `scrollSummary` jumps to the Nth heading of a given level (used by the headings outline panel); `scrollToNodeViaDOMCoordinates` centers an arbitrary document position in the viewport (used by ref-driven navigation and selection focus).
+ */
+
 import type { Editor } from "@tiptap/react";
 // types
 import type { IMarking } from "@/types";
@@ -33,6 +39,15 @@ function scrollToNode(editor: Editor, pos: number): void {
   }
 }
 
+/**
+ * Centers a document position in the viewport by reading its DOM coordinates via `view.coordsAtPos` and scrolling the window so the position sits halfway down the viewport.
+ *
+ * Consumed by `editor-ref.ts:scrollToNodeViaDOMCoordinates` (exposed on `EditorRefApi`) for programmatic navigation to a cursor position or referenced node.
+ *
+ * @param editor - TipTap editor instance.
+ * @param pos - ProseMirror document position to scroll to.
+ * @param behavior - `ScrollBehavior` ("smooth" | "instant" | "auto"); passed through to `window.scrollTo`.
+ */
 export function scrollToNodeViaDOMCoordinates(editor: Editor, pos: number, behavior?: ScrollBehavior): void {
   const view = editor.view;
 
@@ -53,6 +68,11 @@ export function scrollToNodeViaDOMCoordinates(editor: Editor, pos: number, behav
   }
 }
 
+/**
+ * Scrolls the editor viewport to the Nth heading of the given level using `findNthH1` to locate the position and `scrollIntoView` for the smooth-scroll behavior.
+ *
+ * Consumed by `editor-ref.ts:scrollSummary` (exposed on `EditorRefApi`) so the outline/table-of-contents UI can navigate by `IMarking.sequence` and `IMarking.level`.
+ */
 export function scrollSummary(editor: Editor, marking: IMarking) {
   if (editor) {
     const pos = findNthH1(editor, marking.sequence, marking.level);
