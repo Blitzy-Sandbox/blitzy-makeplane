@@ -7,6 +7,15 @@
 import type { TInboxIssueStatus } from "@plane/types";
 import { EInboxIssueStatus } from "@plane/types";
 
+/**
+ * Inbox/intake issue status catalog — pairs each `EInboxIssueStatus` value with its
+ * i18n title/description keys for rendering status pills and review CTAs.
+ *
+ * Consumers: `apps/web/core/components/inbox/inbox-issue-status.tsx` for the status
+ * pill, and `apps/web/core/components/inbox/inbox-filter/{filters,applied-filters}/status.tsx`
+ * for status filter dropdowns. The `i18n_description` field is a function so callers
+ * can lazily resolve the translation key per render context.
+ */
 export const INBOX_STATUS: {
   key: string;
   status: TInboxIssueStatus;
@@ -45,6 +54,13 @@ export const INBOX_STATUS: {
   },
 ];
 
+/**
+ * Order-by field options for the inbox issue list (created_at / updated_at / sequence_id).
+ *
+ * Consumers: `apps/web/core/components/inbox/inbox-filter/sorting/order-by.tsx` —
+ * the sort field selector dropdown. `key` values are the Django ORM lookups
+ * accepted by the inbox list API; `i18n_label` is the i18n key for the visible label.
+ */
 export const INBOX_ISSUE_ORDER_BY_OPTIONS = [
   {
     key: "issue__created_at",
@@ -60,6 +76,12 @@ export const INBOX_ISSUE_ORDER_BY_OPTIONS = [
   },
 ];
 
+/**
+ * Sort direction options (ascending / descending) for the inbox issue list.
+ *
+ * Consumers: `apps/web/core/components/inbox/inbox-filter/sorting/order-by.tsx` —
+ * paired with `INBOX_ISSUE_ORDER_BY_OPTIONS` to compose the inbox sort query.
+ */
 export const INBOX_ISSUE_SORT_BY_OPTIONS = [
   {
     key: "asc",
@@ -71,6 +93,19 @@ export const INBOX_ISSUE_SORT_BY_OPTIONS = [
   },
 ];
 
+/**
+ * Relative past-duration filter tokens used by the inbox "filter by recent activity" control.
+ *
+ * Consumers: `apps/web/core/store/inbox/project-inbox.store.ts` (filter state) and
+ * `packages/utils/src/intake.ts` (date-range resolver that maps each token to a
+ * concrete start/end timestamp).
+ *
+ * Values:
+ * - TODAY (`"today"`): today only
+ * - YESTERDAY (`"yesterday"`): yesterday only
+ * - LAST_7_DAYS (`"last_7_days"`) / LAST_30_DAYS (`"last_30_days"`):
+ *   rolling 7/30-day windows ending today
+ */
 export enum EPastDurationFilters {
   TODAY = "today",
   YESTERDAY = "yesterday",
@@ -78,6 +113,14 @@ export enum EPastDurationFilters {
   LAST_30_DAYS = "last_30_days",
 }
 
+/**
+ * Dropdown option list paired with `EPastDurationFilters` for the past-duration filter UI.
+ *
+ * Consumers: `apps/web/core/components/inbox/inbox-filter/filters/date.tsx` (option
+ * picker) and `apps/web/core/components/inbox/inbox-filter/applied-filters/date.tsx`
+ * (applied-filter chip). `name` is the user-visible label; `value` is the
+ * `EPastDurationFilters` token persisted in filter state.
+ */
 export const PAST_DURATION_FILTER_OPTIONS: {
   name: string;
   value: string;
