@@ -4,6 +4,17 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Individual menu item rendered inside a context menu. Acts as both leaf-action button and as
+ * submenu trigger, depending on whether the supplied `TContextMenuItem.nestedMenuItems` array
+ * is present and non-empty.
+ *
+ * Leaf items invoke `item.action()` on click and conditionally close the entire menu via
+ * `handleClose()` based on `item.closeOnClick`. Submenu-trigger items toggle a portaled nested
+ * panel positioned to the right of the trigger via `react-popper` with `strategy: "fixed"`, and
+ * coordinate sibling closure through the parent `ContextMenuContext.registerSubmenu`.
+ */
+
 import React, { useState, useRef, useContext } from "react";
 import { usePopper } from "react-popper";
 import { ChevronRightIcon } from "@plane/propel/icons";
@@ -13,6 +24,17 @@ import { cn } from "../../utils";
 import type { TContextMenuItem } from "./root";
 import { ContextMenuContext, Portal } from "./root";
 
+/**
+ * Prop contract passed by the parent `ContextMenu` controller. Not exported — strictly internal
+ * to this folder.
+ *
+ *   - `handleActiveItem`: called when the row receives a mouse-enter; updates the parent's
+ *     `activeItemIndex` so keyboard navigation reflects the hovered row.
+ *   - `handleClose`: closes the entire context menu (NOT just the nested submenu).
+ *   - `isActive`: when `true`, the row gets the active background tint; driven by the parent's
+ *     `activeItemIndex` keyboard navigation.
+ *   - `item`: the `TContextMenuItem` descriptor to render.
+ */
 type ContextMenuItemProps = {
   handleActiveItem: () => void;
   handleClose: () => void;
@@ -20,6 +42,43 @@ type ContextMenuItemProps = {
   item: TContextMenuItem;
 };
 
+/**
+ * Row-level renderer for a single `TContextMenuItem`. Returns `null` when `item.shouldRender`
+ * is `false`. Renders a `<button>` that either:
+ *
+ *   - Calls `item.action()` + conditionally `handleClose()` (leaf items), or
+ *   - Toggles a nested submenu panel (when `item.nestedMenuItems` is present), portaled via
+ *     `<Portal container={contextMenuContext?.portalContainer}>` and positioned with `usePopper`
+ *     using `strategy: "fixed"` to escape overflow constraints. The nested popper modifiers
+ *     include a 4 px offset, fallback placements (`left-start`, `right-end`, `left-end`,
+ *     `top-start`, `bottom-start`), and `preventOverflow` with 8 px padding.
+ *
+ * Submenu coordination:
+ *   - On mount with nested items, registers `closeNestedMenu` with the parent
+ *     `ContextMenuContext`; on unmount or when nested items disappear, unregisters.
+ *   - Before opening this submenu, calls `contextMenuContext.closeAllSubmenus()` to dismiss any
+ *     sibling that is open.
+ *   - Hover-to-open: `handleMouseEnter` opens the submenu when nested items exist (in addition
+ *     to updating `activeItemIndex`).
+ *   - Keyboard nav inside the open submenu: ArrowUp / ArrowDown cycle `activeNestedIndex`,
+ *     Enter activates the focused nested item (calling `handleNestedItemClick`), ArrowLeft
+ *     collapses the submenu.
+ *
+ * Each nested-menu button carries `data-context-submenu="true"` so the parent controller's
+ * outside-click handler treats clicks inside the submenu as inside-clicks and does not close
+ * the parent menu.
+ *
+ * Render content rules:
+ *   - When `item.customContent` is set, it is rendered verbatim and `title`/`description`/`icon`
+ *     are skipped.
+ *   - Otherwise the default layout renders `item.icon`, `item.title`, and (if present)
+ *     `item.description`. Submenu triggers also append a `ChevronRightIcon` affordance.
+ *
+ * Accessibility: rendered as a native `<button type="button">`, so Space/Enter activate.
+ * ArrowLeft on an open submenu collapses it. INTENT UNCLEAR: there is no `role="menuitem"`
+ * ARIA wiring on the rendered button; the parent controller in `root.tsx` likewise omits
+ * `role="menu"`, so assistive tech will not announce the menu grouping.
+ */
 export function ContextMenuItem(props: ContextMenuItemProps) {
   const { handleActiveItem, handleClose, isActive, item } = props;
 
