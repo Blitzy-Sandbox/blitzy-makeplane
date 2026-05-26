@@ -112,7 +112,6 @@ type TStoredLogoValue = Pick<TCalloutBlockAttributes, ECalloutAttributeNames.LOG
  * @returns A `TStoredLogoValue` — either the persisted logo or the
  *          emoji-default fallback.
  */
-// function to get the stored logo from local storage
 export const getStoredLogo = (): TStoredLogoValue => {
   const fallBackValues: TStoredLogoValue = {
     [ECalloutAttributeNames.LOGO_IN_USE]: "emoji",
@@ -170,7 +169,6 @@ export const getStoredLogo = (): TStoredLogoValue => {
  *                same shape produced by `logo-selector.tsx`'s `onChange`
  *                emoji and icon branches.
  */
-// function to update the stored logo on local storage
 export const updateStoredLogo = (value: TLogoProps): void => {
   if (typeof window === "undefined") return;
   localStorage.setItem("editor-calloutComponent-logo", JSON.stringify(value));
@@ -190,7 +188,6 @@ export const updateStoredLogo = (value: TLogoProps): void => {
  *
  * @returns Sanitized swatch key string, or `null` on the server.
  */
-// function to get the stored background color from local storage
 export const getStoredBackgroundColor = (): string | null => {
   if (typeof window !== "undefined") {
     return sanitizeHTML(localStorage.getItem("editor-calloutComponent-background") ?? "");
@@ -216,7 +213,6 @@ export const getStoredBackgroundColor = (): string | null => {
  * @param value - The swatch `key` from `COLORS_LIST`, or `null` to clear
  *                the persisted preference.
  */
-// function to update the stored background color on local storage
 export const updateStoredBackgroundColor = (value: string | null): void => {
   if (typeof window === "undefined") return;
   if (value === null) {

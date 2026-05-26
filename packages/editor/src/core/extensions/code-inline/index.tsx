@@ -43,6 +43,17 @@ declare module "@tiptap/core" {
   }
 }
 
+/**
+ * Input rule pattern matching a single-backtick inline-code span typed at the
+ * end of the current input. Anchors to start-of-line or whitespace
+ * (`(?:^|\s)`) so a backtick inside an identifier (e.g. ``foo`bar``) is not
+ * consumed; requires a closing backtick before the cursor (`$`) so the rule
+ * fires the moment the user types the second backtick.
+ *
+ * Exported so other extensions and tests that compose or override the
+ * inline-code input behavior can re-use the exact same pattern; consumed
+ * internally by `addInputRules()` below via `markInputRule({ find: inputRegex, ... })`.
+ */
 export const inputRegex = /(?:^|\s)((?:`)((?:[^`]+))(?:`))$/;
 const pasteRegex = /(?:^|\s)((?:`)((?:[^`]+))(?:`))/g;
 

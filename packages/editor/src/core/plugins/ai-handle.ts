@@ -5,12 +5,27 @@
  */
 
 /**
- * Side-menu plugin that renders a sparkles-icon button next to block nodes,
- * letting users select a block as the target of an AI action (e.g., rewrite,
- * summarize) via the editor's floating side menu.
+ * Side-menu plugin that renders a sparkles-icon button next to block nodes
+ * and, on click, sets a `NodeSelection` covering the block under the
+ * pointer. This file does NOT invoke any AI provider, dispatch any AI
+ * action, or open any AI menu — its only responsibility is mounting the
+ * visual handle and selecting the target block.
  *
  * Shares the DOM hit-testing helper `nodeDOMAtCoords` with `drag-handle.ts`
  * so both handles resolve the same block under a given pointer position.
+ *
+ * The downstream AI surface (menu rendering, prompt UI, provider calls) is
+ * supplied entirely by the consumer through the editor's optional
+ * `aiHandler` prop — see `TAIHandler` and `TAIMenuProps` in
+ * `@/core/types/ai.ts`. Whether the resulting `NodeSelection` opens the
+ * AI menu, and how that menu is then wired to a provider, is determined
+ * outside this plugin.
+ *
+ * INTENT UNCLEAR: AI provider/action dispatcher is not declared in this
+ * plugin. The specific actions a user can perform on the selected block
+ * (e.g. rewrite, summarize) and the network/SDK call site that performs
+ * them are not visible at this layer — they live in the consumer-supplied
+ * `aiHandler.menu` React node injected via `IEditorProps.aiHandler`.
  */
 
 import { NodeSelection } from "@tiptap/pm/state";

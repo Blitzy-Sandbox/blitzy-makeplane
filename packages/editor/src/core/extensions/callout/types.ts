@@ -137,18 +137,24 @@ export type TCalloutBlockAttributes = {
   TCalloutBlockEmojiAttributes;
 
 /**
- * Opaque markers for the callout extension's TipTap-level `addOptions` and
- * `addStorage` surfaces — both intentionally `unknown` because the extension
- * exposes no public options or storage to consumers.
+ * Opaque marker for the callout extension's TipTap-level `addOptions`
+ * surface — intentionally `unknown` because the extension exposes no
+ * public options to consumers. Consumed as the first generic parameter of
+ * `Node.extend<Options, Storage>(...)` in `extension.tsx`.
+ */
+export type CustomCalloutExtensionOptions = unknown;
+
+/**
+ * Opaque marker for the callout extension's TipTap-level `addStorage`
+ * surface — intentionally `unknown` because the extension exposes no
+ * public storage to consumers.
  *
  * `addStorage` in `extension-config.ts` does declare a `markdown.serialize`
  * writer, but that is internal storage consumed only by the markdown
- * serializer pipeline, not part of the public type contract;
- * `CustomCalloutExtensionStorage` therefore stays `unknown` and is not
- * narrowed. Both aliases are consumed as the two generic parameters of
- * `Node.extend<...>(...)` in `extension.tsx`.
+ * serializer pipeline, not part of the public type contract — so the alias
+ * stays `unknown` and is not narrowed. Consumed as the second generic
+ * parameter of `Node.extend<Options, Storage>(...)` in `extension.tsx`.
  */
-export type CustomCalloutExtensionOptions = unknown;
 export type CustomCalloutExtensionStorage = unknown;
 
 /**
