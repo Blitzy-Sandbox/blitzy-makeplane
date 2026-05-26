@@ -4,6 +4,11 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Styled checkbox primitive with custom check/indeterminate SVG overlays on top of a native
+ * `<input type="checkbox">`.
+ */
+
 import * as React from "react";
 // helpers
 import { cn } from "../utils";
@@ -14,6 +19,32 @@ export interface CheckboxProps extends React.InputHTMLAttributes<HTMLInputElemen
   indeterminate?: boolean;
 }
 
+/**
+ * Ref-forwarding checkbox that overlays brand-styled SVG icons on top of a native
+ * `<input type="checkbox">` so the field preserves native form/accessibility semantics while
+ * matching the design system's visual language.
+ *
+ * The native input has `appearance-none` to strip browser chrome; two absolutely-positioned
+ * SVGs (a checkmark polyline and a minus path) toggle their `block` class based on `checked`
+ * and `indeterminate` to render the appropriate visual.
+ *
+ * The `indeterminate` prop is a **visual-only** toggle that controls SVG selection — it does
+ * NOT set the DOM `indeterminate` property and does NOT emit `aria-checked="mixed"`. Consumers
+ * needing strict ARIA conformance for tri-state checkboxes must pass `aria-checked` through
+ * `{...rest}`.
+ *
+ * Props (see local `CheckboxProps` — extends all native input HTML attrs):
+ *   - `checked`: controlled checked state.
+ *   - `indeterminate` (default `false`): visual minus overlay when true and `checked` is false.
+ *   - `disabled`: disables interaction and mutes overlay colors.
+ *   - `containerClassName` / `className` / `iconClassName`: scoped Tailwind overrides for the
+ *     wrapper, the native input, and the SVG overlays respectively.
+ *   - All other props (e.g., `id`, `name`, `onChange`, `aria-*`) pass through to the native input.
+ *
+ * Accessibility: native checkbox semantics inherited; Space-key toggle and label association
+ * work as standard. INTENT UNCLEAR: `aria-checked="mixed"` is not emitted for the indeterminate
+ * visual state; the SVG overlay diverges from the announced ARIA state in that case.
+ */
 const Checkbox = React.forwardRef(function Checkbox(props: CheckboxProps, ref: React.ForwardedRef<HTMLInputElement>) {
   const {
     id,
