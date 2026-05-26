@@ -4,8 +4,25 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Segmented donut-style progress visualization: an SVG ring built from `maxValue` pie-slice
+ * `<path>` wedges, where wedges with index ≤ `value` are filled with `activeStrokeColor` and
+ * the remainder with `inactiveStrokeColor`. A concentric inner `<circle>` punches out the
+ * center to create a hollow ring effect.
+ */
+
 import React from "react";
 
+/**
+ * Props for {@link ProgressBar}.
+ *
+ * @property maxValue — optional; total number of pie-slice wedges to render around the ring. Default `0` (renders an empty ring).
+ * @property value — optional; number of wedges (1..maxValue) painted with `activeStrokeColor`. Default `0`.
+ * @property radius — optional; radius of the outer SVG circle in pixels; SVG canvas is `radius * 2` square. Default `8`.
+ * @property strokeWidth — optional; difference between outer and inner-cutout radii in pixels, controlling ring thickness. Default `2`.
+ * @property activeStrokeColor — optional; CSS color for wedges representing completed units. Default `"#3e98c7"`.
+ * @property inactiveStrokeColor — optional; CSS color for the remaining wedges. Default `"#ddd"`.
+ */
 type Props = {
   maxValue?: number;
   value?: number;
@@ -15,6 +32,13 @@ type Props = {
   inactiveStrokeColor?: string;
 };
 
+// INTENT UNCLEAR: no ARIA wiring on the <svg> or its child <path>/<circle> elements; the segmented ring is purely decorative to assistive tech without consumer-supplied accessibility attributes.
+/**
+ * Renders a discrete-segment donut progress ring suitable for low-cardinality counters
+ * (e.g., subtask checklists with N items).
+ *
+ * @param props — see {@link Props}
+ */
 export function ProgressBar({
   maxValue = 0,
   value = 0,
