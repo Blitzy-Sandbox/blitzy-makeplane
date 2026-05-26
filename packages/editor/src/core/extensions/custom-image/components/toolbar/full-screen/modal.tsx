@@ -4,6 +4,26 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Full-screen image viewer overlay with zoom, pan, and quick-action support.
+ *
+ * Mounted via React portal so it escapes local stacking contexts (e.g.,
+ * the toolbar's `z-20` or the image block's `relative` positioning) and
+ * renders at the document top layer. Prefers `#editor-portal` and falls
+ * back to `document.body` with a `console.warn` if the preferred target
+ * is missing (defensive — supports test/non-editor mount contexts).
+ *
+ * Zoom model is two-tier:
+ *   - `initialMagnification`: base CSS render size, fit-to-viewport rather
+ *     than the image's full intrinsic resolution. Computed once per open.
+ *   - `magnification`: user-controlled zoom layered on top via
+ *     `transform: scale()`. Clamped to [MIN_ZOOM, MAX_ZOOM].
+ *
+ * Pan offsets (`left`/`top` inline styles on the `<img>`) are divided by
+ * `magnification` so drag-tracking feels consistent at different zoom
+ * levels — without this, dragging at 2x would feel twice as fast as 1x.
+ */
+
 import { Download, Minus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
@@ -11,6 +31,15 @@ import { NewTabIcon, PlusIcon, CloseIcon } from "@plane/propel/icons";
 // plane imports
 import { cn } from "@plane/utils";
 
+/**
+ * Zoom level constants for the full-screen viewer.
+ *
+ * - `MIN_ZOOM = 0.5`: minimum zoom (50% of fit-to-viewport size).
+ * - `MAX_ZOOM = 2`: maximum zoom (200% of fit-to-viewport size).
+ * - `ZOOM_SPEED = 0.05`: continuous zoom delta per Ctrl/Cmd + wheel step.
+ * - `ZOOM_STEPS = [0.5, 1, 1.5, 2]`: discrete snap-points used by the
+ *   `+`/`-` keyboard shortcuts and the bottom-bar zoom in/out buttons.
+ */
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2;
 const ZOOM_SPEED = 0.05;
@@ -26,6 +55,38 @@ type Props = {
   width: string;
 };
 
+/**
+ * Full-screen overlay showing an image at fit-to-viewport magnification with
+ * zoom controls (in/out, snap zoom levels), drag-to-pan (when the scaled image
+ * exceeds the viewport), and (on non-touch) download + open-in-new-tab actions.
+ *
+ * Keyboard shortcuts (active only while `isFullScreenEnabled`):
+ *   - Escape: closes the modal.
+ *   - `+` or `=`: zoom in to the next `ZOOM_STEPS` value.
+ *   - `-`: zoom out to the previous `ZOOM_STEPS` value.
+ *
+ * Mouse/pointer behavior:
+ *   - Backdrop click closes the modal ONLY when `e.target === modalRef.current`
+ *     (click target IS the backdrop itself, not children).
+ *   - Drag-to-pan: activated in `handleMouseDown` only when the scaled image
+ *     exceeds the viewport in either axis.
+ *   - Ctrl/Cmd + wheel: continuous zoom (`ZOOM_SPEED` per `deltaY` step),
+ *     clamped to `[MIN_ZOOM, MAX_ZOOM]`.
+ *
+ * Initial scale is computed in `setImageRef` (the ref callback) so the image
+ * fits within `window.innerWidth * 0.9` x `window.innerHeight * 0.75`. The
+ * image's CSS width is multiplied by `initialMagnification`; subsequent user
+ * zoom is layered as `transform: scale(${magnification})`.
+ *
+ * Accessibility: `role="dialog"`, `aria-modal="true"`, and an `aria-label` on
+ * the modal root; per-button `aria-label`s on close, zoom in/out, download,
+ * and open-in-new-tab. Escape closes the modal. Focus management gap: focus
+ * is NOT explicitly trapped — see the `// INTENT UNCLEAR` flag near the
+ * effect that wires up the listeners.
+ *
+ * Event listeners (keydown, mousemove, mouseup, wheel) are attached only while
+ * `isFullScreenEnabled` and removed in the effect's cleanup function on close.
+ */
 function ImageFullScreenModalWithoutPortal(props: Props) {
   const { aspectRatio, isFullScreenEnabled, isTouchDevice, downloadSrc, src, toggleFullScreenMode, width } = props;
   // refs
@@ -136,6 +197,7 @@ function ImageFullScreenModalWithoutPortal(props: Props) {
       const dx = e.clientX - dragStart.current.x;
       const dy = e.clientY - dragStart.current.y;
 
+      // Divide the pointer delta by `magnification` so drag-tracking feels consistent at any zoom level (without this, 2x zoom would track 2x faster).
       // Apply the scale factor to the drag movement
       const scaledDx = dx / magnification;
       const scaledDy = dy / magnification;
@@ -178,6 +240,7 @@ function ImageFullScreenModalWithoutPortal(props: Props) {
     [isFullScreenEnabled]
   );
 
+  // INTENT UNCLEAR: focus trap is not explicitly implemented — relies on absence of focusable elements outside the portal subtree.
   // Event listeners
   useEffect(() => {
     if (!isFullScreenEnabled) return;
@@ -208,6 +271,7 @@ function ImageFullScreenModalWithoutPortal(props: Props) {
       aria-modal="true"
       aria-label="Fullscreen image viewer"
     >
+      {/* Strict-equality check on `e.target` ensures only clicks on the backdrop itself (not bubbled from the image or controls) close the modal. */}
       <div
         ref={modalRef}
         onMouseDown={(e) => e.target === modalRef.current && handleClose()}
@@ -297,12 +361,24 @@ function ImageFullScreenModalWithoutPortal(props: Props) {
   );
 }
 
+/**
+ * Portal-mounting wrapper around `ImageFullScreenModalWithoutPortal`.
+ *
+ * Prefers `#editor-portal` as the portal target and falls back to
+ * `document.body` (with a `console.warn`) if `#editor-portal` is not in
+ * the DOM. Mounting via portal lets the overlay escape local stacking
+ * contexts (e.g., the toolbar's `z-20` or the image block's `relative`
+ * positioning) and render at the document top layer.
+ *
+ * Returns `ReactDOM.createPortal(<ImageFullScreenModalWithoutPortal …/>, target)`.
+ */
 export function ImageFullScreenModal(props: Props) {
   let modal = <ImageFullScreenModalWithoutPortal {...props} />;
   const portal = document.querySelector("#editor-portal");
   if (portal) {
     modal = ReactDOM.createPortal(modal, portal);
   } else {
+    // Warn (don't throw) so tests and non-editor mount contexts still render the modal; the warn signals a likely mis-configured editor host.
     console.warn("Portal element #editor-portal not found. Rendering in document.body");
     if (typeof document !== "undefined" && document.body) {
       modal = ReactDOM.createPortal(modal, document.body);
