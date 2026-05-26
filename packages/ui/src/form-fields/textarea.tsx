@@ -4,6 +4,15 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Textarea primitive matching the `Input` design language, with always-on height auto-resize
+ * driven by the `useAutoResizeTextArea` hook.
+ *
+ * Auto-resize keeps the field height matching content so users authoring variable-length input
+ * (issue descriptions, comments, sticky-note bodies) do not have to scroll inside a small fixed
+ * box; the height tracks `value` on every render via `useLayoutEffect`.
+ */
+
 import React, { useRef } from "react";
 // helpers
 import { useAutoResizeTextArea } from "../hooks/use-auto-resize-textarea";
@@ -17,6 +26,26 @@ export interface TextAreaProps extends React.TextareaHTMLAttributes<HTMLTextArea
   className?: string;
 }
 
+/**
+ * Ref-forwarding textarea that mirrors the `Input` primitive's visual language and keeps its
+ * height in sync with `value` so authors do not need to scroll inside a small fixed box.
+ *
+ * The component extends `React.TextareaHTMLAttributes<HTMLTextAreaElement>`, so every native
+ * textarea attribute (`placeholder`, `rows`, `disabled`, `onChange`, `aria-*`, ...) passes
+ * through `{...rest}`. The forwarded ref is mirrored into an internal `useRef` that
+ * `useAutoResizeTextArea` reads on every render.
+ *
+ * Props (see local `TextAreaProps`):
+ *   - `value` (default `""`): controlled value; auto-resize re-runs whenever it changes.
+ *   - `mode` (default `"primary"`): visual chrome — bordered, transparent-with-focus-ring, or fully transparent.
+ *   - `textAreaSize` (default `"sm"`): padding preset (`xs` | `sm` | `md`).
+ *   - `hasError` (default `false`): paints the error border; in `primary` mode also tints the background.
+ *   - `className`: extra Tailwind merged onto the textarea.
+ *
+ * Accessibility: native textarea semantics; ref is forwarded for autofocus/imperative reads.
+ * INTENT UNCLEAR: `hasError=true` paints the error border but does not auto-apply `aria-invalid`;
+ * callers must pass `aria-invalid` themselves through `{...rest}` for screen-reader announcement.
+ */
 const TextArea = React.forwardRef(function TextArea(
   props: TextAreaProps,
   ref: React.ForwardedRef<HTMLTextAreaElement>
