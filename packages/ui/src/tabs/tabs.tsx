@@ -4,6 +4,16 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Tabbed-content composition built on `@headlessui/react` `Tab.Group` with
+ * optional local-storage persistence of the selected tab.
+ *
+ * Acts as the primary composition surface for the tabs feature: header
+ * rendering is delegated to the sibling `./tab-list` (`TabList`), while panel
+ * rendering uses `@headlessui/react`'s `Tab.Panel`. Active-tab persistence is
+ * routed through `useLocalStorage` from `@plane/hooks` (first-party hook).
+ */
+
 import { Tab } from "@headlessui/react";
 import React, { Fragment, useEffect, useState } from "react";
 // helpers
@@ -13,10 +23,19 @@ import { cn } from "../utils";
 import type { TabListItem } from "./tab-list";
 import { TabList } from "./tab-list";
 
+/**
+ * Content slot for a single tab panel — wraps the `React.ReactNode` rendered
+ * inside the active `<Tab.Panel>` of the parent `Tabs` composition.
+ */
 export type TabContent = {
   content: React.ReactNode;
 };
 
+/**
+ * Full tab definition combining the header descriptor from `TabListItem`
+ * (`key`, `label`, `icon`, `disabled`, `onClick`) with the panel `content`
+ * slot from `TabContent`.
+ */
 export type TabItem = TabListItem & TabContent;
 
 type TTabsProps = {
@@ -33,6 +52,38 @@ type TTabsProps = {
   storeInLocalStorage?: boolean;
 };
 
+/**
+ * Tabbed interface that lets users switch between content panels, optionally
+ * persisting the selected tab across sessions via `localStorage`.
+ *
+ * Local-storage persistence (WHY): preserves the user's selected tab across
+ * page refreshes and route navigation for views with many sub-tabs (e.g.
+ * issue detail tabs, project settings) — without persistence, every load
+ * would reset to the default tab and force the user to re-navigate. The
+ * storage key resolves to `tab-<storageKey>` when `storageKey` is provided,
+ * otherwise it falls back to `tab-<tabs[0]?.key>`; the stored value is read
+ * on mount and re-written whenever the selected tab changes (gated by
+ * `storeInLocalStorage`, which defaults to `true`).
+ *
+ * Accessibility: ARIA semantics (`role="tablist"`, `role="tab"`,
+ * `role="tabpanel"`) and keyboard navigation (Left/Right/Up/Down arrows,
+ * Home, End) are inherited from `@headlessui/react`'s `Tab.Group` / `Tab.List`
+ * / `Tab.Panel` primitives — no roles are added or overridden here.
+ *
+ * @param props - Component props (see the local `TTabsProps` declaration).
+ * @param props.tabs - Required. Array of `TabItem` entries (`key`, `label`, `icon`, `disabled`, `onClick`, `content`); each tab's `key` must be unique within the array.
+ * @param props.storageKey - Optional. Suffix combined as `tab-<storageKey>` for the `localStorage` entry; when omitted, the persistence key falls back to `tab-<tabs[0]?.key>`.
+ * @param props.actions - Optional. `React.ReactNode` rendered in the tab strip header next to the tab list, wrapped in a `flex-grow` container so it occupies remaining horizontal space.
+ * @param props.defaultTab - Optional. Initial selected tab key when no stored value is present. Defaults to `tabs[0]?.key` (the first tab's key, if any).
+ * @param props.containerClassName - Optional. Class merged on the inner flex-column wrapper holding the header row and the panels. Defaults to `""`.
+ * @param props.tabListContainerClassName - Optional. Class merged on the header row containing `TabList` and the `actions` slot. Defaults to `""`.
+ * @param props.tabListClassName - Optional. Class forwarded to `TabList`'s `<Tab.List>` element. Defaults to `""`.
+ * @param props.tabClassName - Optional. Class forwarded per-tab inside `TabList` to style individual `<Tab>` triggers. Defaults to `""`.
+ * @param props.tabPanelClassName - Optional. Class merged on every `<Tab.Panel>` rendered for `tabs`. Defaults to `""`.
+ * @param props.size - Optional. Typography / icon size token forwarded to `TabList`. Defaults to `"md"`.
+ * @param props.storeInLocalStorage - Optional. When `false`, suppresses the write-back to `localStorage` on tab change. Defaults to `true` — persistence is the default behavior.
+ * @returns A React element: a flex-column wrapper containing `<Tab.Group>` with the header row (`TabList` + `actions`) and the rendered `<Tab.Panels>` (one `<Tab.Panel>` per `tabs` entry).
+ */
 export function Tabs(props: TTabsProps) {
   const {
     tabs,
