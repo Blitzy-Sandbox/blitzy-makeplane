@@ -4,6 +4,16 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Form-field color picker combining a text input with a popover-mounted SketchPicker.
+ *
+ * Composes `@headlessui/react` `Popover`/`Transition` for the popover affordance,
+ * `react-popper` for floating-element positioning, `react-color` for the visual picker,
+ * and the sibling `./input` primitive for the text entry. The two halves stay in sync
+ * through a single `value` prop, so callers see one controlled hex string regardless of
+ * whether the user typed it or picked it visually.
+ */
+
 import { Popover, Transition } from "@headlessui/react";
 import * as React from "react";
 import * as ColorPicker from "react-color";
@@ -25,6 +35,26 @@ export interface InputColorPickerProps {
   placeholder: string;
 }
 
+/**
+ * Color-picker form field rendering a hex-text input with a popover-anchored visual SketchPicker.
+ *
+ * The text input and the SketchPicker are both bound to a single `value`/`onChange` pair, so
+ * keystrokes and visual picks both round-trip through the same controlled prop. The popover is
+ * positioned by `react-popper` with `placement: "auto"` so it flips to fit the viewport, and the
+ * Headless UI `Transition` provides the open/close fade.
+ *
+ * Props (see local `InputColorPickerProps`):
+ *   - `value`: current hex color string; drives both the text input and the SketchPicker.
+ *   - `onChange`: invoked with the new hex string from text edits or visual picks.
+ *   - `name`: doubles as the inner input's `id` and `name`.
+ *   - `placeholder`: shown when `value` is empty.
+ *   - `hasError`: toggles the error-state border on the inner input.
+ *   - `className`, `style`: forwarded to the inner `Input` for outer styling.
+ *
+ * Accessibility: Headless UI `Popover` manages `aria-haspopup`/`aria-expanded` and focus return;
+ * the react-color SketchPicker owns ARIA on its internal sliders. INTENT UNCLEAR: the palette
+ * trigger button has no `aria-label` describing the picker action.
+ */
 export function InputColorPicker(props: InputColorPickerProps) {
   const { value, hasError, onChange, name, className, style, placeholder } = props;
 
