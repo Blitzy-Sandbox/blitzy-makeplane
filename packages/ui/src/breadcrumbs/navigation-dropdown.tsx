@@ -4,6 +4,15 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Breadcrumb-item dropdown for navigating sibling entities at the same hierarchy level.
+ *
+ * Renders a trigger button that opens a `CustomMenu` listing peer items; selecting one
+ * invokes its `action` callback (typically a router navigation). Used in workspace,
+ * project, cycle, and module breadcrumbs to let users hop between siblings without
+ * backing out to a list view.
+ */
+
 import { CheckIcon } from "lucide-react";
 import * as React from "react";
 // ui
@@ -21,6 +30,24 @@ type TBreadcrumbNavigationDropdownProps = {
   isLast?: boolean;
 };
 
+/**
+ * Breadcrumb segment that opens a dropdown menu of sibling items at the same hierarchy level.
+ *
+ * Finds the entry in `navigationItems` whose `key` matches `selectedItemKey` and renders its
+ * icon + title in the trigger; returns `null` when no item matches. Items with
+ * `shouldRender === false` are skipped, the currently-selected item is suffixed with a check
+ * icon, and re-selecting it is a no-op. Tapping the trigger on a non-terminal segment fires
+ * `handleOnClick` (typically to navigate to the selected item's own page) before opening the
+ * menu. When `navigationDisabled` is true, only the static trigger renders (no `CustomMenu`).
+ *
+ * @param props.selectedItemKey - Key of the navigation item currently shown in the trigger.
+ * @param props.navigationItems - Sibling items rendered inside the dropdown; each carries `key`, `title`, optional `icon`, `description`, `action`, `disabled`, and `shouldRender` per `TContextMenuItem`.
+ * @param props.navigationDisabled - When true, renders only the static trigger button without an attached menu (default: false).
+ * @param props.handleOnClick - Optional callback fired when the trigger of a non-terminal segment is clicked.
+ * @param props.isLast - Set by the parent `Breadcrumbs` for the terminal segment; suppresses hover/click affordances and rotates the chevron (default: false).
+ *
+ * // INTENT UNCLEAR: explicit ARIA semantics (combobox/menu role, aria-expanded, arrow-key navigation, Enter/Escape handling) are delegated to the underlying `CustomMenu` primitive; accessibility behavior must be verified at that layer.
+ */
 export function BreadcrumbNavigationDropdown(props: TBreadcrumbNavigationDropdownProps) {
   const { selectedItemKey, navigationItems, navigationDisabled = false, handleOnClick, isLast = false } = props;
   const [isOpen, setIsOpen] = React.useState(false);
