@@ -4,6 +4,10 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Drag affordance button used as a handle to initiate drag interactions in sortable lists.
+ */
+
 import { MoreVertical } from "lucide-react";
 import React, { forwardRef } from "react";
 // helpers
@@ -14,6 +18,21 @@ interface IDragHandle {
   disabled?: boolean;
 }
 
+/**
+ * Ref-forwarding drag-affordance button rendering stacked `MoreVertical` icons as a grip handle.
+ *
+ * When `disabled=true`, returns a non-interactive sized placeholder `div` to preserve layout
+ * without exposing a draggable target. The button suppresses the native right-click menu so it
+ * does not interfere with drag-and-drop gestures attached by consumers (e.g., Atlaskit pragmatic DnD).
+ *
+ * Props (see `IDragHandle`):
+ *   - `className`: extra Tailwind classes merged onto the rendered button.
+ *   - `disabled`: when true, renders a layout-preserving placeholder instead of the button.
+ *
+ * Accessibility: native `<button type="button">` semantics; ref is forwarded so consumers can
+ * attach drag listeners. INTENT UNCLEAR: `disabled` does not add `aria-disabled` because the
+ * disabled branch removes the button element entirely rather than disabling it in place.
+ */
 export const DragHandle = forwardRef(function DragHandle(
   props: IDragHandle,
   ref: React.ForwardedRef<HTMLButtonElement | null>
