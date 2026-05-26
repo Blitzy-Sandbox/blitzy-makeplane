@@ -4,6 +4,16 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Wrapper component making children draggable via the Atlaskit `@atlaskit/pragmatic-drag-and-drop` library.
+ *
+ * Combines a `draggable` source and a `dropTargetForElements` target on the same DOM node so
+ * each list item can be both picked up and dropped onto. Uses `attachClosestEdge` /
+ * `extractClosestEdge` from the hitbox helper so the parent `Sortable` component can read
+ * the edge (top or bottom) the pointer was nearest at drop time and compute the correct
+ * insertion index.
+ */
+
 // @ts-expect-error Due to live server dependencies
 import { combine } from "@atlaskit/pragmatic-drag-and-drop/dist/cjs/entry-point/combine.js";
 import {
@@ -27,6 +37,32 @@ type Props = {
   className?: string;
 };
 
+/**
+ * Wraps children to act as both a drag source and a drop target for Atlaskit pragmatic-drag-and-drop.
+ *
+ * The same DOM node is registered as a `draggable` and a `dropTargetForElements` because the
+ * sortable reorder pattern requires every list item to accept drops from its siblings. The
+ * `canDrop` predicate compares payload equality (rejecting self-drops via `lodash-es.isEqual`)
+ * and matches the shared `__uuid__` token set by the parent `Sortable` so items from a
+ * different list mounted on the same page cannot be moved here.
+ *
+ * Drag feedback is rendered via two `<DropIndicator>` siblings — one above and one below the
+ * children — and is shown based on whether `attachClosestEdge`/`extractClosestEdge` report the
+ * pointer as nearest to the top or bottom edge. The wrapper element fades to `opacity-25`
+ * while the item is being dragged.
+ *
+ * Props (see local `Props` type):
+ *   - `children`: the rendered list item content.
+ *   - `data`: payload exchanged with the drop target; must carry the `__uuid__` token set by
+ *     the parent `Sortable` (the inline `//@todo make this generic` annotates the intentional
+ *     looseness of this type).
+ *   - `className`: extra Tailwind classes merged onto the wrapper `div`.
+ *
+ * Accessibility: Atlaskit pragmatic-drag-and-drop emits ARIA live-region announcements during
+ * drag operations. INTENT UNCLEAR: no explicit keyboard drag-and-drop bindings (e.g., Space
+ * to pick up, arrow keys to move) are wired in this wrapper; keyboard support depends entirely
+ * on what the Atlaskit element adapter provides out of the box.
+ */
 function Draggable({ children, data, className }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<boolean>(false); // NEW
