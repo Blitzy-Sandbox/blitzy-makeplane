@@ -4,6 +4,14 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Hover-preview orchestration for links inside the editor content surface.
+ *
+ * Integrates `@floating-ui/react` positioning with TipTap's link-extension
+ * `storage` to render a stable hover preview popover; intended for non-touch
+ * devices only (mounting is gated upstream by `EditorContainer`).
+ */
+
 import { autoUpdate, flip, hide, shift, useDismiss, useFloating, useInteractions } from "@floating-ui/react";
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
@@ -18,6 +26,51 @@ type Props = {
   containerRef: React.RefObject<HTMLDivElement>;
 };
 
+/**
+ * Detects pointer hover over anchor tags within `containerRef`, maps DOM
+ * positions back into the TipTap document via `editor.view.posAtDOM`,
+ * extracts the hovered link URL/text from the link-mark attributes and the
+ * editor's `storage.link` slice, and renders a floating `LinkView` popover.
+ *
+ * A 400ms close timeout keeps the preview stable while the pointer moves
+ * between the editor surface and the floating preview.
+ *
+ * Props are typed by the local `Props` alias (`editor: Editor`,
+ * `containerRef: React.RefObject<HTMLDivElement>`) — see its declaration.
+ *
+ * Side effects:
+ * - Installs `mouseover`/`mouseenter`/`mouseleave` listeners on `containerRef`
+ *   via `useEffect` (cleaned up on unmount).
+ * - Configures `useFloating` (`flip`, `shift`, `hide` middleware) with
+ *   `autoUpdate` plus `useDismiss` and `useInteractions` for positioning and
+ *   dismissal.
+ * - Uses a 400ms `setTimeout` to delay closing the preview so the pointer can
+ *   traverse from the editor surface onto the floating popover without flicker.
+ * - Coordinates with the global link extension by reading and writing
+ *   `storage.linkExtensionStorage.isPreviewOpen` so other UI (e.g. the bubble
+ *   menu) can observe that a preview is currently mounted.
+ * - Suppresses preview rendering while `linkExtensionStorage.isBubbleMenuOpen`
+ *   is true, closing any open preview to keep the two surfaces mutually
+ *   exclusive.
+ *
+ * TipTap surface:
+ * - Exposes the editor's `storage.link` slice via `useEditorState` for
+ *   reactive reads of `isPreviewOpen`/`isBubbleMenuOpen` without forcing a
+ *   full editor re-render.
+ * - Overrides default browser link-click behavior — hover triggers preview
+ *   only; navigation interception lives at the link-extension layer
+ *   (`core/extensions/custom-link/`), not in this component.
+ * - Hides the default tippy-style click-to-open popover of
+ *   `@tiptap/extension-link`, replacing it with this floating-preview-on-hover
+ *   pattern.
+ *
+ * See `../links/link-view.tsx` for the popover content (preview vs. edit modes)
+ * and `core/extensions/custom-link/` for the navigation-suppression layer that
+ * supplies the consumed `storage.link` slice.
+ *
+ * Consumed only by `EditorContainer` on non-touch devices — touch devices skip
+ * hover previews entirely.
+ */
 export function LinkViewContainer({ editor, containerRef }: Props) {
   const [linkViewProps, setLinkViewProps] = useState<LinkViewProps>();
   const [isOpen, setIsOpen] = useState(false);
