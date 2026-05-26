@@ -4,16 +4,47 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Animated circular spinner composed of a single rotating ring/arc.
+ *
+ * Provides the `Spinner` indeterminate loading indicator used across the UI.
+ * Motion is driven by the `animate-spin` Tailwind utility on the inline SVG,
+ * so consumers do not need any JS timer or CSS keyframes of their own. Colors
+ * follow `currentColor` / `currentFill`, so the spinner inherits the
+ * surrounding text/fill color (theme-aware by default).
+ */
+
 import * as React from "react";
 // helpers
 import { cn } from "../utils";
 
+/**
+ * Props for {@link Spinner}.
+ *
+ * Extends `React.SVGAttributes<SVGElement>` so the type accepts any standard
+ * SVG attribute (`aria-*`, `data-*`, event handlers, etc.). Note: the current
+ * implementation destructures only `height`, `width`, and `className` and does
+ * not spread the remaining attributes onto the underlying `<svg>`.
+ */
 export interface ISpinner extends React.SVGAttributes<SVGElement> {
   height?: string;
   width?: string;
   className?: string | undefined;
 }
 
+/**
+ * Indeterminate loading indicator: a continuously rotating SVG ring + arc.
+ *
+ * @param props - {@link ISpinner} props.
+ * @param props.height - Optional CSS length applied to the `<svg>` height. Defaults to `"32px"`.
+ * @param props.width - Optional CSS length applied to the `<svg>` width. Defaults to `"32px"`.
+ * @param props.className - Optional extra classes merged with `animate-spin fill-accent-primary text-secondary` via the `cn` helper.
+ *
+ * Accessibility:
+ * - The wrapper carries `role="status"` so assistive tech treats it as a live status region.
+ * - The decorative `<svg>` is marked `aria-hidden="true"`.
+ * - A visually hidden `<span class="sr-only">Loading...</span>` announces the state to screen readers.
+ */
 export function Spinner({ height = "32px", width = "32px", className = "" }: ISpinner) {
   return (
     <div role="status">
