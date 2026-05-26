@@ -4,6 +4,27 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Floating block-context menu attached to TipTap drag handles in the
+ * `@plane/editor` wrapper. Surrounds drag handles and block-level selections
+ * with two fixed actions (delete current block, duplicate current block) and
+ * node-specific options provided by `getNodeOptions(editor)` from
+ * `./block-menu-options` (currently table-only — "Fit to width").
+ *
+ * Coordinates with the editor's side-menu extension by registering and
+ * deregistering itself as an active dropbar via
+ * `editor.commands.addActiveDropbarExtension` /
+ * `removeActiveDropbarExtension`, both keyed on `CORE_EXTENSIONS.SIDE_MENU`
+ * from `@/constants/extension`. This synchronization prevents keyboard and
+ * click conflicts between simultaneously-mounted floating UI elements (e.g.,
+ * the bubble menu and the block menu) that would otherwise both react to the
+ * same input.
+ *
+ * Consumer surface: every editor variant under
+ * `packages/editor/src/core/components/editors/` (document, lite-text,
+ * rich-text) mounts `BlockMenu` unconditionally as part of its editor shell.
+ */
+
 import {
   useFloating,
   autoUpdate,
@@ -33,6 +54,22 @@ type Props = {
   flaggedExtensions?: IEditorProps["flaggedExtensions"];
   workItemIdentifier?: IEditorProps["workItemIdentifier"];
 };
+/**
+ * Shared row contract for any node-specific or fixed-action entry rendered
+ * inside {@link BlockMenu}. Also returned by `getNodeOptions(editor)` in
+ * `./block-menu-options.tsx`, so any future contributor adding node-specific
+ * block actions must construct values matching this type.
+ *
+ * The icon slot is intentionally permissive so the menu can render either
+ * `LucideIcon` instances or Plane custom SVG icons typed as
+ * `React.FC<ISvgIcons>` from `@plane/propel/icons`; see the type signature
+ * below for the exact field shapes.
+ *
+ * A truthy `isDisabled` causes the item to be filtered out at render time
+ * rather than rendered as a greyed-out button — disabled entries are hidden
+ * entirely from the user, which is why callers should treat `isDisabled` as
+ * "hide this row" rather than "show but block clicks".
+ */
 export type BlockMenuOption = {
   icon: LucideIcon | React.FC<ISvgIcons>;
   key: string;
@@ -41,6 +78,70 @@ export type BlockMenuOption = {
   isDisabled?: boolean;
 };
 
+/**
+ * Floating block-context menu attached to TipTap drag handles. Provides
+ * delete, duplicate, and node-specific actions for the block under the
+ * cursor.
+ *
+ * Props: see the local `Props` type. `editor` is the active TipTap `Editor`
+ * instance from `@tiptap/react`. `disabledExtensions`, `flaggedExtensions`,
+ * and `workItemIdentifier` are forwarded from `IEditorProps` (see `@/types`)
+ * so downstream node-specific options can read them — they are not consumed
+ * by the top-level `BlockMenu` render path itself.
+ *
+ * Side effects:
+ *   - Listens on `document` for `click`, `contextmenu`, `keydown` (Escape),
+ *     and `scroll` (capture phase) to drive the open/close lifecycle.
+ *   - Mutates the editor command pipeline by calling
+ *     `editor.commands.addActiveDropbarExtension(CORE_EXTENSIONS.SIDE_MENU)`
+ *     on open and `removeActiveDropbarExtension(CORE_EXTENSIONS.SIDE_MENU)`
+ *     on close, synchronizing with the side-menu extension's active-dropbar
+ *     registry.
+ *   - Issues editor mutations through `editor.chain()`:
+ *     `deleteSelection().focus().run()` for Delete;
+ *     `insertContentAt(insertPos, contentToInsert).focus(...).run()` for
+ *     Duplicate.
+ *   - Renders into a portal via `FloatingPortal` so the menu escapes any
+ *     clipping ancestors.
+ *
+ * TipTap behavior:
+ *   - Exposes `editor.chain().deleteSelection()` and
+ *     `editor.chain().insertContentAt(...)` as the user-facing "Delete" and
+ *     "Duplicate" actions.
+ *   - Exposes the `BlockMenuOption[]` returned by `getNodeOptions(editor)`
+ *     as additional node-specific actions appended after the fixed pair.
+ *   - Overrides default block-level command surfacing by gating menu
+ *     visibility on the side-menu extension's dropbar state — the menu only
+ *     opens when a `#drag-handle` is targeted.
+ *   - Hides default tippy.js theming in favor of Floating UI's
+ *     `useFloating` + `FloatingPortal` for positioning, animation, and
+ *     dismissal.
+ *
+ * Behavior notes (WHY):
+ *   - Duplicate is `isDisabled` for image and custom-image selections
+ *     because the first-child node type matches `CORE_EXTENSIONS.IMAGE` or
+ *     `editor.isActive(CORE_EXTENSIONS.CUSTOM_IMAGE)`. Duplicating an image
+ *     node directly produces a malformed insertion that bypasses the
+ *     upload/asset pipeline, so the menu hides the row rather than
+ *     attempting an invalid insert.
+ *   - The animation effect uses `setTimeout(50)` + `requestAnimationFrame`
+ *     so Floating UI computes the final position before the transform and
+ *     opacity transition begins — without this delay, the menu briefly
+ *     flashes at `scale-75 opacity-0` from the wrong screen coordinates.
+ *   - The scroll listener uses the capture phase (`true`) so the menu
+ *     closes on scrolling from any ancestor element above the editor, not
+ *     just the editor container itself.
+ *   - A Floating UI virtual reference (`refs.setReference(virtualReferenceRef.current)`)
+ *     is used instead of a direct DOM-node binding because the drag
+ *     handle's DOM node identity changes as the cursor moves between
+ *     blocks; the virtual reference always reports the latest
+ *     `getBoundingClientRect()` from whichever `#drag-handle` is currently
+ *     active.
+ *
+ * Consumer surface: every editor variant under
+ * `packages/editor/src/core/components/editors/` (document, lite-text,
+ * rich-text) mounts `BlockMenu`.
+ */
 export function BlockMenu(props: Props) {
   const { editor } = props;
   const [isOpen, setIsOpen] = useState(false);
