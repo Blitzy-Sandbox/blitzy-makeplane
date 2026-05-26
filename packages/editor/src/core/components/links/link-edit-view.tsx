@@ -4,6 +4,17 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Edit popover for modifying an existing link's URL and display text, rendered by the
+ * `LinkView` controller (`link-view.tsx`) when its `currentView === "LinkEditView"`.
+ *
+ * Composes TipTap's command primitives (`setLink`/`unsetLink` are surfaced as
+ * raw ProseMirror `tr.removeMark`/`tr.addMark` dispatches plus chain calls) into a
+ * user-facing form: controlled URL and text inputs, Enter-to-submit, in-place link
+ * mark update that preserves sibling non-link marks, link removal, and unmount-time
+ * cleanup of abandoned empty links. `@tiptap/extension-link` exposes link state but
+ * provides no inline edit UI; this module fills that gap.
+ */
 import type { Node } from "@tiptap/pm/model";
 import { Link2Off } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,6 +31,11 @@ type InputViewProps = {
   autoFocus?: boolean;
 };
 
+/**
+ * Local reusable controlled-input row rendering a labeled text field; used by
+ * `LinkEditView` for both the URL and display-text inputs. Internal to this module
+ * (not exported); props are described by {@link InputViewProps}.
+ */
 function InputView({ label, value, placeholder, onChange, autoFocus }: InputViewProps) {
   return (
     <div className="flex flex-col gap-1">
@@ -41,6 +57,61 @@ type LinkEditViewProps = {
   switchView: (view: LinkViews) => void;
 };
 
+/**
+ * Edit popover for modifying an existing link's URL and display text.
+ *
+ * Props are described by {@link LinkEditViewProps} (carries `viewProps: LinkViewProps`
+ * from `link-view.tsx` plus the `switchView` callback typed against {@link LinkViews}).
+ *
+ * State:
+ * - `positionRef`: immutable `{ from, to }` snapshot captured at mount; used by
+ *   `applyChanges` to delete the original text range before inserting replacement
+ *   text, so concurrent selection moves do not corrupt the splice.
+ * - `localUrl`: controlled URL input state, seeded from `viewProps.url` and resynced
+ *   by a `useEffect` whenever `initialUrl` changes.
+ * - `localText`: controlled display-text input state, seeded from `viewProps.text`
+ *   (defaults to `""` because `text` is optional on {@link LinkViewProps}) and
+ *   resynced when `initialText` changes.
+ * - `linkRemoved`: flag preventing the unmount cleanup from re-dispatching a removal
+ *   that the user already performed explicitly via the "Remove Link" button.
+ * - `hasSubmitted` (ref): flips to `true` inside `applyChanges`; lets the cleanup
+ *   effect distinguish intentional submits from user-cancelled empty links.
+ *
+ * Side effects:
+ * - URL validation: `applyChanges` consults `isValidHttpUrl(localUrl)` (from
+ *   `@/helpers/common`) before dispatching; invalid URLs (and selections that have
+ *   drifted past `editor.state.doc.content.size`) silently suppress the dispatch.
+ * - Update link mark: a single ProseMirror transaction
+ *   (`editor.state.tr.removeMark(...).addMark(...)`) replaces the existing link
+ *   mark with one carrying the new `href`.
+ * - Replace display text while preserving non-link marks: uses the TipTap chain
+ *   API (`setTextSelection` → `deleteRange` → `insertContent` → `setTextSelection`)
+ *   to swap text, then re-applies each non-link mark read from the {@link Node}
+ *   (from `prosemirror-model`) at the original anchor.
+ * - Enter-to-submit: the container's `onKeyDown` handler stops propagation, runs
+ *   `applyChanges()`, and on success calls `closeLinkView()` and clears the inputs.
+ * - Remove link mark: the "Remove Link" button dispatches `tr.removeMark(...)`
+ *   directly through `editor.view.dispatch` (NOT the chain API), sets
+ *   `linkRemoved`, and closes the popover.
+ * - Unmount cleanup: dangling links created with an empty `initialUrl` and never
+ *   submitted are stripped — see the dedicated effect's JSDoc below.
+ *
+ * TipTap behavior:
+ * - Exposes the editor primitives `editor.view.dispatch`, `editor.state.tr`,
+ *   `editor.schema.marks.link`, and the chain API (`setTextSelection`, `deleteRange`,
+ *   `insertContent`, `setMark`) through the form's actions.
+ * - Exposes `prosemirror-model`'s {@link Node} via the imported type; existing marks
+ *   at the link anchor are read so they can be restored after text replacement.
+ * - Overrides `@tiptap/extension-link`'s missing inline edit UI — TipTap exposes
+ *   link state through commands but ships no floating edit form.
+ * - Hides invalid-URL submissions and out-of-bounds selections: the guard inside
+ *   `applyChanges` returns `false` without mutating the document, so consumers
+ *   observe no transaction.
+ *
+ * Consumers: `LinkView` controller in `link-view.tsx` (renders this branch when
+ * `currentView === "LinkEditView"`); ultimately mounted by
+ * `editors/link-view-container.tsx` and the bubble-menu link selector.
+ */
 export function LinkEditView({ viewProps }: LinkEditViewProps) {
   const { editor, from, to, url: initialUrl, text: initialText, closeLinkView } = viewProps;
 
@@ -58,6 +129,13 @@ export function LinkEditView({ viewProps }: LinkEditViewProps) {
   }, [editor, from, to, closeLinkView]);
 
   // Effects
+  /**
+   * Cleanup links the user abandoned without confirming. When the popover opens for
+   * a freshly created link (`initialUrl === ""`) and the user dismisses it without
+   * submitting (`!hasSubmitted.current`) and without using "Remove Link"
+   * (`!linkRemoved`), unmounting must strip the empty-`href` link mark; otherwise
+   * the document is left with a dangling link range that renders as broken.
+   */
   useEffect(
     () =>
       // Cleanup effect: Remove link if not submitted and url is empty
