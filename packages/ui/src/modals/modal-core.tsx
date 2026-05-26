@@ -4,6 +4,16 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Core modal container built on `@headlessui/react` `Dialog` + `Transition`.
+ *
+ * Provides a unified modal contract for the `@plane/ui` design system: focus trap on
+ * open, focus restoration on close, Escape-to-close, click-outside (backdrop) to close,
+ * `aria-modal="true"`, animated enter/leave transitions, and a `z-30` stacking context.
+ * Specialized variants (e.g., `AlertModalCore` in `./alert-modal.tsx`) compose this shell
+ * with their own panel content.
+ */
+
 import { Dialog, Transition } from "@headlessui/react";
 import React, { Fragment } from "react";
 // constants
@@ -19,6 +29,38 @@ type Props = {
   width?: EModalWidth;
   className?: string;
 };
+/**
+ * Core modal shell — a `@headlessui/react` `Dialog` wrapper that exposes a unified
+ * accessibility + animation contract. Consumers render arbitrary panel content as
+ * `children`; specialized variants (e.g., `AlertModalCore` in `./alert-modal.tsx`)
+ * compose this shell with their own panel layout.
+ *
+ * Accessibility (inherited from HeadlessUI `Dialog`):
+ *  - Focus is trapped inside the dialog on open and restored to the previously focused
+ *    element on close.
+ *  - Pressing Escape invokes the `onClose` handler.
+ *  - Clicking the backdrop (outside the panel) invokes the `onClose` handler.
+ *  - HeadlessUI sets `aria-modal="true"` on the panel, which acts as the dialog role
+ *    container.
+ *
+ * The dialog uses `z-30` for stacking. If `handleClose` is omitted the dismissal
+ * channels (Escape, backdrop click) become no-ops via the `handleClose && handleClose()`
+ * guard — intentional for forced-modal scenarios where dismissal must be driven by
+ * caller-controlled UI inside `children` only.
+ *
+ * @param props - Component props (see fields below).
+ * @param props.children - Required `ReactNode` rendered inside the `<Dialog.Panel>`.
+ * @param props.handleClose - Optional dismiss callback wired to Escape and backdrop
+ *   click; when omitted both channels no-op.
+ * @param props.isOpen - Required boolean controlling visibility via `Transition.Root`'s
+ *   `show` prop; toggles the enter/leave animations.
+ * @param props.position - Optional `EModalPosition` controlling outer flex alignment.
+ *   Defaults to `EModalPosition.CENTER`.
+ * @param props.width - Optional `EModalWidth` applied as the `max-width` token on the
+ *   panel. Defaults to `EModalWidth.XXL`.
+ * @param props.className - Optional extra class names merged onto the `<Dialog.Panel>`
+ *   via `cn(...)`. Defaults to `""`.
+ */
 export function ModalCore(props: Props) {
   const {
     children,
