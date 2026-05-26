@@ -13,6 +13,19 @@ import * as React from "react";
 // helpers
 import { cn } from "../utils";
 
+/**
+ * Props for the `Checkbox` component. Extends all native
+ * `React.InputHTMLAttributes<HTMLInputElement>`, so every standard input attribute
+ * (`checked`, `disabled`, `onChange`, `name`, `id`, `aria-*`, ...) passes through to the
+ * underlying `<input type="checkbox">`. The three local fields layer Plane-specific styling
+ * and visual semantics on top of the native input:
+ *
+ *   - `containerClassName`: extra Tailwind classes for the outer wrapper `<div>` that anchors
+ *     the absolutely-positioned SVG overlays.
+ *   - `iconClassName`: extra Tailwind classes applied to BOTH SVG overlays (checkmark and minus).
+ *   - `indeterminate`: visual-only minus overlay shown when `true` AND `checked` is `false`.
+ *     Does NOT set the DOM `indeterminate` property and does NOT emit `aria-checked="mixed"`.
+ */
 export interface CheckboxProps extends React.InputHTMLAttributes<HTMLInputElement> {
   containerClassName?: string;
   iconClassName?: string;

@@ -17,6 +17,20 @@ import * as React from "react";
 // helpers
 import { cn } from "../utils";
 
+/**
+ * Props for the `Input` component. Extends all native
+ * `React.InputHTMLAttributes<HTMLInputElement>`, so every standard input attribute
+ * (`type`, `placeholder`, `value`, `onChange`, `disabled`, `id`, `name`, `aria-*`, ...) passes
+ * through. Three Plane-specific fields control the design-token-driven visual chrome:
+ *
+ *   - `mode` (default `"primary"` in the component): visual variant — `"primary"` is bordered,
+ *     `"transparent"` is borderless with an accent focus ring, `"true-transparent"` is borderless
+ *     with no focus ring (used for inline title/header edits).
+ *   - `inputSize` (default `"sm"` in the component): padding preset (`xs` | `sm` | `md`).
+ *   - `hasError` (default `false` in the component): applies `border-danger-strong`; the error
+ *     border is the only visual signal — no background tint (unlike `TextArea`).
+ *   - `className`: extra Tailwind classes merged after the built-in styles.
+ */
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   mode?: "primary" | "transparent" | "true-transparent";
   inputSize?: "xs" | "sm" | "md";

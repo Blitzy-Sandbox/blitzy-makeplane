@@ -56,8 +56,9 @@ type Placement =
  *   - `maxHeight`: scrollable panel height preset. `CustomSearchSelect` supports the full
  *     `sm | rg | md | lg | xl | 2xl` range; `CustomSelect` and `CustomMenu` only use `sm | rg | md | lg`.
  *   - `noChevron` / `chevronClassName`: hide or restyle the trailing chevron icon on the default trigger.
- *   - `onOpen`: callback invoked when the dropdown opens. INTENT UNCLEAR for `CustomSearchSelect`:
- *     fires twice on first open (imperative call + Headless UI render-prop transition).
+ *   - `onOpen`: callback invoked when the dropdown opens.
+ *     INTENT UNCLEAR: `CustomSearchSelect` fires `onOpen` twice on first open (imperative call
+ *     plus Headless UI render-prop transition); consumers must treat the callback as non-unique.
  *   - `optionsClassName`: applied to the floating options/menu panel wrapper.
  *   - `placement`: popper placement; defaults vary per component (`bottom-start` for selects,
  *     `auto` for `CustomMenu`).

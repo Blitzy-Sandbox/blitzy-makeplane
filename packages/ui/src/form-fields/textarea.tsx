@@ -19,6 +19,20 @@ import { useAutoResizeTextArea } from "../hooks/use-auto-resize-textarea";
 import { cn } from "../utils";
 // hooks
 
+/**
+ * Props for the `TextArea` component. Extends all native
+ * `React.TextareaHTMLAttributes<HTMLTextAreaElement>`, so every standard textarea attribute
+ * (`placeholder`, `rows`, `disabled`, `onChange`, `value`, `name`, `aria-*`, ...) passes
+ * through. Four Plane-specific fields layer the design system's chrome on top:
+ *
+ *   - `mode` (default `"primary"` in the component): visual variant — `"primary"` is bordered,
+ *     `"transparent"` is borderless with a focus ring, `"true-transparent"` is borderless with
+ *     no focus ring (used in headers/titles).
+ *   - `textAreaSize` (default `"sm"` in the component): padding preset (`xs` | `sm` | `md`).
+ *   - `hasError` (default `false` in the component): applies the error border; in `"primary"`
+ *     mode also tints the background `bg-danger-subtle` (unlike `Input`, which only adjusts the border).
+ *   - `className`: extra Tailwind classes merged onto the textarea.
+ */
 export interface TextAreaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
   mode?: "primary" | "transparent" | "true-transparent";
   textAreaSize?: "xs" | "sm" | "md";

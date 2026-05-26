@@ -13,6 +13,14 @@ import React, { useEffect, useRef, useState } from "react";
 // helpers
 import { cn } from "../utils";
 
+/**
+ * Placement tokens accepted by the `Tooltip` component's `position` prop. Mirrors the
+ * Popper-style placement union surfaced by Blueprint's `Tooltip2` (`@blueprintjs/popover2`) and
+ * is re-exported through `packages/ui/src/tooltip/index.ts` so consumers can type their own
+ * tooltip-position state. The token names follow Popper conventions — primary axis first
+ * (`top`/`right`/`bottom`/`left`/`auto`), optional alignment hint second (`-start`/`-end` for
+ * `auto`; corner names like `bottom-left`/`top-right` for fixed sides).
+ */
 export type TPosition =
   | "top"
   | "right"

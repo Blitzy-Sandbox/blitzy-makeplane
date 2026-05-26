@@ -25,6 +25,21 @@ import { cn } from "../utils";
 // components
 import { Input } from "./input";
 
+/**
+ * Props for the `InputColorPicker` component. Bundles the controlled hex-color contract,
+ * the inner `<Input>` identity, and forwarded styling overrides into a single shape.
+ *
+ *   - `value` (required): current hex color string (e.g., `"#ff0000"`); drives both the text
+ *     input and the SketchPicker. `undefined` is accepted to support uncontrolled initial state.
+ *   - `onChange` (required): invoked with the new hex string from either text edits or visual
+ *     SketchPicker picks; consumers receive one merged stream regardless of input modality.
+ *   - `name` (required): doubles as the inner input's `id` and `name` attribute, so it must be
+ *     unique within the surrounding form.
+ *   - `placeholder` (required): shown when `value` is empty.
+ *   - `hasError` (required): toggles the error-state border on the inner `<Input>`.
+ *   - `className`, `style`: forwarded to the inner `<Input>` for outer styling overrides
+ *     (e.g., to force a specific text color matching the picker selection).
+ */
 export interface InputColorPickerProps {
   hasError: boolean;
   value: string | undefined;
