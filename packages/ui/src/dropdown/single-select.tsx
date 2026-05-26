@@ -4,6 +4,15 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Single-selection combobox-style dropdown for selecting one option from a list with optional
+ * search/filter, sort, and custom rendering.
+ *
+ * Built on `@headlessui/react` `Combobox` for accessible combobox semantics and `react-popper`
+ * for floating-panel positioning. The shared trigger button and options panel come from
+ * `./common` so this file owns only the single-value state and combobox wiring.
+ */
+
 import { Combobox } from "@headlessui/react";
 import { sortBy } from "lodash-es";
 import React, { useMemo, useRef, useState } from "react";
@@ -17,6 +26,48 @@ import { DropdownButton } from "./common";
 import { DropdownOptions } from "./common/options";
 import type { ISingleSelectDropdown } from "./dropdown";
 
+/**
+ * Combobox-style single-value dropdown built on `@headlessui/react` and `react-popper`.
+ *
+ * The component owns only ephemeral UI state (open flag, search query, popper refs) and stays
+ * fully controlled: selection lives in the consumer and flows through `value` / `onChange`.
+ * The trigger button and option list are delegated to `DropdownButton` and `DropdownOptions`
+ * from `./common` so multi-select and single-select share one visual surface.
+ *
+ * Naming note: the exported function is `Dropdown` (not `SingleSelectDropdown`) as a historical
+ * counterpart to the explicit `MultiSelectDropdown` name; both names are part of the public API
+ * and are preserved as-is by AAP system boundaries.
+ *
+ * Props (see `ISingleSelectDropdown` in `./dropdown.d.ts` and the inherited `IDropdown`):
+ *   - Root: `value` (string, required), `onChange`, `options` (undefined → loader), `onOpen`,
+ *           `onClose`, `containerClassName` (string or function), `tabIndex`,
+ *           `placement` (default `"bottom-start"`), `disabled`.
+ *   - Button: `buttonContent` (custom renderer), `buttonContainerClassName`, `buttonClassName`.
+ *   - Search: `disableSearch`, `inputPlaceholder`, `inputClassName`, `inputIcon`,
+ *             `inputContainerClassName`.
+ *   - Options: `keyExtractor` (required), `optionsContainerClassName`, `queryArray` (fields
+ *              joined for case-insensitive query matching), `sortByKey`, `firstItem`
+ *              (pin-to-top predicate), `renderItem`, `loader` (default `false`),
+ *              `disableSorting`.
+ *
+ * MobX stores read: none. The component is a pure controlled primitive; selection state lives
+ * with the consumer and is the source of truth for behavior.
+ *
+ * Side effects: invokes `onOpen` / `onClose` on state transitions only. No API calls, no
+ * navigation, and no store mutations originate inside this component. `useOutsideClickDetector`
+ * is wired in capture phase (third arg `true`) so panels close before parent click handlers run.
+ *
+ * Sort logic (when `sortByKey` is set and `disableSorting` is false): primary by `firstItem`
+ * pin predicate, secondary by membership in `value`, tertiary by lowercased `sortByKey`.
+ * INTENT UNCLEAR: secondary sort uses `(value ?? []).includes(...)` against a single-string
+ * `value` (inherited from the multi-select sort pattern); this is preserved as-is per system
+ * boundaries even though `.includes` is being called on a string rather than an array.
+ *
+ * Accessibility: `combobox` role, `aria-expanded`, and `aria-controls` come from Headless UI.
+ * Keyboard: arrow keys traverse options, Enter selects, Escape closes, Tab exits (via
+ * `useDropdownKeyPressed`). Typeahead is provided by the inner search input when
+ * `disableSearch` is false.
+ */
 export function Dropdown(props: ISingleSelectDropdown) {
   const {
     value,
