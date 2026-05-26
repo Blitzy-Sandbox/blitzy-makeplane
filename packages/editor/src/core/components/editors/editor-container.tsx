@@ -4,6 +4,14 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Main interaction shell around the editable ProseMirror document surface.
+ *
+ * Hosts hash-based navigation, click-to-focus with conditional
+ * trailing-paragraph insertion, mouse-leave side-menu hiding, and conditional
+ * `LinkContainer` mounting for non-touch devices.
+ */
+
 import type { HocuspocusProvider } from "@hocuspocus/provider";
 import type { Editor } from "@tiptap/react";
 import type { ReactNode } from "react";
@@ -32,6 +40,56 @@ type Props = {
   state?: TCollabValue["state"];
 };
 
+/**
+ * Styled outer `<div>` (the `.editor-container`) that surrounds the editable
+ * surface and orchestrates its interactive scaffolding: hash-based node
+ * navigation (via `nodeHighlightPluginKey`), click-to-focus with conditional
+ * trailing-paragraph insertion, mouse-leave side-menu hiding, and (on
+ * non-touch devices) link hover preview via `LinkContainer`.
+ *
+ * Props are typed by the local `Props` alias — see its declaration above.
+ *
+ * Side effects:
+ * - Reads `window.location.hash` on mount and, when a matching node id is
+ *   found, dispatches a highlight transaction via `nodeHighlightPluginKey`
+ *   and schedules `scrollIntoView({ behavior: "instant", block: "center" })`
+ *   inside `requestAnimationFrame`.
+ * - When both `provider` and `state` are present, gates the scroll-to-node
+ *   behavior on collaboration sync: checks `state.hasCachedContent` and
+ *   `provider.isSynced`, and binds/unbinds a `provider.on("synced", …)`
+ *   listener so the highlight + scroll only fire once the document is
+ *   ready; the listener is cleaned up on dependency change / unmount.
+ * - On container click (only when `event.target === event.currentTarget`),
+ *   calls `editor.chain().focus("end", { scrollIntoView: false }).run()`
+ *   and conditionally appends an empty paragraph at the end of the doc when
+ *   the last node is neither `paragraph` nor `doc` — but skips the append
+ *   when the selection sits inside an `orderedList`, `bulletList`,
+ *   `taskItem`, `table`, `blockquote`, or `codeBlock` (per `CORE_EXTENSIONS`).
+ * - On container mouse-leave, hides the side-menu overlay by adding the
+ *   `side-menu-hidden` class to the `#editor-side-menu` element.
+ *
+ * TipTap surface:
+ * - Exposes `editor.commands.focus()` via click-to-focus and
+ *   `editor.state.doc` traversal via the hash-navigation lookup.
+ * - Overrides the default ProseMirror focus-scroll behavior by explicitly
+ *   passing `scrollIntoView: false` to `editor.chain().focus(...)` so the
+ *   viewport does not jump on click-to-focus; overrides the default browser
+ *   link-click behavior by mounting `LinkContainer` (hover preview) on
+ *   non-touch devices — touch devices skip `LinkContainer` entirely.
+ * - Hides the default side-menu visibility via the `mouseleave` handler that
+ *   toggles the `side-menu-hidden` class on `#editor-side-menu`.
+ *
+ * Cross-references: `LinkContainer` (`@/plane-editor/components/link-container`)
+ * mounts on non-touch devices; `nodeHighlightPluginKey` (`@/plugins/highlight`)
+ * is the ProseMirror plugin that renders the highlight; `CORE_EXTENSIONS`
+ * (`@/constants/extension`) supplies the node-type names used in the
+ * click-handler guards.
+ *
+ * Consumed by `EditorWrapper` as the outer composition shell for standalone
+ * editor variants, and by `document/page-renderer.tsx` for the collaborative
+ * document editor — the latter is the call site that supplies `provider` and
+ * `state` to drive the sync-gated hash-navigation pathway.
+ */
 export function EditorContainer(props: Props) {
   const { children, displayConfig, editor, editorContainerClassName, id, isTouchDevice, provider, state } = props;
   // refs
