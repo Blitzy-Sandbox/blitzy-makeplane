@@ -4,6 +4,15 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Headless UI-based custom select with a built-in search input for filtering options.
+ *
+ * Combines a Headless UI `Combobox` trigger with a portal-rendered options panel that contains
+ * a `Combobox.Input` search field. Filtering is performed client-side against each option's
+ * `query` string (case-insensitive substring match); async option fetching is the caller's
+ * responsibility through the `options` prop.
+ */
+
 import { Combobox } from "@headlessui/react";
 import { Info } from "lucide-react";
 import React, { useRef, useState } from "react";
@@ -18,6 +27,40 @@ import { useDropdownKeyDown } from "../hooks/use-dropdown-key-down";
 import { cn } from "../utils";
 import type { ICustomSearchSelectProps } from "./helper";
 
+/**
+ * Searchable single- or multi-value select built on Headless UI `Combobox` with a portal-rendered
+ * options panel.
+ *
+ * The panel contains a `Combobox.Input` search field. Filtering is performed client-side against
+ * each option's `query` field (case-insensitive substring); async option loading is the caller's
+ * responsibility (pass updated `options` as state changes). When `options` is `undefined` the
+ * panel shows `Loading...`; when filtering yields zero results it shows `noResultsMessage`.
+ *
+ * Selection mode is determined by the discriminator `multiple`. In single-select mode a click on
+ * any option auto-closes the panel; in multi-select mode the panel stays open so consumers can
+ * accumulate selections.
+ *
+ * Props (see `ICustomSearchSelectProps` in `./helper`):
+ *   - `options` (`ICustomSearchSelectOption[]`): values, content, optional tooltip, optional
+ *     per-option `disabled`. Pass `undefined` to render a "Loading..." state.
+ *   - `onChange` (required): fires with `value` (single) or `value[]` (multi). Owned by caller.
+ *   - `value` + `multiple`: discriminated union — `{multiple: true, value: any[] | null}` or
+ *     `{multiple?: false, value: any}`.
+ *   - `customButton` / `label` / `noChevron` / `chevronClassName`: trigger customisation.
+ *   - `placement` / `maxHeight` / `optionsClassName` / `footerOption`: panel customisation.
+ *   - `onOpen` / `onClose`: open/close lifecycle hooks; `defaultOpen` for initial state.
+ *   - `noResultsMessage` (default `"No matches found"`): shown when filter returns zero matches.
+ *
+ * Side effects: `onOpen` may fire twice on first open (once from the imperative `toggleDropdown`
+ * and once from Headless UI's `{open}` render-prop transition). Consumers should treat `onOpen`
+ * as idempotent.
+ *
+ * Accessibility: Headless UI Combobox provides ARIA `combobox` role on the input,
+ * `aria-expanded`, `aria-autocomplete="list"`, arrow-key navigation, Enter to commit, Escape to
+ * dismiss. The panel carries `data-prevent-outside-click` so consumer outside-click detectors
+ * can opt out of closing on inside clicks. INTENT UNCLEAR: the search `Combobox.Input` has no
+ * `aria-label`; screen readers fall back to the visible placeholder `"Search"`.
+ */
 export function CustomSearchSelect(props: ICustomSearchSelectProps) {
   const {
     customButtonClassName = "",
