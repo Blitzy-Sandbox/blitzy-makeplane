@@ -4,6 +4,15 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Popper-anchored floating popover container for tooltip-like contextual UI (not action menus).
+ *
+ * Composes Headless UI's `Popover` shell with `react-popper`'s `usePopper` positioning so the
+ * panel is anchored to a configurable reference element and collision-aware via the
+ * `preventOverflow` modifier. Use `<PopoverMenu>` instead when the panel renders a list of
+ * actionable menu items.
+ */
+
 import { Popover as HeadlessReactPopover, Transition } from "@headlessui/react";
 import { EllipsisVertical } from "lucide-react";
 import type { Ref } from "react";
@@ -14,6 +23,26 @@ import { cn } from "../utils";
 // types
 import type { TPopover } from "./types";
 
+/**
+ * Anchored floating UI assembling Headless UI's `Popover` shell, `react-popper`'s `usePopper`
+ * positioning, and a Headless UI `Transition`-driven entrance/exit animation.
+ *
+ * The component tracks the reference element (the wrapper around `Popover.Button`) and the
+ * panel element via local `useState` refs so Popper can compute placement against viewport
+ * collisions through the `preventOverflow` modifier. The default trigger renders a 24×24
+ * `EllipsisVertical` icon button; supply a custom `button` node to replace it.
+ *
+ * Props (see `TPopover` in `./types`):
+ *   - `children`: panel contents.
+ *   - `button` / `buttonClassName` / `buttonRefClassName` / `popoverButtonRef` / `disabled`: trigger configuration.
+ *   - `popperPosition` (default `"bottom-end"`), `popperPadding` (default `0`): Popper placement + collision padding.
+ *   - `panelClassName`, `popoverClassName`: extra classes merged AFTER built-in styling so consumer overrides win.
+ *
+ * Accessibility: Headless UI's `Popover.Button` automatically emits `aria-haspopup="dialog"`
+ * and toggles `aria-expanded`; Escape and outside-click close the panel. INTENT UNCLEAR: the
+ * default `EllipsisVertical` trigger has no `aria-label`, so screen readers announce it with
+ * no accessible name — supply a custom `button` node carrying an explicit label when needed.
+ */
 export function Popover(props: TPopover) {
   const {
     popperPosition = "bottom-end",
