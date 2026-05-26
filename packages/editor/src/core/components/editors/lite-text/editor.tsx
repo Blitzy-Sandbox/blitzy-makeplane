@@ -78,9 +78,15 @@ function LiteTextEditor(props: ILiteTextEditorProps) {
  *
  * Consumers: re-exported through
  * packages/editor/src/core/components/editors/index.ts and surfaced from the
- * top-level packages/editor/src/index.ts package entry; consumed by lightweight
- * comment/description inputs under apps/web/core/components/issues/issue-detail
- * (comment-create, comment-edit forms) and similar short-form input components.
+ * top-level packages/editor/src/index.ts package entry. Literal direct
+ * importers are the app-side wrappers at
+ * apps/web/core/components/editor/lite-text/editor.tsx and
+ * apps/web/core/components/editor/sticky-editor/editor.tsx. The lite-text
+ * wrapper in turn powers the comment-create and comment-edit forms under
+ * apps/web/core/components/comments/ (which surface inside the issue-detail
+ * UX), notification-card content, and similar short-form input components;
+ * the sticky-editor wrapper powers the sticky-note inputs under
+ * apps/web/core/components/stickies/.
  */
 const LiteTextEditorWithRef = forwardRef(function LiteTextEditorWithRef(
   props: ILiteTextEditorProps,

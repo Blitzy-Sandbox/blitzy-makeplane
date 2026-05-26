@@ -124,8 +124,11 @@ export type TDisplayConfig = {
 };
 
 /**
- * User identity metadata propagated into the Yjs awareness protocol so the
- * collaboration-cursor extension can render remote peers in the document.
+ * User identity metadata propagated into the Yjs awareness protocol so a
+ * consumer-wired collaboration-cursor extension can render remote peers in
+ * the document. `@plane/editor` does not itself wire a cursor extension —
+ * it only exposes these fields through `provider.awareness` so downstream
+ * consumers may render remote-cursor UI of their own.
  *
  * Fields:
  *   - `color`  — CSS color (typically hex) used for this user's cursor

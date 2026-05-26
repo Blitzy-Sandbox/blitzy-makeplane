@@ -81,11 +81,16 @@ import type { EditorRefApi, ICollaborativeDocumentEditorProps } from "@/types";
  *   owns the WebSocket connection to `apps/live` and the `Y.Doc` lifecycle.
  * - `@tiptap/extension-collaboration` — binds a `Y.XmlFragment` to the
  *   ProseMirror document via the `y-prosemirror` binding.
- * - `@tiptap/extension-collaboration-cursor` — renders remote cursors and
- *   selections via `y-protocols/awareness`.
- * - `y-prosemirror` and `y-protocols/awareness` are the substrates that
- *   Yjs uses to synchronize document content and per-user presence state
- *   respectively.
+ * - Awareness / remote-cursor rendering is NOT wired by this package.
+ *   `@plane/editor` does not depend on a collaboration-cursor TipTap
+ *   extension; downstream consumers wire their own awareness/cursor
+ *   binding against `provider.awareness` when remote-cursor UI is needed
+ *   (see `use-collaborative-editor.ts` JSDoc lines around 106–112 for the
+ *   authoritative framing).
+ * - `y-prosemirror` is the substrate that Yjs uses to synchronize document
+ *   content; `y-protocols/awareness` is the substrate used for per-user
+ *   presence state and is exposed via `provider.awareness` for any
+ *   consumer-owned cursor UI.
  *
  * Y.js document schema:
  * - Root: a `Y.Doc` containing a top-level XML fragment bound to ProseMirror
@@ -116,10 +121,10 @@ import type { EditorRefApi, ICollaborativeDocumentEditorProps } from "@/types";
  * TipTap surface:
  * - Exposes the same document-editor extension stack as the
  *   non-collaborative variant (`SideMenuExtension`, `HeadingListExtension`,
- *   plus `DocumentEditorAdditionalExtensions`) PLUS the collaboration
- *   extensions wired through `useCollaborativeEditor`:
- *   `@tiptap/extension-collaboration` (Y.Doc binding) and
- *   `@tiptap/extension-collaboration-cursor` (remote cursor / awareness).
+ *   plus `DocumentEditorAdditionalExtensions`) PLUS the single
+ *   collaboration extension wired through `useCollaborativeEditor`:
+ *   `@tiptap/extension-collaboration` (Y.Doc binding only — awareness /
+ *   remote-cursor rendering is consumer-owned, not wired by this package).
  * - Overrides the standalone `useEditor` bootstrap (used by `./editor.tsx`)
  *   by routing through `useCollaborativeEditor`, which awaits the Hocuspocus
  *   document sync before exposing a usable editor; the editor is rendered
