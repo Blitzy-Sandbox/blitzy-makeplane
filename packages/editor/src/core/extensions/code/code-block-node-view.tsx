@@ -4,6 +4,21 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * React node view for the editor's code-block extension.
+ *
+ * Used by `./index.tsx` `CustomCodeBlockExtension.addNodeView()` via
+ * `ReactNodeViewRenderer`. Renders the code-block container chrome
+ * (rounded background, padding, hover-revealed copy button) around
+ * TipTap's `<NodeViewContent>` which receives the syntax-highlighted
+ * `<code>` text content. Lowlight applies decorations to the
+ * `<NodeViewContent>` through the `LowlightPlugin` registered by
+ * `code-block-lowlight.ts`.
+ *
+ * NOT used by `./without-props.tsx` — that variant omits `addNodeView`
+ * and falls back to default DOM rendering.
+ */
+
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/react";
 import ts from "highlight.js/lib/languages/typescript";
@@ -23,10 +38,51 @@ import { ECodeBlockAttributeNames } from "./types";
 const lowlight = createLowlight(common);
 lowlight.register("ts", ts);
 
+/**
+ * Props for `CodeBlockComponent`.
+ *
+ * Only the `node` from `NodeViewProps` is destructured; other TipTap
+ * NodeView props (editor, getPos, updateAttributes, deleteNode, etc.)
+ * are unused by this component because the only writable interaction
+ * is the copy-to-clipboard action which reads node text without
+ * mutating attributes.
+ */
 type Props = {
   node: ProseMirrorNode;
 };
 
+/**
+ * Renders the editor's code block container chrome (rounded background,
+ * padding, hover-revealed copy button) around TipTap's
+ * `<NodeViewContent as="code">`. The `<code>` content itself is
+ * managed and syntax-highlighted by ProseMirror + lowlight via the
+ * `LowlightPlugin`; this component only owns the surrounding UI.
+ *
+ * Side effects:
+ *   - `copyToClipboard` writes `node.textContent` (text nodes only — no
+ *     formatting, no language metadata) to the system clipboard via
+ *     `navigator.clipboard.writeText`, then flips a 1s visual "copied"
+ *     indicator. Errors (e.g. clipboard permission denied) fall back to
+ *     the default un-copied state.
+ *   - `e.preventDefault()` + `e.stopPropagation()` on the copy button
+ *     prevents the click bubbling into ProseMirror as a selection event.
+ *
+ * State: local `useState<boolean>` `copied` flag — no MobX stores read.
+ * The component does NOT call `updateAttributes`; the code block's
+ * `language` attribute is set elsewhere (input rule / paste handling).
+ *
+ * Accessibility:
+ *   - Native `<button type="button">` is keyboard-focusable and
+ *     activatable via Tab + Enter/Space.
+ *   - `<Tooltip tooltipContent="Copy code">` from `@plane/propel/tooltip`
+ *     supplies the descriptive tooltip; ARIA wiring is handled by the
+ *     Tooltip component.
+ *
+ * Rendered by `CustomCodeBlockExtension.addNodeView()` in `./index.tsx`
+ * via `ReactNodeViewRenderer`. Not used by `./without-props.tsx`.
+ *
+ * @param props - See {@link Props}; only `node` is consumed.
+ */
 export function CodeBlockComponent({ node }: Props) {
   const [copied, setCopied] = useState(false);
   // derived values
@@ -40,6 +96,8 @@ export function CodeBlockComponent({ node }: Props) {
     } catch {
       setCopied(false);
     }
+    // preventDefault + stopPropagation block ProseMirror from treating the
+    // click as a code-block text selection — the copy button is non-content UI.
     e.preventDefault();
     e.stopPropagation();
   };
