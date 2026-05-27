@@ -4,6 +4,39 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for emoji reactions on issues — grouped reaction cache (issueId → reactionKey → reactionId[])
+ * paired with a flat reaction lookup map keyed by reaction id. Every mutation refreshes the activity feed
+ * because reactions appear in the work item's audit timeline.
+ *
+ * State slice:
+ * - reactions: TIssueReactionIdMap — grouped index of reaction ids organized as
+ *   { [issueId]: { [reactionKey]: reactionId[] } }
+ * - reactionMap: TIssueReactionMap — flat normalized lookup of reaction entities by reaction id
+ *
+ * Actions:
+ * - addReactions(issueId, reactions): synchronous in-memory hydration used by `issue.store.ts.fetchIssue` to
+ *   seed reactions embedded in the issue payload — avoids a second round-trip.
+ * - fetchReactions(workspaceSlug, projectId, issueId): GET via IssueReactionService.listIssueReactions and
+ *   delegates to `addReactions` for normalization.
+ * - createReaction(workspaceSlug, projectId, issueId, reaction): POST via the service; appends to the
+ *   (issueId, reactionKey) bucket, inserts the entity into the flat map, and refreshes the activity feed
+ *   so the new reaction appears in the work item timeline.
+ * - removeReaction(workspaceSlug, projectId, issueId, reaction, userId): finds the current user's reaction
+ *   under that key, optimistically removes it from both maps, then DELETE via the service. The activity
+ *   feed is refreshed regardless of success.
+ *
+ * Helper queries: getReactionsByIssueId, getReactionById, reactionsByUser (filters the grouped bucket by
+ * `actor === userId` so the UI can answer "does this user have an X reaction here?").
+ *
+ * Service: backed by IssueReactionService constructed with the parent IssueDetail's `serviceType` so the
+ * same implementation serves both issues and epics.
+ *
+ * Consumers: reaction strip widgets under apps/web/core/components/issues/issue-detail/**,
+ * apps/web/core/components/issues/issue-detail-widgets/** and apps/web/core/components/issues/peek-overview/**,
+ * accessed via apps/web/core/hooks/store/use-issue-detail.ts.
+ */
+
 import { pull, find, concat, set, update } from "lodash-es";
 import { action, makeObservable, observable, runInAction } from "mobx";
 // Plane Imports
