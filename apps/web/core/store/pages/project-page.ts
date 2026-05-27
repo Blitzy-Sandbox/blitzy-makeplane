@@ -4,6 +4,54 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Project-scoped page model — specializes `BasePage` for pages that belong to one
+ * or more projects. Binds the shared page state machine to project-aware backend
+ * operations and derives capability flags from the current user's project roles.
+ *
+ * Inheritance:
+ *   - `class ProjectPage extends BasePage implements TProjectPage` (`TProjectPage = TPageInstance`).
+ *   - All observables and lifecycle actions (name, description, archive, lock, favorite, duplicate, etc.) are inherited from `BasePage`; this file only adds the project-scoped service wiring and the permission-aware computed getters.
+ *
+ * State slice contribution:
+ *   - No additional observables are declared at this level. All page-level reactive state is owned by `BasePage` (page metadata, ownership, access/lock/archive state, audit fields, editor sub-store).
+ *
+ * Constructor wiring:
+ *   - Reads `workspaceSlug` from `store.router` and `projectId` from `page.project_ids?.[0]`.
+ *   - Passes a fully bound `TBasePageServices` object into `super(store, page, services)`. Each callback validates that `workspaceSlug`, `projectId`, and `page.id` are present and otherwise throws `"Missing required fields."` before invoking the module-level `projectPageService = new ProjectPageService()` (declared at line 16). Bound endpoints: update, updateDescription, updateAccess, lock, unlock, archive, restore, duplicate.
+ *
+ * Computed (permission flags, all registered via `makeObservable`):
+ *   - canCurrentUserAccessPage — true when the page is `EPageAccess.PUBLIC` or the current user is the owner.
+ *   - canCurrentUserEditPage — true when (public AND highest project role ≥ MEMBER) OR (private AND current user is the owner).
+ *   - canCurrentUserDuplicatePage — true when highest project role ≥ MEMBER.
+ *   - canCurrentUserLockPage — true when current user is the owner OR highest project role === ADMIN.
+ *   - canCurrentUserChangeAccess — same as lock.
+ *   - canCurrentUserArchivePage — same as lock.
+ *   - canCurrentUserDeletePage — same as lock.
+ *   - canCurrentUserFavoritePage — true when highest project role ≥ MEMBER.
+ *   - canCurrentUserMovePage — same as lock.
+ *   - isContentEditable — true when not archived AND not locked AND (owner OR (public AND highest project role ≥ MEMBER)). Drives the editor read-only flag in the page detail view.
+ *   - All flags recompute when the page's `access`, `owned_by`, `archived_at`, `is_locked`, `project_ids`, the router workspace slug, or the user's workspace/project role membership map changes.
+ *
+ * Memoized helpers (`computedFn` from `mobx-utils` — parameter-aware computed):
+ *   - getHighestRoleAcrossProjects (private) — walks every entry in `project_ids`, calls `rootStore.user.permission.getProjectRoleByWorkspaceSlugAndProjectId(workspaceSlug, projectId)`, and returns the numerically highest `EUserPermissions` value encountered (or undefined when no membership exists). This memoized result is the single source for every capability flag above.
+ *   - getRedirectionLink — returns `/${workspaceSlug}/projects/${this.project_ids?.[0]}/pages/${this.id}` for the active workspace. Used by link rendering in page list / breadcrumb / favorite components and by router pushes in command palette navigation.
+ *
+ * Services / cross-store collaborators:
+ *   - ProjectPageService (module-level instance, line 16) — performs all backend calls (`workspaces/<slug>/projects/<id>/pages/...`) for project-scoped page operations.
+ *   - rootStore.router — `workspaceSlug` resolution for service calls and redirection link.
+ *   - rootStore.user.permission — role lookups for every capability flag.
+ *
+ * Exported symbols:
+ *   - TProjectPage — type alias for `TPageInstance`; identifies a fully-instantiated project page model.
+ *   - ProjectPage — concrete class instantiated by `ProjectPageStore` when populating the project page cache.
+ *
+ * Consumers:
+ *   - apps/web/core/store/pages/project-page.store.ts — instantiates `ProjectPage` on every `fetchPagesList`, `fetchPageDetails`, and `createPage` cache miss.
+ *   - apps/web/core/components/pages/** — page list rows, header actions, editor toolbar, favorite controls, copy-link controls, applied-filter pills all read `ProjectPage` instances and consume the capability flags above to gate buttons and inputs.
+ *   - apps/web/ce/components/command-palette/modals/project-level.tsx — `CreatePageModal` (rendered with `storeType={EPageStoreType.PROJECT}`) ultimately constructs new instances via the store.
+ */
+
 import { computed, makeObservable } from "mobx";
 import { computedFn } from "mobx-utils";
 // constants
