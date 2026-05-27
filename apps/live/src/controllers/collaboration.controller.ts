@@ -11,6 +11,35 @@ import type WebSocket from "ws";
 import { Controller, WebSocket as WSDecorator } from "@plane/decorators";
 import { logger } from "@plane/logger";
 
+/**
+ * WebSocket gateway controller for Plane's real-time collaborative editing.
+ *
+ * Mount path:
+ *   - Internal: `/collaboration` (via `@Controller("/collaboration")`)
+ *   - External: `/live/collaboration` (composed with `env.LIVE_BASE_PATH`)
+ *
+ * Decorators consumed from `@plane/decorators`:
+ *   - `@Controller("/collaboration")` — mounts the class on the live-server router
+ *   - `@WebSocket("/")` (imported as `WSDecorator` to avoid clashing with the
+ *     `WebSocket` runtime type from `ws`) — binds the handler to the
+ *     `expressWs` upgrade endpoint at the controller root
+ *
+ * Hocuspocus injection: the `Hocuspocus` server instance is supplied through
+ * the `registerController` argument array `[hocuspocusServer]` constructed in
+ * `apps/live/src/server.ts:setupRoutes`. The controller does not own the
+ * Hocuspocus lifecycle; it merely forwards upgraded sockets to it.
+ *
+ * Auth requirement: NOT enforced at the controller level. Authentication is
+ * delegated to Hocuspocus's `onAuthenticate` hook (see `apps/live/src/lib/auth.ts`),
+ * which validates the client-supplied token before accepting the connection.
+ *
+ * Document lifecycle: this controller is the **`connect` entrypoint** of the
+ * `connect → edit → persist → disconnect` lifecycle. Once the socket is
+ * accepted here, all subsequent state transitions (auth, load, change, store,
+ * disconnect) are driven by Hocuspocus extensions registered in
+ * `apps/live/src/extensions/` (database, force-close-handler, logger, redis,
+ * title-sync). See `apps/live/src/hocuspocus.ts` for extension composition.
+ */
 @Controller("/collaboration")
 export class CollaborationController {
   [key: string]: unknown;
@@ -20,6 +49,28 @@ export class CollaborationController {
     this.hocusPocusServer = hocusPocusServer;
   }
 
+  /**
+   * Forwards an incoming WebSocket upgrade to the shared Hocuspocus server.
+   *
+   * Trigger: an HTTP `Upgrade: websocket` request hitting
+   * `/live/collaboration/` is promoted by `express-ws` and routed here.
+   *
+   * Behavior: hands the accepted socket + originating Express request to
+   * `hocusPocusServer.handleConnection(ws, req)`, which then runs the
+   * registered Hocuspocus hooks in order (`onConnect`, `onAuthenticate`,
+   * `onLoadDocument`, etc.). Any pre-handoff or synchronous failure is
+   * caught and the socket is closed with code 1011 (internal error).
+   *
+   * Error handling: attaches a `ws.on("error", ...)` listener that logs via
+   * `@plane/logger` with the `COLLABORATION_CONTROLLER:` prefix and closes
+   * the socket with code 1011 and reason `"Internal server error"`. Code
+   * 1011 is used (rather than 1006) so the client receives an explicit
+   * server-initiated close and can apply its retry/backoff policy.
+   *
+   * Persistence side effects: none directly. All state writes happen later
+   * inside the Hocuspocus pipeline (notably the `database` extension's
+   * debounced `onStoreDocument` PATCH back to `apps/api`).
+   */
   @WSDecorator("/")
   handleConnection(ws: WebSocket, req: Request) {
     try {
