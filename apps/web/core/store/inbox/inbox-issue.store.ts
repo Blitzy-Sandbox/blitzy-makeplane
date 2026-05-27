@@ -4,6 +4,70 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Per-issue inbox MobX store: encapsulates the reactive state and mutation
+ * flow for a single inbox entry (one row in the project intake queue).
+ *
+ * Architectural context: MobX is the exclusive frontend state layer; stores
+ * are injected via React context (see `apps/web/core/store/root.store.ts`).
+ * One `InboxIssueStore` instance is created per inbox entry by
+ * `ProjectInboxStore.createOrUpdateInboxIssue`.
+ *
+ * State slice (observables wired via `makeObservable` in the constructor):
+ *   - id: string                                — inbox entry UUID
+ *   - status: TInboxIssueStatus                 — one of EInboxIssueStatus:
+ *       PENDING | ACCEPTED | DECLINED | DUPLICATE | SNOOZED
+ *   - issue: Partial<TIssue>                    — embedded issue payload
+ *   - snoozed_till: Date | undefined            — only set when status = SNOOZED
+ *   - source: EInboxIssueSource | undefined     — origin channel (e.g. EMAIL, IN_APP, FORMS)
+ *   - duplicate_to: string | undefined          — canonical issue id when status = DUPLICATE
+ *   - created_by: string | undefined            — submitter user id
+ *   - duplicate_issue_detail: TInboxDuplicateIssueDetails | undefined
+ *
+ * Non-observable scoping fields (constructor-seeded):
+ *   - workspaceSlug, projectId                  — routing keys
+ *   - isLoading                                 — declared on interface; not reactive
+ *   - inboxIssueService (InboxIssueService), issueService (IssueService)
+ *
+ * Actions (all async; optimistic with rollback on error):
+ *   - updateInboxIssueStatus(status)
+ *       PATCH via InboxIssueService.update. Mutates `status`; transitions
+ *       across the PENDING boundary increment/decrement
+ *       `store.projectRoot.project.projectMap[projectId].intake_count` and
+ *       decrement `store.projectInbox.inboxIssuePaginationInfo.total_results`.
+ *       On ACCEPTED, also pushes the merged issue into
+ *       `store.issue.issues.addIssue` to sync the project issue store.
+ *   - updateInboxIssueDuplicateTo(issueId)
+ *       PATCH with status=DUPLICATE + duplicate_to. Mutates `status`,
+ *       `duplicate_to`, `duplicate_issue_detail`; decrements `intake_count`
+ *       if the entry was previously PENDING.
+ *   - updateInboxIssueSnoozeTill(date)
+ *       PATCH with status=SNOOZED (or PENDING if `date` is undefined) and
+ *       `snoozed_till`. Adjusts `intake_count` on PENDING↔SNOOZED transitions.
+ *   - updateIssue(issue)
+ *       Optimistically merges fields into `this.issue`, PATCHes via
+ *       InboxIssueService.updateIssue, then triggers `fetchIssueActivity`.
+ *   - updateProjectIssue(issue)
+ *       Optimistically merges, PATCHes via IssueService.patchIssue. When
+ *       `cycle_id` or `module_ids` are present, syncs cycle/module
+ *       membership through `store.issue.issueDetail` and triggers
+ *       `fetchIssueActivity`.
+ *   - fetchIssueActivity()
+ *       Loads the activity feed via `store.issue.issueDetail.fetchActivities`;
+ *       no local state mutation.
+ *
+ * Computed: none (this store exposes raw observables).
+ *
+ * Consumers:
+ *   - Composed by `apps/web/core/store/inbox/project-inbox.store.ts`
+ *     (`createOrUpdateInboxIssue`, `createInboxIssue`).
+ *   - Surfaced to React via `apps/web/core/hooks/store/use-inbox-issues.ts`.
+ *   - Read by components under `apps/web/core/components/inbox/**`
+ *     (content panels, modals, filters, action dropdowns) and indirectly
+ *     by `apps/web/core/components/issues/**` peek/detail views when an
+ *     accepted inbox entry surfaces in the project issue list.
+ */
+
 import { clone, set } from "lodash-es";
 import { makeObservable, observable, runInAction, action } from "mobx";
 import type {
