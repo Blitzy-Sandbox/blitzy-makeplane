@@ -4,6 +4,37 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for per-user issue notification subscription state — tracks whether the current user has
+ * subscribed to notifications for each issue.
+ *
+ * State slice:
+ * - subscriptionMap: Record<issueId, Record<userId, boolean>> — subscription flag scoped by issue id and
+ *   user id; only the current user's row is ever read by the UI but the dimension is kept open so future
+ *   admin/UX surfaces can list other subscribers without a schema change.
+ *
+ * Actions:
+ * - addSubscription(issueId, isSubscribed): writes the current user's subscription flag for the issue;
+ *   defaults to `false` when the input is undefined/null. Throws when no current user id is available.
+ * - fetchSubscriptions(workspaceSlug, projectId, issueId): GET via IssueService.getIssueNotificationSubscriptionStatus
+ *   and delegates to `addSubscription`.
+ * - createSubscription(workspaceSlug, projectId, issueId): OPTIMISTIC subscribe — writes `true` first, then
+ *   POST via IssueService.subscribeToIssueNotifications. On failure the canonical state is reconciled by
+ *   re-fetching the subscription status.
+ * - removeSubscription(workspaceSlug, projectId, issueId): OPTIMISTIC unsubscribe — writes `false` first,
+ *   then POST via IssueService.unsubscribeFromIssueNotifications. On failure the canonical state is
+ *   reconciled by re-fetching.
+ *
+ * Helper queries: getSubscriptionByIssueId resolves the current user's row from `rootIssueStore.currentUserId`.
+ *
+ * Service: backed by IssueService constructed with the parent IssueDetail's `serviceType` so the same
+ * implementation serves both issues and epics.
+ *
+ * Consumers: notification subscribe button on the issue-detail surface
+ * (apps/web/core/components/issues/issue-detail/**, peek-overview/**) accessed via
+ * apps/web/core/hooks/store/use-issue-detail.ts.
+ */
+
 import { set } from "lodash-es";
 import { action, makeObservable, observable, runInAction } from "mobx";
 // services
