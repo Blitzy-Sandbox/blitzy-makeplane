@@ -4,6 +4,76 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Multiple-select store: shared multi-entity selection state with active-entity
+ * navigation pointers and computed selection helpers; used by bulk-action UI
+ * primitives and selectable list/spreadsheet/gantt layouts in `apps/web`.
+ *
+ * Selection state is purely in-memory — no service calls or persistence are
+ * triggered from this store. Keyboard and mouse semantics (ctrl/shift-click
+ * range fill, arrow-key navigation, route-change reset) are layered on top
+ * through the `useMultipleSelect` hook at
+ * `apps/web/core/hooks/use-multiple-select.ts`.
+ *
+ * State slice (observables on `MultipleSelectStore`):
+ *   - selectedEntityDetails: TEntityDetails[] — currently selected entities,
+ *     each tagged with its group key so range fills can stay within a group.
+ *   - lastSelectedEntityDetails: TEntityDetails | null — anchor for shift-click
+ *     range fill; refreshed on every add/remove.
+ *   - activeEntityDetails: TEntityDetails | null — currently focused entity;
+ *     drives the keyboard-navigation highlight in consuming components.
+ *   - previousActiveEntity / nextActiveEntity: TEntityDetails | null —
+ *     pre-computed navigation cursor neighbors so arrow keys advance focus
+ *     without re-scanning the rendered list.
+ *
+ * Computed (top-level getters — recompute when observables mutate):
+ *   - isSelectionActive: boolean — true when at least one entity is selected;
+ *     gates bulk-action toolbar visibility in consumers.
+ *   - selectedEntityIds: string[] — flat id list projected from
+ *     selectedEntityDetails for bulk-mutation API payloads.
+ *
+ * Computed selectors (computedFn — recompute per distinct argument):
+ *   - getIsEntitySelected(entityID) / getIsEntityActive(entityID) — per-row
+ *     boolean selectors used by every list/spreadsheet/gantt row to render
+ *     selected and active visual states.
+ *   - getEntityDetailsFromEntityID(entityID) — returns the entity tuple
+ *     (id + group key) if currently selected, else null.
+ *   - getActiveEntityDetails / getLastSelectedEntityDetails /
+ *     getPreviousActiveEntity / getNextActiveEntity — read-only mirrors of the
+ *     navigation/anchor observables.
+ *
+ * Actions (each mutates observables only — wrapped in `runInAction`, no API
+ * calls):
+ *   - updateSelectedEntityDetails(entityDetails, "add" | "remove") — toggle a
+ *     single entity and refresh the last-selected anchor used by range fills.
+ *   - bulkUpdateSelectedEntityDetails(entitiesList, "add" | "remove") — batch
+ *     path used for shift-click range fills and group-level select-all/clear.
+ *   - updateActiveEntityDetails / updatePreviousActiveEntity /
+ *     updateNextActiveEntity / updateLastSelectedEntityDetails — cursor and
+ *     anchor setters invoked by `useMultipleSelect` in response to keyboard
+ *     or mouse input.
+ *   - clearSelection() — reset every observable to its empty state; also
+ *     invoked from `CoreRootStore.resetOnSignOut` on sign-out.
+ *
+ * Composition:
+ *   - Instantiated once by `CoreRootStore` as `multipleSelect` and re-created
+ *     on sign-out (`apps/web/core/store/root.store.ts`). The constructor
+ *     takes no arguments — this store does not read sibling stores.
+ *
+ * Consumers (resolved via the `useMultipleSelectStore` hook at
+ * `apps/web/core/hooks/store/use-multiple-select-store.ts`):
+ *   - apps/web/core/components/core/multiple-select/** — selection primitives
+ *     (select-group, entity-select-action, group-select-action).
+ *   - apps/web/core/components/issues/issue-layouts/list/** — list view rows
+ *     and group headers.
+ *   - apps/web/core/components/issues/issue-layouts/spreadsheet/** —
+ *     spreadsheet row and header selection.
+ *   - apps/web/core/components/gantt-chart/sidebar/issues/** and
+ *     gantt-chart/blocks/** — gantt sidebar and timeline block selection.
+ *   - apps/web/core/hooks/use-multiple-select.ts — wires keyboard and mouse
+ *     events onto the action surface above.
+ */
+
 import { differenceWith, remove, isEqual } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";
