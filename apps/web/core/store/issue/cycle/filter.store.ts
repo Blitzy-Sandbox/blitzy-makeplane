@@ -4,6 +4,104 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Cycle-scoped issue filter store. Owns the active filter expression,
+ * display filters, display properties, and kanban toggles for each
+ * cycle's issues view; persists rich filters / display filters / display
+ * properties to the backend via `IssueFiltersService`, while kanban
+ * toggles remain local-only via per-user, per-workspace local storage
+ * scoped by `EIssuesStoreType.CYCLE`.
+ *
+ * Extends IssueFilterHelperStore (`../helpers/issue-filter-helper.store`)
+ * for shared `computedIssueFilters`, `computedFilteredParams`,
+ * `computedDisplayFilters`, `computedDisplayProperties`,
+ * `getPaginationParams`, `getShouldClearIssues`, `getShouldReFetchIssues`,
+ * and the `handleIssuesLocalFilters` local-storage helper. Stores are
+ * injected via React context (MobX exclusively — not Redux) per
+ * AAP §0.2.2.
+ *
+ * State slice (observable):
+ *   - filters: Record<string, IIssueFilters> — per-cycle filter bundle
+ *     keyed by `cycleId`. Each entry holds `richFilters`,
+ *     `displayFilters`, `displayProperties`, and `kanbanFilters`.
+ *     Hydrated lazily on the first `fetchFilters(cycleId)` call.
+ *   - rootIssueStore: IIssueRootStore — back-reference for cross-store
+ *     reads (`cycleId`, `currentUserId`, `cycleIssues`).
+ *   - issueFilterService: IssueFiltersService — backend client for the
+ *     cycle filter REST surface.
+ *
+ * Computed:
+ *   - issueFilters — bundle for `rootIssueStore.cycleId`; recomputes when
+ *     the active `cycleId` changes or `filters[cycleId]` mutates.
+ *   - appliedFilters — query-param shape derived from `issueFilters` by
+ *     layout via `handleIssueQueryParamsByLayout(layout, "issues")`;
+ *     recomputes on the same triggers. Strips the redundant `cycle`
+ *     token — it is re-added explicitly by `getFilterParams`.
+ *   - getFilterParams(options, cycleId, cursor, groupId, subGroupId) —
+ *     `computedFn` from `mobx-utils` that composes `getAppliedFilters` +
+ *     `getPaginationParams` and force-sets `cycle = cycleId` on every
+ *     call; memoized per `(cycleId, cursor, groupId, subGroupId)` tuple.
+ *
+ * Actions:
+ *   - fetchFilters(workspaceSlug, projectId, cycleId): Promise<void>
+ *       Side effects: GET via
+ *       `IssueFiltersService.fetchCycleIssueFilters`; normalizes
+ *       `rich_filters`, `display_filters`, and `display_properties`
+ *       through the inherited `computedDisplayFilters` /
+ *       `computedDisplayProperties` helpers; reads per-user kanban
+ *       toggles from local storage scoped by `EIssuesStoreType.CYCLE`
+ *       and the current user; commits the merged bundle to
+ *       `filters[cycleId]` inside `runInAction`. This is the hydration
+ *       flow called out by the AAP §0.5.2 cycle filter spec.
+ *   - updateFilterExpression(workspaceSlug, projectId, cycleId, filters):
+ *     Promise<void>
+ *       Side effects: optimistic write of `richFilters` into
+ *       `filters[cycleId].richFilters`; triggers
+ *       `rootIssueStore.cycleIssues.fetchIssuesWithExistingPagination`;
+ *       then PATCHes `{ rich_filters }` to the backend. Designed as a
+ *       fallback for the work item filter store — see the inline note
+ *       above the method body.
+ *   - updateFilters(workspaceSlug, projectId, type, filters, cycleId):
+ *     Promise<void>
+ *       Dispatches by `EIssueFilterType`:
+ *         • DISPLAY_FILTERS — merges into `filters[cycleId].displayFilters`;
+ *           enforces invariants — clears `sub_group_by` when `group_by`
+ *           is null, collapses duplicates under kanban (sub === group),
+ *           defaults kanban `group_by` to `"state"` when null; calls
+ *           `rootIssueStore.cycleIssues.clear(true)` when
+ *           `getShouldClearIssues` is true; triggers
+ *           `fetchIssuesWithExistingPagination` when
+ *           `getShouldReFetchIssues` is true; PATCHes
+ *           `{ display_filters }` to the backend.
+ *         • DISPLAY_PROPERTIES — merges into
+ *           `filters[cycleId].displayProperties` and PATCHes
+ *           `{ display_properties }` to the backend.
+ *         • KANBAN_FILTERS — local-only; persists via
+ *           `handleIssuesLocalFilters.set(EIssuesStoreType.CYCLE, …)`
+ *           keyed by current user + workspace + cycleId. NO backend
+ *           write — kanban grouping toggles are deliberately
+ *           per-user-per-device. This is the local-storage scope
+ *           discriminator the AAP §0.5.2 cycle filter spec calls out.
+ *       On error, refetches backend filters via `fetchFilters` to
+ *       restore store consistency before rethrowing.
+ *
+ * Consumers:
+ *   - apps/web/core/components/issues/issue-layouts/list/roots/cycle-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/kanban/roots/cycle-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/calendar/roots/cycle-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/spreadsheet/roots/cycle-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/roots/cycle-layout-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/empty-states/cycle.tsx
+ *   - apps/web/core/components/issues/issue-layouts/quick-action-dropdowns/cycle-issue.tsx
+ *   - apps/web/core/components/issues/issue-layouts/filters/** (filter widgets)
+ *   - apps/web/core/hooks/store/use-issues.ts (selects via
+ *     `EIssuesStoreType.CYCLE`)
+ *   - ./issue.store.ts (`CycleIssues.fetchIssues` /
+ *     `fetchNextIssues` read params via `getFilterParams`)
+ *   - apps/web/core/store/issue/root.store.ts (singleton wiring under
+ *     `cycleIssuesFilter`).
+ */
+
 import { isEmpty, set } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 // base class
