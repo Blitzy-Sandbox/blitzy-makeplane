@@ -4,6 +4,118 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Base project member store — abstract MobX foundation for per-project membership state,
+ * shared across `apps/web` core and the EE-only subclass in `@/plane-web/store/member`.
+ *
+ * State slice (observables):
+ *   - projectMemberFetchStatusMap: { [projectId: string]: boolean } — short-circuits duplicate
+ *     fetches across navigation; set to true after `fetchProjectMembers` resolves.
+ *   - projectMemberMap: { [projectId: string]: Record<string, TProjectMembership> } — per-project
+ *     membership cache keyed by projectId then userId; only `projectMemberMap` (not the fetch-status
+ *     map) is registered in `makeObservable`.
+ *   - projectUserPropertiesMap: { [projectId: string]: IProjectUserPropertiesResponse } — per-project
+ *     UI preferences (e.g. filters/displayed properties) for the current user.
+ *
+ * Dependencies (injected via constructor from `RootStore` + `IMemberRootStore`):
+ *   - routerStore: IRouterStore — supplies `projectId` for the `projectMemberIds` getter.
+ *   - userStore: IUserStore — current-user data for self-aware sorting (signed-in user first)
+ *     and permission overlays when the role being updated belongs to the signed-in user.
+ *   - projectRoot: IProjectStore — kept in sync with `projectMemberMap` on bulk add and removal
+ *     (the project's `members` array is mutated in lockstep).
+ *   - memberRoot: IMemberRootStore — global user-detail store; `fetchProjectMembers` writes
+ *     `IUserLite` records into `memberRoot.memberMap` for hydration via `getProjectMemberDetails`.
+ *   - filters: ProjectMemberFiltersStore — sibling filter slice instantiated in the constructor
+ *     (`new ProjectMemberFiltersStore()`); read by `projectMemberIds` and
+ *     `getFilteredProjectMemberDetails` to honor active filters/sort.
+ *   - rootStore: RootStore — retained for nested permission writes during optimistic role updates.
+ *   - projectMemberService: ProjectMemberService — backend client for member CRUD + bulk add.
+ *   - projectService: ProjectService — backend client for project user-properties CRUD.
+ *
+ * Computed (registered in makeObservable):
+ *   - projectMemberIds: string[] | null — filtered + ordered member ids for the current project
+ *     (route-driven). Recomputes when `projectMemberMap`, the active `routerStore.projectId`, or
+ *     the relevant slice of `filters.filtersMap` changes; reads `memberRoot.memberMap` for sort
+ *     keys. Returns null when no project is active or the project has no members yet.
+ *
+ * Computed actions (memoized via `computedFn` from `mobx-utils` — per-argument-tuple memoization):
+ *   - getProjectMemberFetchStatus(projectId) — fetch-status lookup.
+ *   - getProjectMemberships(projectId) — protected; raw memberships record as an array.
+ *   - getProjectMembershipByUserId(userId, projectId) — protected; single-membership lookup.
+ *   - getRoleFromProjectMembership(userId, projectId): EUserProjectRoles | undefined — protected;
+ *     prefers `original_role` over `role` to surface the EE-aware base role.
+ *   - getProjectMemberDetails(userId, projectId): IProjectMemberDetails | null — hydrated
+ *     member (membership + IUserLite from memberRoot + `joining_date` derived from `created_at`).
+ *   - getProjectMemberIds(projectId, includeGuestUsers) — id list optionally excluding
+ *     EUserPermissions.GUEST, sorted with signed-in user first then by display name.
+ *   - getFilteredProjectMemberDetails(userId, projectId) — same hydrated shape as
+ *     `getProjectMemberDetails` but returns null when the user fails the active filter set.
+ *   - getProjectUserProperties(projectId): IProjectUserPropertiesResponse | null — per-project
+ *     preferences lookup.
+ *
+ * Actions (registered in makeObservable; each mutates state under `runInAction`):
+ *   - fetchProjectMembers(workspaceSlug, projectId, clearExistingMembers?) — GET via
+ *     `ProjectMemberService.fetchProjectMembers`. Side effects: optionally unsets prior cache,
+ *     populates `projectMemberMap[projectId]`, sets `projectMemberFetchStatusMap[projectId] = true`.
+ *     Idempotent in result; safe to re-invoke (cache is overwritten per-userId).
+ *   - bulkAddMembersToProject(workspaceSlug, projectId, data: IProjectBulkAddFormData) — POST.
+ *     Preserves the existing role via `getUserProjectRole(...)` when a returned member already has
+ *     a local membership (saves `original_role` from the response). Updates
+ *     `projectRoot.projectMap[projectId].members` with the union of prior + newly added ids.
+ *     NON-idempotent against `projectRoot.projectMap.members` because the dual write
+ *     (`update(..., uniq(...))` + direct concat) appends without re-deduping; callers must avoid
+ *     double-invocation with overlapping payloads.
+ *     // INTENT UNCLEAR: the second-stage concat at the line after the `update(... , uniq(...))`
+ *     // appears redundant with the preceding `uniq` write and may produce duplicate ids in the
+ *     // project-store members array on retries. Preserved as-is per system boundary.
+ *   - updateMemberRole(workspaceSlug, projectId, userId, role: EUserProjectRoles) — PATCH.
+ *     OPTIMISTIC: writes the new role (resolved via `getProjectMemberRoleForUpdate`) and, when the
+ *     target is the signed-in user, also patches `rootStore.user.permission.workspaceProjectsPermissions`
+ *     and `projectUserInfo[...]role`. On service error, the prior membership and permission state
+ *     are restored under `runInAction` before the error re-throws. NOT idempotent against
+ *     downstream permission caches if invoked concurrently for the same user.
+ *   - removeMemberFromProject(workspaceSlug, projectId, userId) — DELETE. Resolves the membership
+ *     id via `getProjectMemberDetails(...)`. Local cache cleanup is delegated to the abstract
+ *     `processMemberRemoval(projectId, userId)` (subclasses typically call the protected
+ *     `handleMemberRemoval` helper which unsets the entry and filters the project's `members`
+ *     array). Throws when the member is unknown locally.
+ *   - fetchProjectUserProperties(workspaceSlug, projectId) — GET; populates
+ *     `projectUserPropertiesMap[projectId]`.
+ *   - updateProjectUserProperties(workspaceSlug, projectId, data) — PATCH. OPTIMISTIC: writes
+ *     `data` immediately; on error reverts to the captured `previousProperties` (or unsets when
+ *     none existed) before re-throwing.
+ *
+ * Subclass contract (abstract members — concrete stores MUST implement):
+ *   - getUserProjectRole(userId, projectId): EUserProjectRoles | undefined — invoked by
+ *     `bulkAddMembersToProject` to preserve roles for members already known locally; EE subclass
+ *     resolves this against its enriched permission map.
+ *   - getProjectMemberRoleForUpdate(projectId, userId, role): EUserProjectRoles — invoked by
+ *     `updateMemberRole` to translate the user-selected role into the role that should be cached
+ *     in `original_role` vs. `role` (e.g. EE may downgrade `role` based on workspace plan limits).
+ *   - processMemberRemoval(projectId, userId): void — invoked by `removeMemberFromProject` to
+ *     execute the local-cache cleanup; the default `handleMemberRemoval` helper is protected and
+ *     provides a ready-made implementation subclasses may delegate to.
+ *
+ * Consumers:
+ *   - apps/web-plane/store/member/project-member.store.ts (concrete `ProjectMemberStore` subclass)
+ *   - apps/web/core/store/member/index.ts (composes `new ProjectMemberStore(this, _rootStore)`
+ *     into the member root store)
+ *   - apps/web/core/components/project/member-list.tsx, member-list-item.tsx, member-select.tsx
+ *   - apps/web/core/components/project/settings/member-columns.tsx,
+ *     send-project-invitation-modal.tsx
+ *   - apps/web/core/components/project/dropdowns/filters/members.tsx
+ *   - apps/web/core/components/project/applied-filters/members.tsx
+ *   - apps/web/core/components/issues/** (assignee dropdowns hydrate via `getProjectMemberDetails`)
+ *
+ * Architectural notes:
+ *   - Optimistic-update + rollback is the AAP-mandated WHY here: writes return immediately so the
+ *     UI is responsive, and on service failure the prior state is restored before the error
+ *     surfaces to the caller.
+ *   - State injection model: per the monorepo's architectural context, MobX stores are wired via
+ *     React context (not Redux); this store is reached through the member-root composition rather
+ *     than imported directly by components.
+ */
+
 import { uniq, unset, set, update, sortBy } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";
