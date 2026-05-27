@@ -4,6 +4,77 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Command-palette base store: reusable MobX foundation that backs the
+ * Cmd+K / Ctrl+K command palette and the cluster of "create" / "delete"
+ * dialogs reachable from it. Concrete behavior is finalized by the
+ * subclass at `apps/web/ce/store/command-palette.store.ts`
+ * (`CommandPaletteStore`), which adds the `isAnyModalOpen` `computed`
+ * selector on top of `super.getCoreModalsState()` and is wired into the
+ * root composition at `apps/web/core/store/root.store.ts` (L15-L16).
+ *
+ * State slice (observables, registered in `makeObservable` at L75-L102):
+ *   - `isCreateProjectModalOpen`, `isCreateCycleModalOpen`,
+ *     `isCreateModuleModalOpen`, `isCreateViewModalOpen`,
+ *     `isCreateIssueModalOpen`, `isDeleteIssueModalOpen`,
+ *     `isBulkDeleteIssueModalOpen`, `allStickiesModal`: `boolean`
+ *     — per-modal visibility flags (`observable.ref` for the booleans).
+ *   - `createPageModal`: `TCreatePageModal` — `{ isOpen, pageAccess }`
+ *     payload for the create-page dialog; seeded with
+ *     `DEFAULT_CREATE_PAGE_MODAL_DATA` from `@plane/constants`.
+ *   - `createIssueStoreType`: `TCreateModalStoreTypes` — selects which
+ *     issue-store context (project / cycle / module / workspace draft /
+ *     profile / archived) the open create-issue modal should mutate;
+ *     defaults to `EIssuesStoreType.PROJECT`.
+ *   - `createWorkItemAllowedProjectIds`: `string[] | undefined` — when
+ *     defined, restricts the project selector inside the create-issue
+ *     modal; `undefined` means no restriction.
+ *   - `profileSettingsModal`: `{ activeTab: TProfileSettingsTabs | null;
+ *     isOpen: boolean }` — overlay state and currently focused tab for
+ *     the profile settings dialog.
+ *   - `projectListOpenMap`: `Record<string, boolean>` — per-project
+ *     expansion state for the project list inside the palette sidebar.
+ *
+ * Actions (each registered as `action` in the `makeObservable` block):
+ *   - `toggleCreateProjectModal`, `toggleCreateCycleModal`,
+ *     `toggleCreateViewModal`, `toggleCreateModuleModal`,
+ *     `toggleDeleteIssueModal`, `toggleBulkDeleteIssueModal`,
+ *     `toggleAllStickiesModal(value?)` — assign the explicit `value`
+ *     when supplied, otherwise flip the current flag.
+ *   - `toggleCreatePageModal(value?: TCreatePageModal)` — sets
+ *     `{ isOpen, pageAccess }`; falls back to `EPageAccess.PUBLIC` when
+ *     `pageAccess` is missing or the toggle is implicit.
+ *   - `toggleCreateIssueModal(value?, storeType?, allowedProjectIds?)`
+ *     — opens/closes the create-issue modal AND concurrently updates
+ *     `createIssueStoreType` and `createWorkItemAllowedProjectIds`;
+ *     close branch resets both back to the project default.
+ *   - `toggleProjectListOpen(projectId, value?)` — mutates a single key
+ *     in `projectListOpenMap` (no full-map replacement).
+ *   - `toggleProfileSettingsModal(payload)` — shallow-merges partial
+ *     `{ activeTab, isOpen }` into `profileSettingsModal` inside a
+ *     `runInAction` block.
+ *
+ * Computed / derived:
+ *   - `getIsProjectListOpen(projectId)`: parameterized `computedFn` from
+ *     `mobx-utils` that reads `projectListOpenMap[projectId]`; results
+ *     are cached per argument and invalidate when the underlying map
+ *     entry changes.
+ *   - `getCoreModalsState()`: protected, non-reactive helper that OR-s
+ *     every base modal flag with `store.powerK.isShortcutsListModalOpen`
+ *     (read via `@/lib/store-context`); the subclass turns this into
+ *     the reactive `isAnyModalOpen` `computed`.
+ *
+ * Consumers:
+ *   - `apps/web/ce/store/command-palette.store.ts` — `CommandPaletteStore`
+ *     subclass that finalizes the public API and exposes
+ *     `isAnyModalOpen`.
+ *   - `apps/web/core/store/root.store.ts` — root composition that
+ *     instantiates the subclass and injects it via React context.
+ *   - `apps/web/ce/components/command-palette/**` — palette UI surface:
+ *     `actions/`, `modals/`, `power-k/`, and `helpers.tsx` toggle these
+ *     observables in response to keyboard shortcuts and menu clicks.
+ */
+
 import { observable, action, makeObservable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";
 // plane imports
