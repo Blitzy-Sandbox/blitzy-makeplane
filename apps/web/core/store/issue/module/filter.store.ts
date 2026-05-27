@@ -4,6 +4,99 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Module-scoped issue filter store. Owns the active filter expression,
+ * display filters, display properties, and kanban toggles for each
+ * module's issues view; persists rich filters / display filters / display
+ * properties to the backend via `IssueFiltersService`, while kanban
+ * toggles remain local-only via per-user, per-workspace local storage
+ * scoped by `EIssuesStoreType.MODULE`.
+ *
+ * Extends IssueFilterHelperStore (`../helpers/issue-filter-helper.store`)
+ * for shared `computedIssueFilters`, `computedFilteredParams`,
+ * `computedDisplayFilters`, `computedDisplayProperties`,
+ * `getPaginationParams`, `getShouldClearIssues`, `getShouldReFetchIssues`,
+ * and the `handleIssuesLocalFilters` local-storage helper. Stores are
+ * injected via React context (MobX exclusively — not Redux) per
+ * AAP §0.2.2.
+ *
+ * State slice (observable):
+ *   - filters: Record<string, IIssueFilters> — per-module filter bundle
+ *     keyed by `moduleId`. Each entry holds `richFilters`,
+ *     `displayFilters`, `displayProperties`, and `kanbanFilters`.
+ *     Hydrated lazily on first `fetchFilters(moduleId)` call.
+ *   - rootIssueStore: IIssueRootStore — back-reference for cross-store
+ *     reads (`moduleId`, `currentUserId`, `moduleIssues`).
+ *   - issueFilterService: IssueFiltersService — backend client for the
+ *     module filter REST surface.
+ *
+ * Computed:
+ *   - issueFilters — bundle for `rootIssueStore.moduleId`; recomputes
+ *     when the active `moduleId` changes or `filters[moduleId]` mutates.
+ *   - appliedFilters — query-param shape derived from `issueFilters` by
+ *     layout via `handleIssueQueryParamsByLayout("issues")`; recomputes
+ *     on the same triggers. Strips the redundant `module` token — it is
+ *     re-added explicitly by `getFilterParams`.
+ *   - getFilterParams(options, moduleId, cursor, groupId, subGroupId) —
+ *     `computedFn` from `mobx-utils` that composes `getAppliedFilters` +
+ *     `getPaginationParams` and force-sets `module = moduleId` on every
+ *     call.
+ *
+ * Actions:
+ *   - fetchFilters(workspaceSlug, projectId, moduleId): Promise<void>
+ *       Side effects: GET via
+ *       `IssueFiltersService.fetchModuleIssueFilters`; normalizes display
+ *       filters/properties through helper methods; reads per-user kanban
+ *       toggles from local storage scoped by `EIssuesStoreType.MODULE`
+ *       and current user; commits the merged bundle to
+ *       `filters[moduleId]` inside `runInAction`.
+ *   - updateFilterExpression(workspaceSlug, projectId, moduleId, filters):
+ *     Promise<void>
+ *       Side effects: optimistic write of `richFilters` into
+ *       `filters[moduleId].richFilters`; triggers
+ *       `rootIssueStore.moduleIssues.fetchIssuesWithExistingPagination`;
+ *       then PATCHes `{ rich_filters }` to the backend. Designed as a
+ *       fallback for the work item filter store — see the inline note
+ *       above the method body.
+ *   - updateFilters(workspaceSlug, projectId, type, filters, moduleId):
+ *     Promise<void>
+ *       Dispatches by `EIssueFilterType`:
+ *         • DISPLAY_FILTERS — merges into `filters[moduleId].displayFilters`;
+ *           normalizes group_by/sub_group_by (clears sub_group_by when
+ *           group_by is null; collapses duplicates under kanban; defaults
+ *           kanban group_by to "state" when null); calls
+ *           `rootIssueStore.moduleIssues.clear(true)` when
+ *           `getShouldClearIssues` is true; triggers
+ *           `fetchIssuesWithExistingPagination` when
+ *           `getShouldReFetchIssues` is true; PATCHes
+ *           `{ display_filters }` to the backend.
+ *         • DISPLAY_PROPERTIES — merges into
+ *           `filters[moduleId].displayProperties` and PATCHes
+ *           `{ display_properties }` to the backend.
+ *         • KANBAN_FILTERS — local-only; persists via
+ *           `handleIssuesLocalFilters.set(EIssuesStoreType.MODULE, …)`
+ *           keyed by current user + workspace + moduleId. NO backend
+ *           write — kanban grouping toggles are deliberately
+ *           per-user-per-device.
+ *       On error, refetches backend filters via `fetchFilters` to
+ *       restore store consistency before rethrowing.
+ *
+ * Consumers:
+ *   - apps/web/core/components/issues/issue-layouts/list/roots/module-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/kanban/roots/module-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/calendar/roots/module-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/gantt/roots/module-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/spreadsheet/base-spreadsheet-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/roots/module-layout-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/filters/** (filter widgets)
+ *   - apps/web/core/hooks/store/use-issues.ts (selects via
+ *     `EIssuesStoreType.MODULE`)
+ *   - ./issue.store.ts (`ModuleIssues.fetchIssues` /
+ *     `fetchNextIssues` read params via `getFilterParams`)
+ *   - apps/web/core/store/issue/root.store.ts (singleton wiring under
+ *     `moduleIssuesFilter`).
+ */
+
 import { isEmpty, set } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 // base class
