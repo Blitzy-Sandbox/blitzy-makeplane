@@ -4,6 +4,74 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for workspace-scoped (cross-project) issue lists — the "all issues" /
+ * global-view layouts that aggregate issues across every project in a workspace.
+ *
+ * Inheritance & override seam:
+ *   `WorkspaceIssues` extends `BaseIssuesStore` (helpers/base-issues.store), inheriting
+ *   pagination cursors, abort-signal wiring (`this.controller.signal`), loader management,
+ *   response post-processing (`onfetchIssues`, `onfetchNexIssues`), and shared mutation
+ *   helpers (`bulkArchiveIssues`, `issueUpdate`, `issueArchive`). The root store
+ *   (`apps/web/core/store/issue/root.store.ts`) imports this class via the plane-web
+ *   indirection `@/plane-web/store/issue/workspace/issue.store`, which in the CE tier
+ *   (`apps/web/ce/store/issue/workspace/issue.store.ts`) is an `export *` passthrough —
+ *   the indirection exists as the enterprise-edition override seam.
+ *
+ * State slice (this class adds; the base store contributes the rest):
+ *   - `viewFlags: ViewFlags` — `enableQuickAdd`, `enableIssueCreation`, `enableInlineEditing`
+ *     all `true`; controls which affordances the workspace issue layouts render.
+ *   - `workspaceService` (WorkspaceService) and `issueFilterStore` (IWorkspaceIssuesFilter)
+ *     — backend client and filter-state collaborator, both wired in the constructor.
+ *   Inherited observables (`paginationOptions`, per-group cursors via `getPaginationData`,
+ *   `controller`, grouped-issue and pagination maps) are documented on `BaseIssuesStore`;
+ *   this store reads them rather than redeclaring.
+ *
+ * Actions (registered as `action` via `makeObservable`):
+ *   - `fetchIssues(workspaceSlug, viewId, loadType, options, isExistingPaginationOptions = false)`
+ *       First-page fetch. Sets the loader, clears existing state (unless reusing pagination
+ *       context), composes request params via `issueFilterStore.getFilterParams`, and calls
+ *       `WorkspaceService.getViewIssues` (the workspace-scoped `/api/workspaces/<slug>/...`
+ *       issues endpoint) with `this.controller.signal` for cancellation. The response is
+ *       piped through inherited `onfetchIssues` for grouping / mapping.
+ *   - `fetchNextIssues(workspaceSlug, viewId, groupId?, subGroupId?)`
+ *       Cursor-based subsequent-page fetch. Short-circuits if no `paginationOptions` exist
+ *       or the (groupId, subGroupId) bucket reports `nextPageResults === false`; otherwise
+ *       sets the `"pagination"` loader for that bucket, calls `WorkspaceService.getViewIssues`,
+ *       and routes the response through inherited `onfetchNexIssues`.
+ *   - `fetchIssuesWithExistingPagination(workspaceSlug, viewId, loadType)`
+ *       Refetches page-1 while preserving the cursor context; used by `WorkspaceIssuesFilter`
+ *       when filter / sort / groupBy changes invalidate the current page.
+ *   - `fetchParentStats` / `updateParentStats` — intentional no-ops; parent-stat rollups are
+ *     not applicable at workspace scope (project / cycle / module stores override these).
+ *
+ * Aliased mutations (locked to workspace-facing names so further subclasses cannot redefine
+ * them via property assignment):
+ *   - `archiveBulkIssues` → inherited `bulkArchiveIssues`
+ *   - `updateIssue`       → inherited `issueUpdate`
+ *   - `archiveIssue`      → inherited `issueArchive`
+ *
+ * Explicit non-supports:
+ *   - `quickAddIssue = undefined` — quick-add requires a project context, which at workspace
+ *     layouts is selected per-row rather than implied by the store.
+ *
+ * Filter-store collaboration:
+ *   All request-parameter composition is delegated to `issueFilterStore.getFilterParams`
+ *   (`./filter.store.ts`), which produces both filter-derived query params (via
+ *   `getAppliedFilters` plus `STATIC_VIEW_TYPES` overrides) and pagination params.
+ *
+ * Consumers:
+ *   - Instantiated in `apps/web/core/store/issue/root.store.ts` alongside `WorkspaceIssuesFilter`.
+ *   - Read via `useIssues(EIssuesStoreType.GLOBAL)` by:
+ *       - `apps/web/core/components/issues/issue-layouts/roots/all-issue-layout-root.tsx`
+ *       - `apps/web/core/components/issues/issue-layouts/spreadsheet/roots/workspace-root.tsx`
+ *       - `apps/web/core/components/issues/issue-layouts/quick-action-dropdowns/all-issue.tsx`
+ *       - `apps/web/core/components/issues/issue-layouts/empty-states/index.tsx`
+ *       - `apps/web/core/components/issues/issue-layouts/utils.tsx`
+ *   - Workspace-view modals (`components/workspace/views/{form,modal}.tsx`) and the
+ *     workspace export form (`components/exporter/export-form.tsx`).
+ */
+
 import { action, makeObservable, runInAction } from "mobx";
 // base class
 import type {
