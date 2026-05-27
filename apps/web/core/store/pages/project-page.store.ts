@@ -4,6 +4,56 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Project page collection store (MobX) — owns the cache of `ProjectPage` instances
+ * for the currently active project and powers page list, page detail, and page
+ * creation/deletion/move flows. Registered on `RootStore` as `projectPages` and
+ * resolved through `usePageStore(EPageStoreType.PROJECT)`.
+ *
+ * State slice (observables):
+ *   - loader: TLoader — "init-loader" | "mutation-loader" | undefined; switches based on whether the cache already has pages for the requested tab/page id.
+ *   - data: Record<string, TProjectPage> — page id → `ProjectPage` MobX instance; mutated via `mutateProperties` on existing instances rather than replaced, to preserve reactive references.
+ *   - error: { title: string; description: string } | undefined — latest user-facing error from a fetch / create / delete attempt.
+ *   - filters: TPageFilters — `{ searchQuery, sortKey, sortBy, filters }`; search query is cleared automatically on `router.projectId` change via a constructor-level MobX `reaction`.
+ *
+ * Computed:
+ *   - isAnyPageAvailable — true while loading OR when `Object.keys(data).length > 0`.
+ *   - canCurrentUserCreatePage — resolves the current user's project role via `store.user.permission.getProjectRoleByWorkspaceSlugAndProjectId(workspaceSlug, projectId)` and checks membership in the exported `ROLE_PERMISSIONS_TO_CREATE_PAGE` allowlist (ADMIN/MEMBER at workspace + project level). Recomputes when router workspace/project, user permissions, or membership map changes.
+ *
+ * Memoized selectors (`computedFn` from `mobx-utils` — parameter-aware computed):
+ *   - getCurrentProjectPageIdsByTab(pageType) — returns page ids for the active `router.projectId` filtered to the given `TPageNavigationTabs` (public | private | archived) via `filterPagesByPageType`. Recomputes when `data`, `router.projectId`, or `pageType` change.
+ *   - getCurrentProjectPageIds(projectId) — returns all cached page ids whose `project_ids` include the supplied projectId.
+ *   - getCurrentProjectFilteredPageIdsByTab(pageType) — same as the tab variant plus case-insensitive search-query matching on the page name, `shouldFilterPage` nested filter predicate, and `orderPages` sort by `(sortKey, sortBy)`. Recomputes when `data`, `filters`, `router.projectId`, or `pageType` change.
+ *   - getPageById(pageId) — direct cache lookup; recomputes when `data[pageId]` changes.
+ *
+ * Actions:
+ *   - updateFilters(filterKey, filterValue) — writes a single field on `filters` via `lodash-es/set` inside `runInAction`.
+ *   - clearAllFilters() — resets the nested `filters.filters` map (does not touch search query, sort key, or sort order).
+ *   - fetchPagesList(workspaceSlug, projectId, pageType?) — async; calls `ProjectPageService#fetchAll`, then either merges each returned page into an existing instance via `existingPage.mutateProperties(otherFields, false)` (second arg is the `shouldUpdateName` flag, intentionally `false` to preserve in-flight client edits to the title) or constructs a new `ProjectPage(store, page)` and inserts it under `data[page.id]`. Toggles `loader` between `init-loader`/`mutation-loader` based on whether the current tab already has cached ids. On failure, sets `error` and rethrows.
+ *   - fetchPageDetails(workspaceSlug, projectId, pageId, options?) — async; calls `ProjectPageService#fetchById(workspaceSlug, projectId, pageId, trackVisit ?? true)`; mutates existing instance in place or creates a new `ProjectPage`. The `trackVisit` flag drives the recently-visited tracker server-side (defaults to true).
+ *   - createPage(pageData) — async; calls `ProjectPageService#create`, then inserts a fresh `ProjectPage` for the returned page under `data[page.id]`.
+ *   - removePage({ pageId, shouldSync? }) — async; calls `ProjectPageService#remove`, removes the entry via `lodash-es/unset(data, [pageId])`, and side-effects `rootStore.favorite.removeFavoriteFromStore(pageId)` when the page was favorited.
+ *   - movePage(workspaceSlug, projectId, pageId, newProjectId) — async; calls `ProjectPageService#move`, then unsets the page from the source cache (the destination project store re-fetches independently).
+ *
+ * Services / cross-store collaborators:
+ *   - ProjectPageService from `@/services/page` — wraps every REST call for project pages (CRUD + lock + access + duplicate + move + restore + archive + version listing).
+ *   - rootStore.router — read for `workspaceSlug` / `projectId` resolution in `canCurrentUserCreatePage`, `createPage`, `removePage`, and the reset-search-on-project-change reaction.
+ *   - rootStore.user.permission — read for project role lookups in `canCurrentUserCreatePage`.
+ *   - rootStore.favorite — written in `removePage` to drop the favorite entry when a page is deleted.
+ *
+ * Exported symbols:
+ *   - ROLE_PERMISSIONS_TO_CREATE_PAGE — allowlist combining workspace + project ADMIN/MEMBER roles consumed by `canCurrentUserCreatePage` and by create-page UI guards in `apps/web/core/components/pages/`.
+ *   - IProjectPageStore — public contract; consumed by `apps/web/ce/hooks/store/use-page-store.ts` as the return type of `usePageStore(EPageStoreType.PROJECT)`.
+ *   - ProjectPageStore — concrete implementation instantiated on `RootStore` as `projectPages` (see `apps/web/core/store/root.store.ts`).
+ *
+ * Consumers:
+ *   - apps/web/core/components/pages/list/** — list view, list block, applied filters, filter dropdowns
+ *   - apps/web/core/components/pages/header/** — actions, copy-link, favorite, archive, offline badges
+ *   - apps/web/core/components/pages/editor/** — page detail / editor screens read the current page via `getPageById`
+ *   - apps/web/ce/components/command-palette/modals/project-level.tsx (and any CreatePageModal hosted at `storeType={EPageStoreType.PROJECT}`)
+ *   - apps/web/ce/hooks/store/use-page-store.ts — the canonical hook that resolves this store from `StoreContext`
+ */
+
 import { unset, set } from "lodash-es";
 import { makeObservable, observable, runInAction, action, reaction, computed } from "mobx";
 import { computedFn } from "mobx-utils";
