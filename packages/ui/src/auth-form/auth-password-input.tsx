@@ -49,15 +49,12 @@ export type TAuthPasswordInputProps = React.InputHTMLAttributes<HTMLInputElement
  *
  * Props: see `TAuthPasswordInputProps`.
  *
- * Accessibility:
- *   - Label association is inherited from the inner `AuthInput` via `htmlFor`/`id` wiring.
- *   - INTENT UNCLEAR: `autoComplete` is forced to `"off"` instead of the conventional
- *     `"current-password"` (sign-in) or `"new-password"` (sign-up), which suppresses password
- *     manager autofill and save prompts.
- *   - INTENT UNCLEAR: the visibility-toggle button (rendered by `AuthInput` when
- *     `showPasswordToggle` is true) has no `aria-label` or `aria-pressed`, so its toggle state
- *     is not announced by screen readers.
+ * Accessibility: label association is inherited from the inner `AuthInput` via `htmlFor`/`id`
+ * wiring. See adjacent INTENT UNCLEAR comments on the export for known accessibility
+ * ambiguities.
  */
+// INTENT UNCLEAR: `autoComplete` is forced to `"off"` instead of the conventional `"current-password"` (sign-in) or `"new-password"` (sign-up), which suppresses password-manager autofill and save prompts.
+// INTENT UNCLEAR: the visibility-toggle button (rendered by `AuthInput` when `showPasswordToggle` is true) has no `aria-label` or `aria-pressed`, so its toggle state is not announced by screen readers.
 export function AuthPasswordInput({
   label = "Password",
   error,

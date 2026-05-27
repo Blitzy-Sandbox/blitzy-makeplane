@@ -37,9 +37,10 @@ import type { IMultiSelectDropdownButton, ISingleSelectDropdownButton } from "..
  *
  * Accessibility: `Combobox.Button` from Headless UI applies `aria-haspopup="listbox"` and
  * `aria-expanded` (mirroring the combobox's open state). Native `<button type="button">`
- * provides keyboard focus and Space/Enter activation. INTENT UNCLEAR: `aria-disabled` is not
- * applied when `disabled=true`; the disabled state is conveyed via cursor and color only.
+ * provides keyboard focus and Space/Enter activation. See adjacent INTENT UNCLEAR comment on
+ * the export for the disabled-state accessibility ambiguity.
  */
+// INTENT UNCLEAR: `aria-disabled` is not applied when `disabled=true`; the disabled state is conveyed via cursor and color only.
 export function DropdownButton(props: IMultiSelectDropdownButton | ISingleSelectDropdownButton) {
   const {
     isOpen,

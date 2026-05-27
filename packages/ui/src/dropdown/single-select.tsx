@@ -58,10 +58,10 @@ import type { ISingleSelectDropdown } from "./dropdown";
  * is wired in capture phase (third arg `true`) so panels close before parent click handlers run.
  *
  * Sort logic (when `sortByKey` is set and `disableSorting` is false): primary by `firstItem`
- * pin predicate, secondary by membership in `value`, tertiary by lowercased `sortByKey`.
- * INTENT UNCLEAR: secondary sort uses `(value ?? []).includes(...)` against a single-string
- * `value` (inherited from the multi-select sort pattern); this is preserved as-is per system
- * boundaries even though `.includes` is being called on a string rather than an array.
+ * pin predicate, secondary by membership in `value`, tertiary by a CONSTANT iteratee
+ * `() => sortByKey && sortByKey.toLowerCase()` whose value does not depend on the option being
+ * sorted — so the tertiary criterion is a no-op tiebreaker and `lodash.sortBy` falls back to
+ * the input order when the first two criteria tie.
  *
  * Accessibility: `combobox` role, `aria-expanded`, and `aria-controls` come from Headless UI.
  * Keyboard: arrow keys traverse options, Enter selects, Escape closes, Tab exits (via
@@ -152,6 +152,8 @@ export function Dropdown(props: ISingleSelectDropdown) {
 
     if (disableSorting || !sortByKey) return filteredOptions;
 
+    // INTENT UNCLEAR: secondary sort calls `.includes(...)` on `value ?? []` (inherited from the multi-select pattern), but in single-select `value` is a string — so `String.prototype.includes` performs a substring match instead of an array-membership check.
+    // INTENT UNCLEAR: tertiary `lodash.sortBy` iteratee `() => sortByKey && sortByKey.toLowerCase()` returns a constant per sort call (independent of the option), so it does not sort by `option.data[sortByKey]` despite the prop name suggesting so; preserved as-is per AAP system boundaries.
     return sortBy(filteredOptions, [
       (option) => firstItem && firstItem(option.data[option.value]),
       (option) => !(value ?? []).includes(option.data[option.value]),

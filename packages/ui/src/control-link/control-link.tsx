@@ -11,6 +11,27 @@
 
 import * as React from "react";
 
+/**
+ * Public prop contract for the {@link ControlLink} primitive.
+ *
+ * Extends `React.AnchorHTMLAttributes<HTMLAnchorElement>`, so any native anchor attribute
+ * (e.g., `aria-label`, `title`, `rel`, `download`, `referrerPolicy`, `id`) flows through to
+ * the rendered `<a>` via spread. `ControlLink` intercepts plain left-clicks for SPA navigation
+ * handoff while letting Cmd/Ctrl+left-click fall through so "open in new tab" still works.
+ *
+ * @property href - Destination URL bound to the underlying `<a href>` when not `disabled`.
+ *   Required.
+ * @property onClick - Handler invoked AFTER `event.preventDefault()` for plain left-clicks;
+ *   typical consumer dispatches SPA navigation here (e.g., a React Router `navigate(...)` call).
+ *   Required.
+ * @property children - Rendered link content. Required.
+ * @property target - Native anchor `target` attribute; defaults to `"_blank"` so that the
+ *   Cmd/Ctrl+left-click pass-through opens a new tab natively.
+ * @property disabled - When true, renders a non-navigable surrogate (an `<a>` without `href`
+ *   when a `ref` or `className` is present, otherwise a bare fragment); defaults to `false`.
+ * @property className - Forwarded to the rendered element.
+ * @property draggable - Forwarded to the rendered anchor; defaults to `false`.
+ */
 export type TControlLink = React.AnchorHTMLAttributes<HTMLAnchorElement> & {
   href: string;
   onClick: (event: React.MouseEvent<HTMLAnchorElement>) => void;
@@ -53,7 +74,6 @@ export type TControlLink = React.AnchorHTMLAttributes<HTMLAnchorElement> & {
  * are preserved in the enabled branch. The disabled branches intentionally drop focusability
  * by omitting `href` (per the HTML spec an `<a>` without `href` is not tab-focusable) or by
  * rendering only children inside a fragment.
- * // INTENT UNCLEAR: disabled branch removes focusability rather than applying aria-disabled
  *
  * Ref: `React.ForwardedRef<HTMLAnchorElement>` — exposes the underlying anchor element to
  * parent components for tooltip anchoring, focus management, and external positioning. When
@@ -76,6 +96,7 @@ export const ControlLink = React.forwardRef(function ControlLink(
     }
   };
 
+  // INTENT UNCLEAR: disabled branch drops focusability by omitting `href` instead of applying `aria-disabled="true"` on a focusable anchor.
   // if disabled but still has a ref or a className then it has to be rendered without a href
   if (disabled && (ref || className))
     return (
@@ -87,6 +108,7 @@ export const ControlLink = React.forwardRef(function ControlLink(
   // else if just disabled return without the parent wrapper
   if (disabled) return <>{children}</>;
 
+  // INTENT UNCLEAR: `target` defaults to `"_blank"` but `rel="noopener noreferrer"` is neither hard-coded nor enforced, leaving new-tab navigations open to reverse-tabnabbing unless callers pass `rel` themselves via `...rest`.
   return (
     <a
       href={href}

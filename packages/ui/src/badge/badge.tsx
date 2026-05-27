@@ -69,14 +69,14 @@ export interface BadgeProps extends React.ButtonHTMLAttributes<HTMLButtonElement
  * keyboard-activatable (Space/Enter), and announced as a button by
  * assistive technologies. The component does NOT set `aria-label` or any
  * other role override — callers wanting non-interactive badge semantics
- * should wrap the text content instead of rendering this component.
- * // INTENT UNCLEAR: button semantics on a visual "badge" — may be intentional
- * // INTENT UNCLEAR: for interactive count/status pills, or may predate a
- * // INTENT UNCLEAR: separate non-interactive variant.
+ * should wrap the text content instead of rendering this component. See
+ * adjacent INTENT UNCLEAR comment on the export for the button-semantics
+ * ambiguity on a visual "badge".
  *
  * `displayName` is set to `"plane-ui-badge"` so React DevTools surfaces a
  * stable, library-prefixed name regardless of bundler minification.
  */
+// INTENT UNCLEAR: button semantics on a visual "badge" — may be intentional for interactive count/status pills, or may predate a separate non-interactive variant.
 const Badge = React.forwardRef(function Badge(props: BadgeProps, ref: React.ForwardedRef<HTMLButtonElement>) {
   const {
     variant = "primary",

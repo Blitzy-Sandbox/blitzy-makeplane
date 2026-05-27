@@ -58,10 +58,10 @@ interface IInputSearch {
  *   - `inputClassName` / `inputContainerClassName`: optional Tailwind overrides.
  *
  * Accessibility: rendered as Headless UI `Combobox.Input` on a native `<input>` element;
- * keyboard navigation and combobox `aria-*` are managed by Headless UI. INTENT UNCLEAR:
- * the input lacks `type="search"`, `role="searchbox"`, and an `aria-label` — the only label
- * affordance is the visible placeholder text.
+ * keyboard navigation and combobox `aria-*` are managed by Headless UI. See adjacent INTENT
+ * UNCLEAR comment on the export for known accessibility ambiguities.
  */
+// INTENT UNCLEAR: the input lacks `type="search"`, `role="searchbox"`, and an `aria-label` — the only label affordance is the visible placeholder text.
 export function InputSearch(props: IInputSearch) {
   const { isOpen, query, updateQuery, inputIcon, inputContainerClassName, inputClassName, inputPlaceholder, isMobile } =
     props;

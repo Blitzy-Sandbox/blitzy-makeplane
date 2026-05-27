@@ -59,8 +59,11 @@ import type { IMultiSelectDropdown } from "./dropdown";
  *
  * Sort logic (when `disableSorting` is false): primary by `firstItem` pin predicate, secondary
  * by membership in `value` so already-selected options stay pinned to the top of the panel,
- * tertiary by lowercased `sortByKey`. Differs from `single-select.tsx` which gates sorting on
- * `sortByKey` being set.
+ * tertiary by a CONSTANT iteratee `() => sortByKey && sortByKey.toLowerCase()` whose value does
+ * not depend on the option being sorted — so when the first two criteria tie, the tertiary
+ * criterion is a no-op tiebreaker and `lodash.sortBy` falls back to the input order. Differs
+ * from `single-select.tsx` which gates the whole sort on `sortByKey` being set; this variant
+ * sorts even when `sortByKey` is empty (the tertiary iteratee then returns `undefined`).
  *
  * Accessibility: the `multiple` prop on `<Combobox>` produces `aria-multiselectable="true"` on
  * the listbox. Trigger has `combobox` role, `aria-expanded`, and `aria-controls` (provided by
@@ -152,6 +155,7 @@ export function MultiSelectDropdown(props: IMultiSelectDropdown) {
 
     if (disableSorting) return filteredOptions;
 
+    // INTENT UNCLEAR: the tertiary `lodash.sortBy` iteratee `() => sortByKey && sortByKey.toLowerCase()` returns a constant per sort call (independent of the option being compared), so it does not sort options by an `option.data[sortByKey]` field as the prop name suggests; it is preserved as-is per AAP system boundaries.
     return sortBy(filteredOptions, [
       (option) => firstItem && firstItem(option.data[option.value]),
       (option) => !(value ?? []).includes(option.data[option.value]),

@@ -38,10 +38,10 @@ export interface AuthForgotPasswordProps {
  *
  * Props: see `AuthForgotPasswordProps`.
  *
- * Accessibility: native `<button>` focus + activation semantics. INTENT UNCLEAR: no
- * `aria-label` is applied — the accessible name comes entirely from the visible `text` prop
- * (defaults to `"Forgot your password?"`).
+ * Accessibility: native `<button>` focus + activation semantics; see adjacent INTENT UNCLEAR
+ * comment on the export for known accessibility ambiguities.
  */
+// INTENT UNCLEAR: no `aria-label` is applied — the accessible name comes entirely from the visible `text` prop (defaults to `"Forgot your password?"`).
 export function AuthForgotPassword({
   onForgotPassword,
   className = "",

@@ -50,17 +50,13 @@ const baseContainerClassName = "flex flex-col gap-1.5";
  *
  * Props: see `TAuthInputProps`. Any native `<input>` attribute is forwarded via `...props`.
  *
- * Accessibility:
- *   - Label association relies on the consumer passing `id`; the `<label htmlFor={id}>` link
- *     only resolves when an `id` prop is supplied.
- *   - INTENT UNCLEAR: no fallback ID generation (e.g., `useId`) is implemented, so a `label`
- *     prop without a matching `id` produces an orphan label.
- *   - INTENT UNCLEAR: error rendering does not set `aria-invalid` on the input and does not
- *     link the error `<p>` via `aria-describedby`, so assistive technology does not announce
- *     validation state alongside the field value.
- *   - INTENT UNCLEAR: the visibility-toggle button has no `aria-label` / `aria-pressed`, so
- *     its toggle state is not announced by screen readers.
+ * Accessibility: label association relies on the consumer passing `id`; the
+ * `<label htmlFor={id}>` link only resolves when an `id` prop is supplied. See adjacent
+ * INTENT UNCLEAR comments on the export for known accessibility ambiguities.
  */
+// INTENT UNCLEAR: no fallback ID generation (e.g., `useId`) is implemented, so a `label` prop without a matching `id` produces an orphan label.
+// INTENT UNCLEAR: error rendering does not set `aria-invalid` on the input and does not link the error `<p>` via `aria-describedby`, so assistive technology does not announce validation state alongside the field value.
+// INTENT UNCLEAR: the visibility-toggle button has no `aria-label` / `aria-pressed`, so its toggle state is not announced by screen readers.
 export function AuthInput({
   label,
   error,

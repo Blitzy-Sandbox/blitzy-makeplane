@@ -45,9 +45,8 @@ type TBreadcrumbNavigationDropdownProps = {
  * @param props.navigationDisabled - When true, renders only the static trigger button without an attached menu (default: false).
  * @param props.handleOnClick - Optional callback fired when the trigger of a non-terminal segment is clicked.
  * @param props.isLast - Set by the parent `Breadcrumbs` for the terminal segment; suppresses hover/click affordances and rotates the chevron (default: false).
- *
- * // INTENT UNCLEAR: explicit ARIA semantics (combobox/menu role, aria-expanded, arrow-key navigation, Enter/Escape handling) are delegated to the underlying `CustomMenu` primitive; accessibility behavior must be verified at that layer.
  */
+// INTENT UNCLEAR: explicit ARIA semantics (combobox/menu role, aria-expanded, arrow-key navigation, Enter/Escape handling) are delegated to the underlying `CustomMenu` primitive; accessibility behavior must be verified at that layer.
 export function BreadcrumbNavigationDropdown(props: TBreadcrumbNavigationDropdownProps) {
   const { selectedItemKey, navigationItems, navigationDisabled = false, handleOnClick, isLast = false } = props;
   const [isOpen, setIsOpen] = React.useState(false);

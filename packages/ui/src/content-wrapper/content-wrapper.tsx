@@ -19,6 +19,25 @@ import type { TRowVariant } from "../row/helper";
 import { ERowVariant } from "../row/helper";
 import { cn } from "../utils";
 
+/**
+ * Public prop contract for the {@link ContentWrapper} primitive.
+ *
+ * Extends `React.HTMLAttributes<HTMLDivElement>`, so any native `<div>` attribute (e.g.,
+ * `id`, `data-*`, `aria-*`, `onScroll`) is forwarded through to the underlying element. The
+ * wrapper is a vertically scrollable layout container that pairs with the internal `Row`
+ * primitive — `variant` selects the horizontal padding contract from `Row` plus the optional
+ * `py-page-y` vertical padding applied here.
+ *
+ * Landmark/role semantics are NOT applied at the wrapper level; the consumer route shell owns
+ * the `role="main"` landmark.
+ *
+ * @property variant - Row spacing token from `TRowVariant` (`ERowVariant.REGULAR` |
+ *   `ERowVariant.HUGGING`); defaults to `ERowVariant.REGULAR`. `REGULAR` applies `px-page-x`
+ *   (via `Row`) and `py-page-y`; `HUGGING` applies `px-0` and no vertical page padding.
+ * @property className - Extra Tailwind classes merged via `cn(...)` after the base layout
+ *   classes so callers can override or extend styling; defaults to `""`.
+ * @property children - Content rendered inside the scroll region. Required.
+ */
 export interface ContentWrapperProps extends React.HTMLAttributes<HTMLDivElement> {
   variant?: TRowVariant;
   className?: string;

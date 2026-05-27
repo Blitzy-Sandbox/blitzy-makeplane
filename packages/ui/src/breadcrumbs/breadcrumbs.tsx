@@ -59,9 +59,8 @@ export function BreadcrumbItemLoader() {
  * @param props.children - Breadcrumb items composed via `Breadcrumbs.Item`, `Breadcrumbs.ItemWrapper`, or one of the dropdown variants.
  * @param props.onBack - Optional callback invoked when the user taps the `...` collapsed affordance on small screens.
  * @param props.isLoading - When true, every visible slot in the wide layout is replaced with `BreadcrumbItemLoader` (default: false).
- *
- * // INTENT UNCLEAR: a `nav` landmark with `aria-label="Breadcrumb"` and `aria-current="page"` on the terminal item are not implemented here; consumers relying on screen-reader semantics must layer these externally.
  */
+// INTENT UNCLEAR: a `nav` landmark with `aria-label="Breadcrumb"` and `aria-current="page"` on the terminal item are not implemented here; consumers relying on screen-reader semantics must layer these externally.
 function Breadcrumbs({ className, children, onBack, isLoading = false }: BreadcrumbsProps) {
   const [isSmallScreen, setIsSmallScreen] = React.useState(false);
 

@@ -16,6 +16,29 @@ import { cn } from "../utils";
 import type { TButtonVariant, TButtonSizes } from "./helper";
 import { getIconStyling, getButtonStyling } from "./helper";
 
+/**
+ * Public prop contract for the {@link Button} primitive.
+ *
+ * Extends `React.ButtonHTMLAttributes<HTMLButtonElement>`, so any native `<button>` attribute
+ * (e.g., `onClick`, `aria-label`, `title`, `id`, `name`, `form`, `type`) is forwarded through to
+ * the rendered element. Variant and size are token-driven via `TButtonVariant` / `TButtonSizes`
+ * declared in `./helper`.
+ *
+ * @property variant - Visual token from `TButtonVariant` (e.g., `"primary"`, `"accent-primary"`,
+ *   `"outline-primary"`, `"link-primary"`, `"danger"`); defaults to `"primary"`.
+ * @property size - Sizing token (`"sm" | "md" | "lg" | "xl"`); defaults to `"md"`.
+ * @property className - Extra Tailwind utilities appended to the variant/size-derived classes via
+ *   `cn(...)`; defaults to `""`.
+ * @property loading - When true, applies the disabled visual state AND sets the underlying
+ *   `<button disabled>` attribute (no spinner is rendered by default); defaults to `false`.
+ * @property disabled - Disables the button and applies the disabled token styling; defaults to
+ *   `false`. Either `loading` or `disabled` makes the button non-interactive.
+ * @property prependIcon - Optional JSX icon rendered before `children`; must accept a
+ *   `strokeWidth` prop because it is cloned with `strokeWidth: 2` at render time.
+ * @property appendIcon - Optional JSX icon rendered after `children`; same `strokeWidth`
+ *   contract as `prependIcon`.
+ * @property children - Required label content rendered between the optional icons.
+ */
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: TButtonVariant;
   size?: TButtonSizes;
@@ -37,9 +60,8 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
  *
  * Loading state: `loading=true` triggers the disabled-variant styling and sets the underlying
  * HTML `disabled` attribute, so the button becomes non-interactive while an operation is in flight.
- * INTENT UNCLEAR: `aria-busy` is not applied during `loading=true`, and no spinner is rendered by
- * default — assistive technology only sees a disabled button. Consumers needing a visible spinner
- * supply it via `prependIcon`.
+ * Consumers needing a visible spinner supply it via `prependIcon`. See the adjacent INTENT
+ * UNCLEAR comment on the export for the loading-state accessibility ambiguity.
  *
  * Props (see `ButtonProps`):
  *   - `variant` (default `"primary"`): one of the 11 tokens in `TButtonVariant`.
@@ -56,6 +78,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
  * Accessibility: native `<button>` semantics (focusable, Space/Enter activation). The HTML
  * `disabled` attribute is the only mechanism conveying disabled OR loading state to assistive tech.
  */
+// INTENT UNCLEAR: `aria-busy` is not applied during `loading=true`, and no spinner is rendered by default — assistive technology only sees a disabled button.
 const Button = React.forwardRef(function Button(props: ButtonProps, ref: React.ForwardedRef<HTMLButtonElement>) {
   const {
     variant = "primary",

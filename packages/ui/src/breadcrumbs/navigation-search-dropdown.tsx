@@ -53,10 +53,9 @@ type TBreadcrumbNavigationSearchDropdownProps = {
  * @param props.handleOnClick - Optional callback fired when the trigger of a non-terminal segment is clicked.
  * @param props.disableRootHover - Declared in the prop type but not consumed by the implementation; reserved for type compatibility with call sites that pass it.
  * @param props.shouldTruncate - When true, collapses the icon+label to a `...` affordance below the `@4xl` container-query breakpoint (default: false).
- *
- * // INTENT UNCLEAR: explicit ARIA semantics (combobox + textbox roles, debounced input behavior) are delegated to the underlying `CustomSearchSelect`; accessibility behavior must be verified at that layer.
- * // INTENT UNCLEAR: `disableRootHover` is part of the prop type but never read in the component body — it appears reserved but inert; do not infer behavior beyond what is observed.
  */
+// INTENT UNCLEAR: explicit ARIA semantics (combobox + textbox roles, debounced input behavior) are delegated to the underlying `CustomSearchSelect`; accessibility behavior must be verified at that layer.
+// INTENT UNCLEAR: `disableRootHover` is part of the prop type but never read in the component body — it appears reserved but inert; do not infer behavior beyond what is observed.
 export function BreadcrumbNavigationSearchDropdown(props: TBreadcrumbNavigationSearchDropdownProps) {
   const {
     icon,

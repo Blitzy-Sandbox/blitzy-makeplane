@@ -87,11 +87,10 @@ export interface AuthFormProps {
  *
  * Props: see `AuthFormProps`.
  *
- * Accessibility: native HTML form semantics provide submit-on-Enter and focus management.
- * INTENT UNCLEAR: per-field error strings are forwarded to children but no `aria-describedby`
- * linkage from input to error message is wired at this level — error-to-input announcement is
- * delegated to the child components and is not currently implemented there either.
+ * Accessibility: native HTML form semantics provide submit-on-Enter and focus management;
+ * see adjacent INTENT UNCLEAR comment on the export for known accessibility ambiguities.
  */
+// INTENT UNCLEAR: per-field error strings are forwarded to children but no `aria-describedby` linkage from input to error message is wired at this level — error-to-input announcement is delegated to the child components and is not currently implemented there either.
 export function AuthForm({
   mode,
   initialData = {},

@@ -43,12 +43,11 @@ export type TAuthConfirmPasswordInputProps = React.InputHTMLAttributes<HTMLInput
  *
  * Props: see `TAuthConfirmPasswordInputProps`.
  *
- * Accessibility:
- *   - INTENT UNCLEAR: the rendered error / success messages have no `aria-describedby` link to
- *     the underlying input, so screen readers do not announce match state with the field.
- *   - INTENT UNCLEAR: `autoComplete` is forced to `"off"` on the inner `AuthInput` instead of
- *     the conventional `"new-password"`, which suppresses password-manager save prompts.
+ * Accessibility: native HTML input semantics from the inner `AuthInput`; see adjacent INTENT
+ * UNCLEAR comments on the export for known accessibility ambiguities.
  */
+// INTENT UNCLEAR: rendered "Passwords don't match" error and "Passwords match" success messages have no `aria-describedby` link to the underlying input, so screen readers do not announce match state with the field.
+// INTENT UNCLEAR: `autoComplete` is forced to `"off"` on the inner `AuthInput` instead of the conventional `"new-password"`, which suppresses password-manager save prompts.
 export function AuthConfirmPasswordInput({
   password,
   label = "Confirm Password",
