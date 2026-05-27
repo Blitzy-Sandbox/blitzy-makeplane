@@ -4,6 +4,48 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Workflow state store: per-project workflow state cache with grouping
+ * (backlog/unstarted/started/completed/cancelled), default/intake state
+ * helpers, and optimistic CRUD/move/default operations.
+ *
+ * State slice:
+ *   - stateMap / intakeStateMap — observable caches keyed by state ID
+ *   - fetchedMap / fetchedIntakeMap — guards keyed by workspaceSlug/projectId
+ *     to prevent redundant network fetches on subsequent reads
+ *
+ * Actions (each calls ProjectStateService and mutates state under runInAction):
+ *   - fetchWorkspaceStates / fetchProjectStates / fetchProjectIntakeState —
+ *     list each with mutation target
+ *   - createState / deleteState — server-first then store mutation
+ *   - updateState / markStateAsDefault / moveStatePosition — optimistic
+ *     mutation + rollback on service error (pre-mutates stateMap before the
+ *     network round-trip, then restores prior values inside the catch block
+ *     when the service call rejects)
+ *
+ * Computed:
+ *   - workspaceStates / projectStates — sortStates output filtered by scope;
+ *     projectStates recomputes when stateMap or router-bound projectId changes
+ *   - groupedProjectStates — Record<TStateGroups, IState[]> indexed by group
+ *     key with empty arrays for any missing STATE_GROUPS bucket; recomputes
+ *     when stateMap or router-bound projectId changes
+ *   - computedFn helpers (getStateById, getProjectStates, getProjectStateIds,
+ *     getProjectDefaultStateId, getProjectIntakeState, getStatePercentageInGroup)
+ *     recompute when their parameter inputs or the underlying maps change
+ *
+ * Consumers:
+ *   - apps/web/core/hooks/store/use-project-state.ts (the access hook all
+ *     components route through)
+ *   - apps/web/core/components/project-states/** (state CRUD UI: group-list,
+ *     state-item, state-delete-modal, create-update, options, root)
+ *   - apps/web/core/components/issues/** (state dropdowns in issue-modal,
+ *     peek-overview, issue-layouts list/kanban/spreadsheet, quick-action,
+ *     sub-issues, workspace-draft)
+ *   - apps/web/core/components/automation/auto-close-automation.tsx
+ *   - apps/web/core/store/root.store.ts (composition root that instantiates
+ *     StateStore and exposes it as rootStore.state)
+ */
+
 import { set, groupBy } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";
