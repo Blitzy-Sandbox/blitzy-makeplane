@@ -4,6 +4,129 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Project issues filter store — per-project work-items filter state for the web client,
+ * with hybrid persistence: rich/display state is mirrored to the backend (so filters
+ * follow the user across devices) while kanban grouping toggles stay device-local
+ * via `localStorage` (because grouping is a UI preference, not a portable filter).
+ *
+ * Inheritance:
+ *   - extends `IssueFilterHelperStore` (from ../helpers/issue-filter-helper.store)
+ *   - implements `IProjectIssuesFilter` (extends `IBaseIssueFilterStore`)
+ *   Inherits the canonical-shape normalizers (`computedIssueFilters`,
+ *   `computedDisplayFilters`, `computedDisplayProperties`), the layout-aware
+ *   query-param derivation (`computedFilteredParams`), the change-detection
+ *   helpers (`getShouldClearIssues` / `getShouldReFetchIssues`), the pagination
+ *   composer (`getPaginationParams`), and the `handleIssuesLocalFilters`
+ *   wrapper around `localStorage`.
+ *
+ * State slice (registered in `makeObservable`):
+ *   - filters: { [projectId: string]: IIssueFilters }
+ *       Per-project filter bag map; each entry holds
+ *       `richFilters: TWorkItemFilterExpression`,
+ *       `displayFilters: IIssueDisplayFilterOptions`,
+ *       `displayProperties: IIssueDisplayProperties`,
+ *       `kanbanFilters: TIssueKanbanFilters`. Keyed by projectId so the map
+ *       survives project route switches without re-fetch.
+ *   - rootIssueStore: IIssueRootStore
+ *       Parent issue root store reference; consulted for the current route
+ *       `projectId` and the `currentUserId` used to scope local-storage keys.
+ *   - projectService: ProjectService
+ *       REST client for `getProjectUserProperties` (read) and
+ *       `updateProjectUserProperties` (write).
+ *
+ * Computed (registered in `makeObservable`):
+ *   - issueFilters: IIssueFilters | undefined
+ *       Current-project normalized filters for consumer reads; resolves
+ *       `rootIssueStore.projectId` and delegates to `getIssueFilters`.
+ *       Recomputes when `rootIssueStore.projectId` or the matching entry in
+ *       `filters` changes.
+ *   - appliedFilters: Partial<Record<TIssueParams, string | boolean>> | undefined
+ *       Query-param-ready derivation of `issueFilters` for the current layout;
+ *       recomputes when the current project's filters or layout selection
+ *       change.
+ *
+ * Helpers (memoized via `computedFn` — NOT registered in `makeObservable`):
+ *   - getIssueFilters(projectId) — per-project read of normalized filters;
+ *       returns `undefined` if the entry is missing or empty.
+ *   - getAppliedFilters(projectId) — combines `getIssueFilters(projectId)` with
+ *       the inherited `handleIssueQueryParamsByLayout` + `computedFilteredParams`
+ *       to produce REST-bound query params; returns `undefined` when filters
+ *       are absent or the layout isn't recognized.
+ *   - getFilterParams(options, projectId, cursor, groupId, subGroupId)
+ *       `computedFn` factory composing `getAppliedFilters(projectId)` with the
+ *       inherited `getPaginationParams`; memoized per
+ *       (options, projectId, cursor, groupId, subGroupId) tuple. Consumed by
+ *       the companion `ProjectIssues.fetchIssues` / `fetchNextIssues` to build
+ *       paginated request params.
+ *
+ * Actions (registered in `makeObservable`):
+ *   - fetchFilters(workspaceSlug, projectId) — hydrates the project entry.
+ *       Calls `projectService.getProjectUserProperties` for the backend payload,
+ *       normalizes display filters/properties via inherited helpers, then
+ *       OVERLAYS `kanbanFilters.group_by` / `sub_group_by` from
+ *       `handleIssuesLocalFilters.get(EIssuesStoreType.PROJECT, …)` so
+ *       per-device kanban toggles survive page refreshes. Commits atomically
+ *       via `runInAction` + lodash `set`.
+ *   - updateFilterExpression(workspaceSlug, projectId, filters) — optimistically
+ *       writes `richFilters` locally, calls
+ *       `rootIssueStore.projectIssues.fetchIssuesWithExistingPagination(... , "mutation")`
+ *       to refresh the list, then persists with
+ *       `projectService.updateProjectUserProperties({ rich_filters })`.
+ *       NOTE: this method is the FALLBACK path — typical rich-filter updates
+ *       go through the work-item filter store; see the inline NOTE block above
+ *       the method body for the routing precedence.
+ *   - updateFilters(workspaceSlug, projectId, type, filters) — dispatches on
+ *       `EIssueFilterType`:
+ *       - DISPLAY_FILTERS: enforces kanban invariants (kanban requires a
+ *         `group_by`, and `group_by` may not equal `sub_group_by`) — when the
+ *         layout switches to kanban with no `group_by`, defaults to `"state"`;
+ *         when `group_by` is null OR matches `sub_group_by` under kanban,
+ *         nulls `sub_group_by`. Then commits via lodash `set` in `runInAction`,
+ *         conditionally calls `projectIssues.clear(true)` (per inherited
+ *         `getShouldClearIssues`) and `projectIssues.fetchIssuesWithExistingPagination`
+ *         (per inherited `getShouldReFetchIssues`), and PERSISTS to backend via
+ *         `updateProjectUserProperties({ display_filters })`.
+ *       - DISPLAY_PROPERTIES: shallow-merges into
+ *         `filters[projectId].displayProperties` and PERSISTS to backend via
+ *         `updateProjectUserProperties({ display_properties })`.
+ *       - KANBAN_FILTERS: shallow-merges into `filters[projectId].kanbanFilters`
+ *         and PERSISTS ONLY to `localStorage` via
+ *         `handleIssuesLocalFilters.set(EIssuesStoreType.PROJECT, …)` —
+ *         intentionally NO backend write, because kanban toggles are per-device.
+ *       On any error, re-hydrates via `fetchFilters(workspaceSlug, projectId)`
+ *       to recover from optimistic-update drift, then re-throws.
+ *
+ * Persistence map (key architectural fact):
+ *   - Backend (ProjectService.updateProjectUserProperties): `rich_filters`,
+ *     `display_filters`, `display_properties`.
+ *   - Browser localStorage (handleIssuesLocalFilters, scope
+ *     `EIssuesStoreType.PROJECT`): `kanban_filters` ONLY — per-user-per-device
+ *     UI toggles, not portable user preferences. The PROJECT scope keeps these
+ *     keys isolated from cycle/module/workspace/archived/profile filter stores
+ *     on the same browser.
+ *
+ * Consumers:
+ *   - Companion store: apps/web/core/store/issue/project/issue.store.ts
+ *     (`ProjectIssues`) — calls `getFilterParams(...)` to build paginated
+ *     request params for `fetchIssues` / `fetchNextIssues`.
+ *   - Layout components (indirectly via layout roots, filter and properties
+ *     panels): apps/web/core/components/issues/issue-layouts/{list,kanban,
+ *     spreadsheet,calendar,gantt}/**.
+ *   - Filter/properties controls:
+ *     apps/web/core/components/issues/issue-layouts/filters/**,
+ *     apps/web/core/components/issues/issue-layouts/properties/**,
+ *     apps/web/core/components/issues/filters.tsx — read `issueFilters` /
+ *     `appliedFilters` and dispatch `updateFilterExpression` / `updateFilters`.
+ *   - Empty state:
+ *     apps/web/core/components/issues/issue-layouts/empty-states/project-issues.tsx.
+ *   - Composition: instantiated in apps/web/core/store/issue/root.store.ts as
+ *     `projectIssuesFilter = new ProjectIssuesFilter(this)`, paired with the
+ *     companion `ProjectIssues` store.
+ *   - Hook access: apps/web/core/hooks/store/use-issues.ts via
+ *     `useIssues(EIssuesStoreType.PROJECT)`.
+ */
+
 import { isEmpty, set } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 // base class
