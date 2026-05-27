@@ -4,6 +4,26 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Pure utility module for issue-store helpers — no MobX class is exported here.
+ *
+ * Centralizes reusable functions consumed by `BaseIssuesStore` (and every branch
+ * issue store that extends it) to:
+ *   - compose canonical group keys via `getGroupKey`
+ *   - reconcile grouping / subgrouping deltas via `getGroupIssueKeyActions` and `getSubGroupIssueKeyActions`
+ *   - diff two string arrays into ADD / DELETE buckets via `getDifference`
+ *   - extract issue ids, snapshot previous issue state, filter, order, and group work items for client-side derivations
+ *   - validate date filter strings via `checkIssueDateFilter`
+ *   - update nested sub-work-item filter caches via `lodash-es.set` (`updateSubWorkItemFilters`)
+ *
+ * Side effect: `checkIssueDateFilter` emits `console.warn` when a date-filter string fails to parse;
+ * the unparsable filter is then ignored rather than failing the whole evaluation. This is intentional
+ * defensive behavior — do not silence the warning at the call site.
+ *
+ * Consumers: `apps/web/core/store/issue/helpers/base-issues.store.ts` (the `BaseIssuesStore` abstract
+ * class) and `apps/web/core/store/issue/issue-details/sub_issues_filter.store.ts`.
+ */
+
 import { uniq, orderBy, isEmpty, indexOf, groupBy, cloneDeep, set } from "lodash-es";
 import { ALL_ISSUES, EIssueFilterType, FILTER_TO_ISSUE_MAP, ISSUE_PRIORITIES } from "@plane/constants";
 import type {
@@ -187,6 +207,10 @@ export const getSortOrderToFilterEmptyValues = (key: string, object: any) => {
 };
 
 // get IssueIds from Issue data List
+/**
+ * Returns the ordered list of issue ids from an array of `TIssue` records.
+ * Convenience helper consumed by every sort, group, and filter utility in this module and by `BaseIssuesStore.issuesSortWithOrderBy`.
+ */
 export const getIssueIds = (issues: TIssue[]) => issues.map((issue) => issue?.id);
 
 /**
@@ -305,6 +329,14 @@ export const getOrderedWorkItems = (workItems: TIssue[], orderByKey: TIssueOrder
   }
 };
 
+/**
+ * Groups and orders work items into a `{ groupKey -> orderedIssueIds[] }` record.
+ *
+ * When no `groupByKey` is provided, all work items are returned under the `ALL_ISSUES` key
+ * already ordered by `orderByKey`. The `"state_detail.group"` group-by value is special-cased
+ * onto the `state__group` projection. Array-valued group fields are coerced into a
+ * deterministic sorted-and-joined string so group buckets remain stable across renders.
+ */
 export const getGroupedWorkItemIds = (
   workItems: TIssue[],
   groupByKey?: TIssueGroupByOptions,
