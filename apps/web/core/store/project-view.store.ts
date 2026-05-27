@@ -4,6 +4,74 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Project-scoped view store: caches project-level saved views with filtering,
+ * search, ordering, CRUD, and favorite synchronization against the
+ * `FavoriteStore` held on the `CoreRootStore`.
+ *
+ * State slice (observables):
+ *   - loader: boolean — true while `fetchViews` is in flight; toggled
+ *     synchronously around the `ViewService.getViews` call.
+ *   - viewMap: Record<string, IProjectView> — all loaded views keyed by
+ *     view id. Project association is preserved on each view's `project`
+ *     field rather than via an outer projectId key, so a single map serves
+ *     every visited project.
+ *   - fetchedMap: Record<string, boolean> — keyed by projectId; gates
+ *     selectors to `undefined` / `null` until the first fetch resolves.
+ *   - filters: TViewFilters — `{ searchQuery, sortKey, sortBy, filters? }`
+ *     consumed by the filtered + ordered selectors.
+ *
+ * Actions:
+ *   - fetchViews(workspaceSlug, projectId) → `ViewService.getViews`;
+ *     populates `viewMap` and sets `fetchedMap[projectId] = true`.
+ *   - fetchViewDetails(workspaceSlug, projectId, viewId) →
+ *     `ViewService.getViewDetails`; refreshes a single entry in `viewMap`.
+ *   - createView(workspaceSlug, projectId, data) → `ViewService.createView`
+ *     (payload normalized via `getValidatedViewFilters`); inserts the
+ *     server-returned view into `viewMap`.
+ *   - updateView(workspaceSlug, projectId, viewId, data) — optimistic
+ *     merge into `viewMap[viewId]` followed by `ViewService.patchView`.
+ *   - deleteView(workspaceSlug, projectId, viewId) →
+ *     `ViewService.deleteView`; removes the entry from `viewMap` and, if
+ *     mirrored as a favorite, calls
+ *     `this.rootStore.favorite.removeFavoriteFromStore(viewId)`.
+ *   - updateFilters(filterKey, filterValue) — mutates a single slice of
+ *     the `filters` observable via `runInAction` + `lodash-es#set`.
+ *   - clearAllFilters() — resets `filters.filters` to `{}`; search query,
+ *     sort key, and sort direction are preserved.
+ *   - addViewToFavorites(workspaceSlug, projectId, viewId) — optimistic
+ *     `is_favorite = true` followed by
+ *     `this.rootStore.favorite.addFavorite(...)`; reverts on error.
+ *   - removeViewFromFavorites(workspaceSlug, projectId, viewId) —
+ *     optimistic `is_favorite = false` followed by
+ *     `this.rootStore.favorite.removeFavoriteEntity(...)`; reverts on
+ *     error.
+ *
+ * Computed (recomputation conditions):
+ *   - projectViewIds — ids of views whose `project` matches
+ *     `rootStore.router.projectId`; returns `null` until
+ *     `fetchedMap[projectId]` is true. Recomputes when `viewMap`,
+ *     `fetchedMap`, or `router.projectId` changes.
+ *   - getProjectViews(projectId) — `computedFn` returning views for the
+ *     given project ordered by `filters.sortKey` / `filters.sortBy`.
+ *     Recomputes when `viewMap`, `fetchedMap`, or sort filters change.
+ *   - getFilteredProjectViews(projectId) — `computedFn` applying
+ *     `filters.searchQuery` and `filters.filters` (via `shouldFilterView`)
+ *     in addition to ordering. Recomputes when `viewMap`, `fetchedMap`,
+ *     or any `filters` slice changes.
+ *   - getViewById(viewId) — `computedFn` returning a single view or
+ *     `null`. Recomputes when `viewMap[viewId]` changes.
+ *
+ * Consumers (read via the `useProjectView()` hook bound to
+ * `CoreRootStore.projectView` through the React `StoreProvider`):
+ *   - apps/web/core/components/views/** — views list, list header,
+ *     list item action row, create/update modal, delete modal.
+ *   - apps/web/core/components/issues/issue-layouts/roots/project-view-layout-root.tsx
+ *   - apps/web/core/components/power-k/ui/pages/open-entity/project-views-menu.tsx
+ *   - apps/web/core/components/work-item-filters/filters-hoc/project-level.tsx
+ *   - apps/web/app/.../[projectId]/views/** route pages (list + detail).
+ */
+
 import { set } from "lodash-es";
 import { observable, action, makeObservable, runInAction, computed } from "mobx";
 import { computedFn } from "mobx-utils";
