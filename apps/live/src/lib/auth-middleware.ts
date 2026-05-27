@@ -4,6 +4,28 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Express middleware for inter-service HTTP authentication in the apps/live
+ * real-time collaboration server.
+ *
+ * Exports `requireSecretKey` — a route-level guard that validates the
+ * `live-server-secret-key` request header against `env.LIVE_SERVER_SECRET_KEY`
+ * (declared REQUIRED in `apps/live/src/env.ts`, so the apps/live process refuses
+ * to start when the variable is missing). It is the primary authentication
+ * boundary for inter-service HTTP calls from `apps/api` into `apps/live` —
+ * admin commands, force-close coordination, and document export triggers.
+ *
+ * Applied to controller routes via the `@Middleware(requireSecretKey)` decorator
+ * from `@plane/decorators` (e.g., `apps/live/src/controllers/document.controller.ts`).
+ *
+ * Architectural distinction: this module secures HTTP routes only. WebSocket
+ * connection authentication is handled separately by `apps/live/src/lib/auth.ts`
+ * (the `onAuthenticate` hook), which validates session cookies — Plane uses
+ * session-cookie auth, NOT JWT. Both modules consume the same
+ * `LIVE_SERVER_SECRET_KEY` for inter-service trust, but at different transport
+ * layers (HTTP request header vs. WebSocket handshake).
+ */
+
 import type { Request, Response, NextFunction } from "express";
 import { logger } from "@plane/logger";
 import { env } from "@/env";
@@ -30,6 +52,25 @@ import { env } from "@/env";
  *   // This will only execute if secret key is valid
  * }
  * ```
+ *
+ * @remarks
+ * Route-level guard semantics: requires the `live-server-secret-key` request
+ * header to match `env.LIVE_SERVER_SECRET_KEY` (validated as REQUIRED at server
+ * startup via `apps/live/src/env.ts`).
+ *
+ * Failure behavior: on missing or mismatched header, responds with HTTP
+ * `401 Unauthorized` and JSON body `{ error: "Unauthorized", status: 401 }`;
+ * does NOT call `next()`, so the wrapped route handler never executes.
+ *
+ * Audit logging on failure: emits a structured `logger.warn(...)` from
+ * `@plane/logger` including the request `path`, `method`, `ip`, and
+ * `User-Agent` for security observability.
+ *
+ * Success behavior: calls `next()` to pass control to the next middleware or
+ * route handler with no state mutation on the request object.
+ *
+ * @see `apps/live/src/lib/auth.ts` — WebSocket equivalent (`onAuthenticate`
+ * hook); both modules consume `LIVE_SERVER_SECRET_KEY` for inter-service auth.
  */
 // TODO - Move to hmac
 export const requireSecretKey = (req: Request, res: Response, next: NextFunction): void => {
