@@ -4,6 +4,43 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for workspace API token CRUD operations.
+ *
+ * State slice:
+ *   - apiTokens: Record<string, IApiToken> | null — id-keyed cache of API tokens for the
+ *       current user/workspace; null until the first fetch resolves, then a populated map.
+ *
+ * Actions:
+ *   - fetchApiTokens(): Promise<IApiToken[]> — GET via APITokenService.list(); reduces the
+ *       response array into an id-keyed object and replaces this.apiTokens inside runInAction.
+ *   - fetchApiTokenDetails(tokenId): Promise<IApiToken> — GET via APITokenService.retrieve();
+ *       merges the response into this.apiTokens (entry for response.id added or overwritten).
+ *   - createApiToken(data): Promise<IApiToken> — POST via APITokenService.create(); merges the
+ *       newly created entry into this.apiTokens.
+ *       SECURITY: the raw secret token value is returned in the create response ONCE and is the
+ *       only opportunity the consumer has to capture it; subsequent list/retrieve responses only
+ *       expose metadata (no raw token), so the canonical UX surfaces the token on creation and
+ *       never again.
+ *   - deleteApiToken(tokenId): Promise<void> — DELETE via APITokenService.destroy(); removes the
+ *       tokenId entry from this.apiTokens.
+ *
+ * Computed:
+ *   - getApiTokenById(apiTokenId) — computedFn-memoized selector keyed by apiTokenId (mobx-utils);
+ *       recomputes when the apiTokens map changes; returns null when the map is null or the id
+ *       is absent.
+ *
+ * Consumers:
+ *   - apps/web/core/components/api-token/** (delete-token-modal, token-list-item, empty-state,
+ *       modal/form, modal/create-token-modal, modal/generated-token-details)
+ *   - apps/web/core/components/settings/profile/content/pages/api-tokens.tsx
+ *   - apps/web/app/routes/redirects/core/api-tokens.tsx
+ *
+ * Composition:
+ *   - Instantiated as BaseWorkspaceRootStore.apiToken (apps/web/core/store/workspace/index.ts:123)
+ *       and reached from the React context root via rootStore.workspaceRoot.apiToken.
+ */
+
 import { action, observable, makeObservable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";
 // types
