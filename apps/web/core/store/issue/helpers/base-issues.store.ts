@@ -4,6 +4,30 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Abstract MobX-backed foundation for every issue collection store in the web app.
+ *
+ * `BaseIssuesStore` provides the shared mechanics — paginated fetch, grouped / sub-grouped id maps,
+ * optimistic mutations, sort / filter / group machinery, and cycle / module membership flows — that
+ * are subclassed by `CycleIssues`, `ModuleIssues`, `ProjectIssues`, `ProjectViewIssues`,
+ * `ProfileIssues`, `ArchivedIssues`, `WorkspaceDraftIssues`, plus plane-web tier extensions
+ * (`TeamIssues`, `TeamViewIssues`, `TeamProjectWorkItems`, `ProjectEpics`, and the
+ * `WorkspaceIssues` in `@/plane-web/store/issue/workspace/issue.store.ts`).
+ *
+ * Also exports:
+ *   - `EIssueGroupedAction` — discriminant (ADD / DELETE / REORDER) used by the grouped id reconciliation path
+ *   - `IBaseIssuesStore` — public contract every branch issue store satisfies
+ *   - `TIssueDisplayFilterOptions` — display-filter group key type that adds `target_date` to `TIssueGroupByOptions`
+ *   - `ISSUE_GROUP_BY_KEY` — maps display group-by values to the `TIssue` field used for grouping
+ *   - `ISSUE_FILTER_DEFAULT_DATA` — companion lookup used when seeding default filter values
+ *
+ * Consumers: every concrete issue store under `apps/web/core/store/issue/{cycle,module,project,
+ * project-views,workspace,workspace-draft,profile,archived}/issue.store.ts`, plus the plane-web tier
+ * issue stores, all of which are composed by `apps/web/core/store/issue/root.store.ts`. The
+ * `ISSUE_FILTER_DEFAULT_DATA` constant is additionally read by `apps/web/core/hooks/use-group-dragndrop.ts`
+ * and `apps/web/core/components/issues/issue-layouts/utils.tsx`.
+ */
+
 import { isEqual, concat, get, indexOf, isEmpty, orderBy, pull, set, uniq, update, clone } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";
@@ -47,13 +71,33 @@ import {
 } from "./base-issues-utils";
 import type { IBaseIssueFilterStore } from "./issue-filter-helper.store";
 
+/**
+ * Allowed values for the display-filter group key — every option in `TIssueGroupByOptions`
+ * except `null`, plus the calendar-layout-specific `"target_date"` bucket.
+ */
 export type TIssueDisplayFilterOptions = Exclude<TIssueGroupByOptions, null> | "target_date";
 
+/**
+ * Discriminant for grouped issue-id list updates.
+ *
+ * `ADD` and `DELETE` mutate the list at a given path; `REORDER` re-sorts the existing list at
+ * the same path without changing its membership (used when the issue property `orderBy` depends
+ * on changes without changing group membership).
+ */
 export enum EIssueGroupedAction {
   ADD = "ADD",
   DELETE = "DELETE",
   REORDER = "REORDER",
 }
+/**
+ * Public contract that every concrete issue store implements.
+ *
+ * Exposes the observable issue-list state (`loader`, `groupedIssueIds`, `groupedIssueCount`,
+ * `issuePaginationData`), the shared mutation surface (`removeIssue`, `clear`, cycle and module
+ * membership flows, bulk operations, Gantt-dependency `updateIssueDates`), and the read helpers
+ * (`getIssueIds`, `issuesSortWithOrderBy`, `getPaginationData`, `getIssueLoader`,
+ * `getGroupIssueCount`).
+ */
 export interface IBaseIssuesStore {
   // observable
   loader: Record<string, TLoader>;
@@ -112,6 +156,14 @@ export interface IBaseIssuesStore {
   updateIssueDates(workspaceSlug: string, updates: IBlockUpdateDependencyData[], projectId?: string): Promise<void>;
 }
 
+/**
+ * Maps each display group-by value (the option users see in the UI) to the `TIssue` field
+ * that the base store reads to determine which group an issue belongs to.
+ *
+ * The `"state_detail.group"` entry is a UI-only display value that resolves through the same
+ * `state_id` field — `BaseIssuesStore.getDefaultGroupValue` then reads `rootStore.state.stateMap`
+ * to translate the state id into its state group at sort/group time.
+ */
 // This constant maps the group by keys to the respective issue property that the key relies on
 export const ISSUE_GROUP_BY_KEY: Record<TIssueDisplayFilterOptions, keyof TIssue> = {
   project: "project_id",
@@ -127,6 +179,16 @@ export const ISSUE_GROUP_BY_KEY: Record<TIssueDisplayFilterOptions, keyof TIssue
   team_project: "project_id",
 };
 
+/**
+ * Companion to `ISSUE_GROUP_BY_KEY` used when seeding default filter values.
+ *
+ * The `"state_detail.group"` entry maps to the synthetic `state__group` projection produced by
+ * the server payload, not to the local `TIssue` field — this is intentional because filter
+ * defaults are derived from server-shaped data while grouping is derived from client-shaped data.
+ *
+ * Consumers: `apps/web/core/hooks/use-group-dragndrop.ts` and
+ * `apps/web/core/components/issues/issue-layouts/utils.tsx`.
+ */
 export const ISSUE_FILTER_DEFAULT_DATA: Record<TIssueDisplayFilterOptions, keyof TIssue> = {
   project: "project_id",
   cycle: "cycle_id",
@@ -174,6 +236,57 @@ const ISSUE_ORDERBY_KEY: Record<TIssueOrderByOptions, keyof TIssue> = {
   "-sub_issues_count": "sub_issues_count",
 };
 
+/**
+ * Abstract MobX-backed foundation for every issue collection store.
+ *
+ * Observable state slice (registered in `makeObservable` at the constructor):
+ *   - `loader: Record<string, TLoader>` — per-group loader state keyed by `getGroupKey(groupId, subGroupId)`
+ *   - `groupedIssueIds: TIssues | undefined` — issue ids organized by group / subgroup, or under `ALL_ISSUES` when ungrouped
+ *   - `groupedIssueCount: TGroupedIssueCount` — per-group total counts kept in sync with pagination
+ *   - `issuePaginationData: TIssuePaginationData` — cursor + next-page flag per group key
+ *   - `paginationOptions: IssuePaginationOptions | undefined` — last-used fetch options retained for subsequent re-fetches
+ *
+ * Computed values (`computed` getters; read from `issueFilterStore.issueFilters?.displayFilters`):
+ *   - `moduleId`, `cycleId` — mirrored from the parent `rootIssueStore` route context
+ *   - `orderBy`, `groupBy`, `subGroupBy` — derived from the active display filter and layout
+ *     (calendar layout forces group-by to `"target_date"`; kanban / list use the explicit `group_by`)
+ *   - `orderByKey`, `issueGroupKey`, `issueSubGroupKey` — `TIssue` field names corresponding to the above
+ *
+ * `computedFn` factories (memoized per-argument tuple via `mobx-utils`):
+ *   - `getPaginationData(groupId, subGroupId)` — pagination cursor / next-page-flag at the group key
+ *   - `getGroupIssueCount(groupId, subGroupId, isSubGroupCumulative)` — count at the group key,
+ *     with optional sub-group-cumulative summing across all groupIds for a given subGroupId
+ *
+ * Services (instantiated in the constructor; NOT observable, but referenced by every action):
+ *   - `issueService: IssueService`, `issueArchiveService: IssueArchiveService`,
+ *     `moduleService: ModuleService`, `cycleService: CycleService`
+ *
+ * `AbortController` semantics: the `controller` field is created in the constructor and reset on
+ * every `clear()` call. Subclasses that issue long-running fetches must pass `this.controller.signal`
+ * so stale fetches initiated before a filter change are cancelled when a new fetch begins. This is
+ * non-obvious behavior — engineers reading branch stores must look here to understand cancellation.
+ *
+ * Actions registered with MobX cover paginated load entry points (`onfetchIssues`,
+ * `onfetchNexIssues`), the optimistic CRUD surface (`createIssue`, `issueUpdate`, `removeIssue`,
+ * `issueArchive`, `issueQuickAdd`, `removeBulkIssues`, `bulkArchiveIssues`, `bulkUpdateProperties`),
+ * the cycle / module membership flows (`addIssueToCycle` / `removeIssueFromCycle` /
+ * `addCycleToIssue` / `removeCycleFromIssue`, `addIssuesToModule` / `removeIssuesFromModule` /
+ * `changeModulesInIssue`), Gantt-dependency `updateIssueDates`, and the grouped list maintenance
+ * helpers (`addIssue`, `addIssueToList`, `removeIssueFromList`, `clear`, `setLoader`,
+ * `storePreviousPaginationValues`).
+ *
+ * Subclasses MUST implement the abstract methods `fetchParentStats(workspaceSlug, projectId?, id?)`
+ * and `updateParentStats(prevIssueState?, nextIssueState?, id?)` so cycle / module / view
+ * statistics can be refreshed without coupling the base class to specific parent endpoints.
+ *
+ * Consumers: every branch issue store under
+ * `apps/web/core/store/issue/{cycle,module,project,project-views,workspace,workspace-draft,profile,archived}/issue.store.ts`,
+ * plus the plane-web tier issue stores (`@/plane-web/store/issue/team/issue.store.ts`,
+ * `@/plane-web/store/issue/team-views/issue.store.ts`,
+ * `@/plane-web/store/issue/team-project/issue.store.ts`,
+ * `@/plane-web/store/issue/workspace/issue.store.ts`,
+ * `@/plane-web/store/issue/epic/issue.store.ts`).
+ */
 export abstract class BaseIssuesStore implements IBaseIssuesStore {
   loader: Record<string, TLoader> = {};
   groupedIssueIds: TIssues | undefined = undefined;
