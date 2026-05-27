@@ -4,6 +4,47 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Member domain composition root: owns the global lightweight user cache and
+ * composes the workspace + project member sub-stores. Provides the single
+ * source of truth for resolving `userId` strings into `IUserLite` profile
+ * details across every member-aware feature.
+ *
+ * State slice:
+ *   - memberMap: Record<string, IUserLite> — lightweight user-profile cache
+ *       keyed by user id. Hydrated incrementally by the workspace + project
+ *       sub-stores' fetch actions as they receive embedded `member` payloads
+ *       from the backend; never fetched directly from this root.
+ *
+ * Computed actions (computedFn from mobx-utils — memoized per-argument):
+ *   - getMemberIds(): string[] — returns Object.keys(memberMap); recomputes
+ *       when memberMap keys change. Used wherever a "list of all known user
+ *       ids" is needed.
+ *   - getUserDetails(userId: string): IUserLite | undefined — O(1) lookup
+ *       into memberMap; recomputes when memberMap[userId] changes. Returns
+ *       undefined for unknown users (callers must handle the missing case).
+ *
+ * Sub-stores (instantiated in the constructor with `this` and the root
+ * RootStore so each sub-store can resolve cross-store dependencies):
+ *   - workspace: IWorkspaceMemberStore — workspace member registry +
+ *       invitations (./workspace/workspace-member.store)
+ *   - project: IProjectMemberStore — project member registry; resolves to
+ *       the plane-web ProjectMemberStore subclass which extends the base
+ *       store in ./project/base-project-member.store.ts
+ *
+ * Consumers:
+ *   - apps/web/core/store/root.store.ts (instantiates as `memberRoot`)
+ *   - apps/web/core/hooks/store/use-member.ts (useMember() hook)
+ *   - apps/web/core/components/workspace/settings/** (members list, invitations)
+ *   - apps/web/core/components/project/settings/** (project members)
+ *   - apps/web/core/components/issues/** (assignee + mention + creator
+ *       dropdowns hydrate IUserLite via getUserDetails)
+ *   - apps/web/core/components/project/member-select.tsx,
+ *       member-list.tsx, member-list-item.tsx, send-project-invitation-modal.tsx
+ *   - apps/web/core/store/issue/issue-details/sub_issues.store.ts
+ *       (cross-store member hydration for sub-issue creators/assignees)
+ */
+
 import { makeObservable, observable } from "mobx";
 import { computedFn } from "mobx-utils";
 // plane imports
