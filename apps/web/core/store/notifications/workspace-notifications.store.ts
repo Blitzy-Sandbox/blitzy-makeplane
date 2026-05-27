@@ -29,8 +29,9 @@
  *   - `filters: TNotificationFilter` — `{ type: { assigned, created, subscribed }, snoozed,
  *     archived, read }`. The `type.*` sub-flags are joined into a CSV `type=` query param;
  *     `snoozed` / `archived` mutate the `notificationIdsByWorkspaceId` filter result; `read`
- *     is intentionally squashed to `false | undefined` at query time (see inline NOTE on
- *     line 205-206 about the all-read-and-unread-together UX decision).
+ *     is intentionally squashed to `false | undefined` inside
+ *     `generateNotificationQueryParams` so the server can return read+unread together for
+ *     the all-read-and-unread UX (see the inline NOTE near the `read` clause).
  *
  * Computed (`computedFn` from `mobx-utils`):
  *   - `notificationIdsByWorkspaceId(workspaceId)` — returns the ordered list of notification

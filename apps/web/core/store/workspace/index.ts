@@ -60,7 +60,15 @@
  *   - `getWorkspaceBySlug` / `getWorkspaceById` are registered as `action` but
  *     act as synchronous selectors over `workspaces`.
  *
- * Action groups:
+ * Wired services (instantiated in the constructor and held as private fields):
+ *   - workspaceService: WorkspaceService (`@/services/workspace.service`) —
+ *     primary HTTP surface for every action below. Backs the workspace CRUD,
+ *     sidebar/navigation preference, and project navigation preference
+ *     endpoints. The same `WorkspaceService` class is also wired into sibling
+ *     stores (`workspace/link.store.ts`, `user/base-permissions.store.ts`) for
+ *     workspace-scoped reads.
+ *
+ * Action groups (all call `workspaceService` directly):
  *   - Workspace CRUD: `fetchWorkspaces`, `createWorkspace`, `updateWorkspace`,
  *     `updateWorkspaceLogo` (synchronous; THROWS if the slug is not found),
  *     `deleteWorkspace` (logs and swallows errors instead of re-throwing).
@@ -68,7 +76,9 @@
  *     `updateSidebarPreference`, `updateBulkSidebarPreferences`.
  *   - Project navigation preferences: `fetchProjectNavigationPreferences`,
  *     `updateProjectNavigationPreferences`.
- *   - Abstract hook: `mutateWorkspaceMembersActivity` (extension point).
+ *   - Abstract hook: `mutateWorkspaceMembersActivity` (extension point — the
+ *     EE override under `@/plane-web/store/workspace` performs the activity
+ *     mutation; the CE subclass is a no-op).
  *
  * Optimistic-update-with-rollback pattern: `updateSidebarPreference`,
  * `updateBulkSidebarPreferences`, and `updateProjectNavigationPreferences`

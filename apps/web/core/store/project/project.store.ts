@@ -13,7 +13,7 @@
  * collapsible UI section state. Reads filter/search state from the sibling
  * project filter store to compute filteredProjectIds.
  *
- * State slice (from `makeObservable` block, lines 99-137):
+ * State slice (each registered as observable in the `makeObservable` block):
  *   - isUpdatingProject: boolean — true while updateProject is in flight.
  *   - loader: TLoader (observable.ref) — "init-loader" | "mutation" | "loaded".
  *   - fetchStatus: TFetchStatus (observable.ref) — "partial" | "complete"
@@ -29,7 +29,7 @@
  *   - lastCollapsibleAction: ProjectOverviewCollapsible | null
  *     (observable.ref) — most recently toggled section.
  *
- * Computed (lines 151-272):
+ * Computed getters (each registered as `computed` in `makeObservable`):
  *   - isInitializingProjects — true while loader === "init-loader".
  *   - filteredProjectIds — joins projectMap with projectFilter store
  *     (displayFilters, filters, searchQuery) and applies @plane/utils
@@ -48,7 +48,7 @@
  *   - currentProjectNextSequenceId — `next_work_item_sequence` of the current
  *     project; used by list-layout components to size identifier columns.
  *
- * Computed functions (computedFn, lines 406-449):
+ * Computed functions (memoized via `mobx-utils#computedFn`):
  *   - getProjectById(projectId) — synchronous TProject lookup.
  *   - getProjectByIdentifier(projectIdentifier) — finds a project by its
  *     short identifier string (e.g., "PLANE").
@@ -60,7 +60,7 @@
  *     projectAnalyticsCountMap.
  *
  * Actions:
- *   Fetch (lines 310-399):
+ *   Fetch:
  *     - fetchPartialProjects(workspaceSlug) — GETs lightweight project list
  *       via ProjectService.getProjectsLite; merges into projectMap; sets
  *       loader/fetchStatus.
@@ -71,17 +71,17 @@
  *       via ProjectService.getProject; merges into projectMap[projectId].
  *     - fetchProjectAnalyticsCount(workspaceSlug, params?) — GETs analytics
  *       counts; populates projectAnalyticsCountMap.
- *   Favorites (lines 457-503):
+ *   Favorites:
  *     - addProjectToFavorites(workspaceSlug, projectId) — optimistically sets
  *       projectMap[projectId].is_favorite=true; calls
  *       rootStore.favorite.addFavorite; rolls back on failure.
  *     - removeProjectFromFavorites(workspaceSlug, projectId) — optimistic
  *       removal via rootStore.favorite.removeFavoriteEntity with rollback.
- *   View / sort (lines 512-527):
+ *   View / sort:
  *     - updateProjectView(workspaceSlug, projectId, viewProps) — updates
  *       projectMap[projectId].sort_order optimistically; persists via
  *       ProjectService.updateProjectUserProperties; rolls back on error.
- *   CRUD (lines 535-594):
+ *   CRUD:
  *     - createProject(workspaceSlug, data) — POSTs via ProjectService;
  *       invokes processProjectAfterCreation to insert into projectMap and
  *       write member_role into rootStore.user.permission.workspaceProjectsPermissions.
@@ -91,17 +91,17 @@
  *     - deleteProject(workspaceSlug, projectId) — DELETEs via ProjectService;
  *       removes from projectMap; calls rootStore.favorite.removeFavoriteFromStore
  *       when present; removes the workspace permission entry.
- *   Archive (lines 602-635):
+ *   Archive:
  *     - archiveProject(workspaceSlug, projectId) — POSTs via
  *       ProjectArchiveService.archiveProject; stamps archived_at; removes
  *       from favorites store.
  *     - restoreProject(workspaceSlug, projectId) — restores via
  *       ProjectArchiveService.restoreProject; clears archived_at.
- *   Collapsible UI (lines 274-289):
+ *   Collapsible UI:
  *     - setOpenCollapsibleSection(section[]) — replaces the open list.
  *     - setLastCollapsibleAction(section) — appends to open list.
  *     - toggleOpenCollapsibleSection(section) — flips presence in open list.
- *   Helper (lines 296-302):
+ *   Helper:
  *     - processProjectAfterCreation(workspaceSlug, data) — inserts the new
  *       project into projectMap and writes member_role into
  *       rootStore.user.permission.workspaceProjectsPermissions[workspaceSlug][projectId].
@@ -120,7 +120,7 @@
  *   - rootStore.user.permission.workspaceProjectsPermissions[slug][id] —
  *     created on processProjectAfterCreation, deleted on deleteProject.
  *
- * Service dependencies (instantiated in constructor, lines 141-145):
+ * Service dependencies (instantiated in the constructor):
  *   - ProjectService — primary CRUD + sort_order persistence.
  *   - ProjectArchiveService — archive/restore endpoints.
  *   - IssueService, IssueLabelService — held for use by orchestration flows

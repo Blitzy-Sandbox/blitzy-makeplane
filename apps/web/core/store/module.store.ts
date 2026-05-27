@@ -99,6 +99,20 @@
  *   - favorite.{entityMap, addFavorite, removeFavoriteEntity,
  *     removeFavoriteFromStore}
  *
+ * Wired services (instantiated in the constructor and held as private fields):
+ *   - moduleService: ModuleService (`@/services/module.service`) — backs every
+ *     non-archive read/write listed above (list, slim list, details, create,
+ *     patch, delete, link CRUD).
+ *   - moduleArchiveService: ModuleArchiveService
+ *     (`@/services/module_archive.service`) — archive-only endpoints
+ *     (archived list, archived details, archive, restore).
+ *   - projectService: ProjectService (`@/services/project`)
+ *       // INTENT UNCLEAR: instantiated on the store but no action below
+ *       // currently invokes any ProjectService method. Retained for
+ *       // cross-store project orchestration that may attach to this store in
+ *       // the future; removal would be a behavioral change outside this
+ *       // documentation pass.
+ *
  * Consumers:
  *   - apps/web/core/components/modules/** (list, modal, view header, quick
  *     actions, links, archived modules, analytics sidebar)

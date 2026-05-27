@@ -17,11 +17,29 @@
  *   - fetchApiTokenDetails(tokenId): Promise<IApiToken> — GET via APITokenService.retrieve();
  *       merges the response into this.apiTokens (entry for response.id added or overwritten).
  *   - createApiToken(data): Promise<IApiToken> — POST via APITokenService.create(); merges the
- *       newly created entry into this.apiTokens.
- *       SECURITY: the raw secret token value is returned in the create response ONCE and is the
- *       only opportunity the consumer has to capture it; subsequent list/retrieve responses only
- *       expose metadata (no raw token), so the canonical UX surfaces the token on creation and
- *       never again.
+ *       newly created entry into this.apiTokens AS-IS (no scrubbing).
+ *       SECURITY (must be read together with the cache-retention note below):
+ *         The raw `token` value is included in the POST /api/.../api-tokens/ response ONCE and
+ *         is the only opportunity the consumer has to capture it; subsequent list/retrieve
+ *         responses never re-expose it. `IApiToken.token` is therefore an optional field that
+ *         is populated only on the create response.
+ *       SECURITY — observable cache retention:
+ *         Because the implementation does `this.apiTokens[response.id] = response` without
+ *         deleting `response.token` first, the raw token CAN remain in the observable cache
+ *         for the lifetime of the store instance (i.e. until `resetOnSignOut` rebuilds the
+ *         workspace root store). Any component that re-reads `this.apiTokens[id]` after
+ *         creation — including via `getApiTokenById` — observes the raw token. A subsequent
+ *         `fetchApiTokens()` overwrites the cached entry with a server response that omits
+ *         `token`, which is the practical mitigation today.
+ *         // INTENT UNCLEAR: the sibling `webhook.store.ts` deletes `secret_key` from the
+ *         //                 create/regenerate response before merging it into the cache,
+ *         //                 while this store keeps the raw `token` in the cache. Whether
+ *         //                 that asymmetry is intentional (UX may rely on re-reading the
+ *         //                 token from the cache between creation and the user copying
+ *         //                 it) or an oversight is not documented in the codebase. The
+ *         //                 safer pattern — mirroring webhook.store.ts — would be to
+ *         //                 `delete response.token` before the spread and return the raw
+ *         //                 value only via the resolved Promise.
  *   - deleteApiToken(tokenId): Promise<void> — DELETE via APITokenService.destroy(); removes the
  *       tokenId entry from this.apiTokens.
  *
@@ -37,8 +55,9 @@
  *   - apps/web/app/routes/redirects/core/api-tokens.tsx
  *
  * Composition:
- *   - Instantiated as BaseWorkspaceRootStore.apiToken (apps/web/core/store/workspace/index.ts:123)
- *       and reached from the React context root via rootStore.workspaceRoot.apiToken.
+ *   - Instantiated by `BaseWorkspaceRootStore` (`apps/web/core/store/workspace/index.ts`)
+ *       and assigned as the `apiToken` field on the workspace root; reached from the
+ *       React context root via `rootStore.workspaceRoot.apiToken`.
  */
 
 import { action, observable, makeObservable, runInAction } from "mobx";

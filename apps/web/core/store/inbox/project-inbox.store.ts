@@ -10,11 +10,11 @@
  * mutating individual entries via per-issue `InboxIssueStore` instances.
  *
  * Architectural context: MobX is the exclusive frontend state layer; this
- * store is instantiated by the root store and injected via React context
- * (see `apps/web/core/store/root.store.ts` lines 38–39, 125, 158). Backend
- * I/O is mediated by `InboxIssueService` (`@/services/inbox`). Server reads
- * use the paginated `inbox-issues` list endpoint; the underlying issue
- * payload conforms to `TInboxIssue` from `@plane/types`.
+ * store is instantiated by `CoreRootStore` as `projectInbox` and injected
+ * via React context. Backend I/O is mediated by `InboxIssueService`
+ * (`@/services/inbox`). Server reads use the paginated `inbox-issues` list
+ * endpoint; the underlying issue payload conforms to `TInboxIssue` from
+ * `@plane/types`.
  *
  * State slice (observables wired via `makeObservable` in the constructor):
  *   - currentTab: TInboxIssueCurrentTab           — OPEN | CLOSED (observable.ref)

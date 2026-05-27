@@ -11,13 +11,26 @@
  * and downstream `useStore*` hooks. Stores are injected via React context (NOT Redux) — this
  * file is the single source of truth for the store graph.
  *
- * Composition graph:
- *   Session-independent: router, commandPalette, instance, theme, multipleSelect,
- *     stickyStore, editorAssetStore, analytics, workItemFilters, powerK
- *   Session-scoped (recreated on sign-out via resetOnSignOut):
- *     user, workspaceRoot, projectRoot, memberRoot, cycle, cycleFilter, module,
- *     moduleFilter, projectView, globalView, issue, state, label, dashboard,
- *     projectInbox, projectPages, projectEstimate, workspaceNotification, favorite
+ * Composition graph (classification is derived from the actual
+ * `resetOnSignOut()` body — stores fall into exactly two groups):
+ *
+ *   Preserved across sign-out (instance identity survives `resetOnSignOut`):
+ *     - theme   — the `ThemeStore` instance is kept; only its
+ *                 `localStorage.theme` value is overwritten to `"system"`.
+ *     - analytics — the `AnalyticsStore` instance is kept untouched.
+ *
+ *   Recreated on sign-out (instance is replaced with a fresh one — every
+ *   subscribed observer is therefore re-subscribed against the new instance):
+ *     router, commandPalette, instance, user, workspaceRoot, projectRoot,
+ *     memberRoot, cycle, cycleFilter, module, moduleFilter, projectView,
+ *     globalView, issue, state, label, dashboard, multipleSelect,
+ *     projectInbox, projectPages, projectEstimate, workspaceNotification,
+ *     favorite, stickyStore, editorAssetStore, workItemFilters, powerK
+ *     (27 stores total).
+ *
+ * Note: "Preserved across sign-out" is NOT the same as "contains no user
+ * data" — both groups may hold user-facing observables. The classification
+ * above strictly tracks which fields `resetOnSignOut()` reassigns.
  *
  * SSR contract:
  *   `enableStaticRendering(typeof window === "undefined")` disables observer

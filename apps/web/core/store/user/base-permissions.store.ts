@@ -21,6 +21,15 @@
  *   - `workspaceProjectsPermissions: Record<string, IUserProjectsRole>` - keyed by
  *     workspaceSlug; maps each project to the user's effective role within that workspace.
  *
+ * Wired services (instantiated at module scope or imported as singletons):
+ *   - workspaceService: WorkspaceService (`@/services/workspace.service`) -
+ *     instantiated once at module scope as a `const`. Used by
+ *     `fetchUserWorkspaceInfo` and `fetchUserProjectPermissions`.
+ *   - projectMemberService (singleton from `@/services/project/project-member.service`)
+ *     - used by `fetchUserProjectInfo`.
+ *   - userService (singleton from `@/services/user.service`) - used by
+ *     `leaveWorkspace`, `joinProject`, and `leaveProject`.
+ *
  * Actions (registered in `makeObservable`):
  *   - `fetchUserWorkspaceInfo(workspaceSlug)` - calls `workspaceService.workspaceMemberMe`;
  *     mutates `workspaceUserInfo[workspaceSlug]`; toggles `loader`.
@@ -71,8 +80,8 @@
  *
  * Consumers:
  *   - Concrete subclass: `@/plane-web/store/user/permission.store#UserPermissionStore`,
- *     composed inside `UserStore` at `./index.ts` line 78 (accessed as
- *     `store.user.permission` throughout the app).
+ *     composed inside `UserStore` as `permission: IUserPermissionStore` (accessed
+ *     as `store.user.permission` throughout the app).
  *   - Components under `apps/web/core/components/` that gate render on permission checks
  *     (workspace settings, project settings, issue actions, cycle/module mutations).
  *   - Server-side counterpart:

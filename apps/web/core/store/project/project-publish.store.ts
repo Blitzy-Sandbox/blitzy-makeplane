@@ -14,7 +14,7 @@
  * by project ID and synchronizes the project's `anchor` field on the main
  * project store so detail pages know whether a project is currently public.
  *
- * State slice (from `makeObservable` block, lines 52-63):
+ * State slice (each registered as observable in the `makeObservable` block):
  *   - generalLoader: boolean (observable.ref) — true while publish/unpublish
  *     or settings-update is in flight.
  *   - fetchSettingsLoader: boolean (observable.ref) — true while fetching

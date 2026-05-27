@@ -9,14 +9,38 @@
  * route parameters; the source of truth for "which entity is the user
  * currently viewing" across every domain store and component.
  *
+ * Framework binding:
+ *   The web client runs on React Router v7 + Vite (NOT Next.js — see
+ *   `apps/web/react-router.config.ts` and tech spec §5.2.2.2). This store
+ *   captures the route params and query string parsed by React Router v7's
+ *   `useParams` / `useSearchParams` hooks; an external wrapper component
+ *   subscribes to those hooks and forwards each navigation event into
+ *   `setQuery`. Route params are spread into the same `ParsedUrlQuery`
+ *   object as the query string so every computed below can use a single
+ *   uniform lookup.
+ *
+ * SSR / static-rendering contract:
+ *   `enableStaticRendering(typeof window === "undefined")` is called at
+ *   module-import time inside `apps/web/core/store/root.store.ts`; that
+ *   single side effect disables MobX observer subscription bookkeeping for
+ *   the entire app — including this store — during server-side render
+ *   passes. Because there is no live MobX observation on the server, the
+ *   server-side default of `query = {}` is the only state observed during
+ *   SSR; client hydration replaces it via the first `setQuery` call from
+ *   the React Router wrapper. The router store therefore never reads from
+ *   `window`, `location`, or any browser global directly — all route data
+ *   is pushed in by the consumer so SSR + hydration remain race-free.
+ *
  * State slice:
  *   - query: ParsedUrlQuery — the raw parsed query object from React Router
- *     (set externally by the route layout via setQuery on every navigation)
+ *     v7 (path params + search params merged; set externally by the route
+ *     layout wrapper via `setQuery` on every navigation).
  *
  * Actions:
  *   - setQuery(query: ParsedUrlQuery) — replaces the observable query;
- *     called by `apps/web/core/lib/wrappers/store-wrapper.tsx` (or similar
- *     route-listener wrapper) on every navigation event. No service calls.
+ *     called by the React Router v7 navigation listener wrapper
+ *     (`apps/web/core/lib/wrappers/store-wrapper.tsx`) on every navigation
+ *     event. No service calls.
  *
  * Computed (all recompute when `query` changes; each extracts a single
  * named parameter from the URL):

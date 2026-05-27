@@ -29,9 +29,24 @@
  *   - groupedProjectStates — Record<TStateGroups, IState[]> indexed by group
  *     key with empty arrays for any missing STATE_GROUPS bucket; recomputes
  *     when stateMap or router-bound projectId changes
- *   - computedFn helpers (getStateById, getProjectStates, getProjectStateIds,
- *     getProjectDefaultStateId, getProjectIntakeState, getStatePercentageInGroup)
- *     recompute when their parameter inputs or the underlying maps change
+ *   - computedFn helpers (memoized via `mobx-utils#computedFn`; each recomputes
+ *     when either its parameter input changes or the underlying observable
+ *     map it reads from mutates):
+ *       * getStateById(stateId): IState | undefined — reads `stateMap`.
+ *       * getIntakeStateById(intakeStateId): IIntakeState | undefined —
+ *         reads `intakeStateMap`.
+ *       * getProjectStates(projectId): IState[] | undefined — derives from
+ *         `stateMap` filtered by `project_id`, then sorted via `sortStates`.
+ *       * getProjectIntakeState(projectId): IIntakeState | undefined —
+ *         reads `intakeStateMap` filtered by `project_id`.
+ *       * getProjectStateIds(projectId): string[] | undefined — projects
+ *         `getProjectStates` to ids.
+ *       * getProjectIntakeStateIds(projectId): string[] | undefined —
+ *         projects intake states for a project to their ids.
+ *       * getProjectDefaultStateId(projectId): string | undefined — looks
+ *         up the `default` state id from `getProjectStates`.
+ *       * getStatePercentageInGroup(states, groupKey): number — pure
+ *         derivation over the supplied state array (no observable read).
  *
  * Consumers:
  *   - apps/web/core/hooks/store/use-project-state.ts (the access hook all

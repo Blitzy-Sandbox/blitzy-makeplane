@@ -8,7 +8,7 @@
  * Project domain composition root — the barrel file that aggregates the three
  * MobX stores comprising the project subsystem.
  *
- * Composed sub-stores (lines 27-29):
+ * Composed sub-stores (assigned on the `ProjectRootStore` instance):
  *   - project: ProjectStore (from ./project.store.ts) — main project entity
  *     store: projectMap, CRUD, archive, favorites, analytics, computed
  *     selectors, overview UI section state.
@@ -24,9 +24,9 @@
  *   - IProjectRootStore (interface) — shape contract for consumers that
  *     depend on the project composition without needing the concrete class.
  *   - ProjectRootStore (class) — the composition root instantiated by
- *     CoreRootStore (apps/web/core/store/root.store.ts line 58-59).
+ *     `CoreRootStore` as `projectRoot`.
  *
- * Construction order (in `constructor(_root)`, lines 26-30):
+ * Construction order (in the `ProjectRootStore` constructor):
  *   1. project = new ProjectStore(_root) — wired against the global
  *      CoreRootStore so it can read workspaceRoot/router/favorite/user.
  *   2. projectFilter = new ProjectFilterStore(_root) — also wired against
@@ -36,9 +36,8 @@
  *      `this.projectRootStore.project.projectMap[id].anchor`.
  *
  * Consumers:
- *   - apps/web/core/store/root.store.ts line 58-59 imports
- *     IProjectRootStore + ProjectRootStore and exposes the instance as
- *     `coreRootStore.projectRoot`.
+ *   - `CoreRootStore.projectRoot` (in `apps/web/core/store/root.store.ts`)
+ *     instantiates this class.
  *   - Components access this domain via the React store context
  *     (rootStore.projectRoot.project, .projectFilter, .publish).
  */

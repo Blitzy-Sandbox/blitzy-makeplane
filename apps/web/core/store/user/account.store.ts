@@ -51,19 +51,20 @@
  *     store).
  *
  * Consumers:
- *   - `UserStore` (`./index.ts:68`) exposes `accounts: Record<string,
- *     IAccountStore>` keyed by `provider_account_id`.
+ *   - `UserStore` exposes `accounts: Record<string, IAccountStore>` keyed by
+ *     `provider_account_id` (declared on `IUserStore` and constructed inside
+ *     the user-store hydration path).
  *   - Account-management UI under `apps/web/core/components/account/**`
  *     (sign-in providers list, connected-accounts settings page) reads
  *     from `store.user.accounts`.
- *   - `UserService` (imported at `./index.ts:18`) is the primary write
- *     path for account/session mutations; this store is the read mirror.
+ *   - `UserService` (imported by `UserStore`) is the primary write path for
+ *     account/session mutations; this store is the read mirror.
  *
  * Cross-references:
  *   - Server side: `apps/api/plane/authentication/` houses the OAuth
  *     provider adapters (AAP Directive 1).
- *   - Composition root: `./index.ts:32-41` — the `IUserStore` interface
- *     includes `accounts: Record<string, IAccountStore>`.
+ *   - Composition root: `UserStore` (sibling `./index.ts`) declares
+ *     `accounts: Record<string, IAccountStore>` on the `IUserStore` interface.
  *   - Type definition: `IUserAccount` from `@plane/types`.
  *
  * Note: The store binds to `CoreRootStore` (not `RootStore`) — narrower

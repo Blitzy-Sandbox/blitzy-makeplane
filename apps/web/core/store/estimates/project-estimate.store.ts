@@ -7,9 +7,9 @@
 /**
  * Project estimate collection store: per-workspace/per-project Estimate model
  * cache, lifecycle CRUD, and active/archived estimate derivation for the web
- * client's estimates feature. Registered on `CoreRootStore.projectEstimate`
- * (see `apps/web/core/store/root.store.ts` line 96) and instantiated once in
- * the root-store constructor and on sign-out reset.
+ * client's estimates feature. Registered as `CoreRootStore.projectEstimate`
+ * and instantiated once in the root-store constructor and again in
+ * `resetOnSignOut`.
  *
  * State slice (all `observable`; `loader` is `observable.ref`):
  *   - loader: TEstimateLoader — "init-loader" | "mutation-loader" | undefined;

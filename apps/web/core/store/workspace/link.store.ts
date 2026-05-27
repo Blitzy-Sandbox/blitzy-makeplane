@@ -49,8 +49,8 @@
  * service used by sibling workspace stores.
  *
  * Composition: leaf store with no sub-store dependencies; instantiated as
- * `HomeStore.quickLinks` at `apps/web/core/store/workspace/home.ts:71`. Not
- * exposed directly at the root store.
+ * `HomeStore.quickLinks` (the link store is reachable only via the home
+ * store's `quickLinks` field). Not exposed directly at the root store.
  *
  * Consumers: `apps/web/core/components/home/widgets/links/**` —
  * `link-detail.tsx`, `root.tsx`, `links.tsx`, `use-links.tsx`,

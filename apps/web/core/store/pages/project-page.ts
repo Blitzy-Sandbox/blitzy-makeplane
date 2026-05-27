@@ -18,7 +18,7 @@
  *
  * Constructor wiring:
  *   - Reads `workspaceSlug` from `store.router` and `projectId` from `page.project_ids?.[0]`.
- *   - Passes a fully bound `TBasePageServices` object into `super(store, page, services)`. Each callback validates that `workspaceSlug`, `projectId`, and `page.id` are present and otherwise throws `"Missing required fields."` before invoking the module-level `projectPageService = new ProjectPageService()` (declared at line 16). Bound endpoints: update, updateDescription, updateAccess, lock, unlock, archive, restore, duplicate.
+ *   - Passes a fully bound `TBasePageServices` object into `super(store, page, services)`. Each callback validates that `workspaceSlug`, `projectId`, and `page.id` are present and otherwise throws `"Missing required fields."` before invoking the module-level `projectPageService` singleton (a `ProjectPageService` instance declared once at module scope). Bound endpoints: update, updateDescription, updateAccess, lock, unlock, archive, restore, duplicate.
  *
  * Computed (permission flags, all registered via `makeObservable`):
  *   - canCurrentUserAccessPage — true when the page is `EPageAccess.PUBLIC` or the current user is the owner.
@@ -38,7 +38,7 @@
  *   - getRedirectionLink — returns `/${workspaceSlug}/projects/${this.project_ids?.[0]}/pages/${this.id}` for the active workspace. Used by link rendering in page list / breadcrumb / favorite components and by router pushes in command palette navigation.
  *
  * Services / cross-store collaborators:
- *   - ProjectPageService (module-level instance, line 16) — performs all backend calls (`workspaces/<slug>/projects/<id>/pages/...`) for project-scoped page operations.
+ *   - ProjectPageService (module-level singleton `projectPageService`) — performs all backend calls (`workspaces/<slug>/projects/<id>/pages/...`) for project-scoped page operations.
  *   - rootStore.router — `workspaceSlug` resolution for service calls and redirection link.
  *   - rootStore.user.permission — role lookups for every capability flag.
  *

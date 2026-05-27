@@ -8,7 +8,7 @@
  * Project filter store — workspace-scoped MobX store for project list filtering,
  * sorting, and search.
  *
- * State slice (from `makeObservable` block, lines 44-49):
+ * State slice (each registered as observable in the `makeObservable` block):
  *   - displayFilters: Record<string, TProjectDisplayFilters>
  *       Per-workspace display filter map keyed by workspaceSlug
  *       (order_by, my_projects, archived_projects).
@@ -18,7 +18,7 @@
  *   - searchQuery: string (observable.ref)
  *       Free-text query applied to project name and identifier.
  *
- * Computed (lines 76-104):
+ * Computed getters (each registered as `computed` in `makeObservable`):
  *   - currentWorkspaceDisplayFilters — derives from displayFilters and the active
  *     `rootStore.router.workspaceSlug`; recomputes when either changes.
  *   - currentWorkspaceAppliedDisplayFilters — derives the subset of toggled keys
@@ -26,17 +26,17 @@
  *     when displayFilters or router.workspaceSlug change.
  *   - currentWorkspaceFilters — derives from filters and router.workspaceSlug.
  *
- * Computed functions (lines 110, 116):
+ * Computed functions (memoized via `mobx-utils#computedFn`):
  *   - getDisplayFiltersByWorkspaceSlug(workspaceSlug) — memoized per-workspace
- *     display filter lookup via `computedFn` from mobx-utils.
+ *     display filter lookup.
  *   - getFiltersByWorkspaceSlug(workspaceSlug) — memoized per-workspace filter
- *     lookup via `computedFn`.
+ *     lookup.
  *
  * Actions:
  *   - initWorkspaceFilters(workspaceSlug) — seeds `displayFilters[slug]` with
  *     `order_by: "created_at"` default and ensures `filters[slug]` exists.
  *     Triggered reactively whenever `rootStore.router.workspaceSlug` changes
- *     (constructor `reaction`, lines 63-70); also clears `searchQuery`.
+ *     via a constructor `reaction`; also clears `searchQuery`.
  *   - updateDisplayFilters(workspaceSlug, displayFilters) — merges partial
  *     display filters via `lodash-es/set`.
  *   - updateFilters(workspaceSlug, filters) — merges partial filters via

@@ -40,9 +40,10 @@
  *       Calls `userService.currentUserSettings(bustCache)` (HTTP GET against the
  *       Django user-settings endpoint). On success, replaces `data` and clears
  *       `isLoading`; on failure, sets `error` to `{ status: "error", message: ... }`
- *       and rethrows. The `bustCache` flag is the mechanism used by onboarding
- *       completion (see `./profile.store.ts:185`) to force a fresh server read
- *       after the onboarded flag is flipped server-side.
+ *       and rethrows. The `bustCache` flag is the mechanism used by
+ *       `ProfileStore.finishUserOnboarding` (sibling `./profile.store.ts`) to
+ *       force a fresh server read after the onboarded flag is flipped
+ *       server-side.
  *   - toggleSidebar(collapsed?: boolean) => void
  *       Sets `sidebarCollapsed = collapsed` when the arg is provided; otherwise
  *       toggles the boolean. Purely client-side — no API call. Implemented as an
@@ -65,14 +66,13 @@
  *     read `sidebarCollapsed` to drive the responsive collapsed/expanded layout.
  *   - Sticky-header components — read `isScrolled` to apply elevation/shadow.
  *   - Settings page: `apps/web/core/components/account/preferences/**`.
- *   - Cross-store: `UserStore.fetchCurrentUser` (`./index.ts:118-124`) calls
+ *   - Cross-store: `UserStore.fetchCurrentUser` calls
  *     `this.userSettings.fetchCurrentUserSettings()` during the auth bootstrap.
- *   - Cross-store: `ProfileStore.finishUserOnboarding` (`./profile.store.ts:185`)
- *     calls `store.user.userSettings.fetchCurrentUserSettings(true)` with
+ *   - Cross-store: `ProfileStore.finishUserOnboarding` calls
+ *     `store.user.userSettings.fetchCurrentUserSettings(true)` with
  *     cache-busting after onboarding completion.
- *   - Cross-store: `UserStore.reset` (`./index.ts:239-249`) constructs a fresh
- *     `UserSettingsStore` on sign-out so user-bound state does not leak across
- *     sessions.
+ *   - Cross-store: `UserStore.reset` constructs a fresh `UserSettingsStore`
+ *     on sign-out so user-bound state does not leak across sessions.
  *
  * Persistence distinction:
  *   - `data` (identity + workspace routing context) is SERVER-PERSISTED — backed
@@ -90,17 +90,18 @@
  *   sub-object is materialized as an empty record with `undefined` slots for each
  *   field rather than a single `undefined`, preserving the shape contract. The
  *   constructor takes NO `CoreRootStore` parameter — this store is self-contained
- *   and reachable only via `UserStore.userSettings` (see `./index.ts:77`), because
- *   all mutations are either local (UI flags) or self-contained
+ *   and reachable only via `UserStore.userSettings`, because all mutations are
+ *   either local (UI flags) or self-contained
  *   (`userService.currentUserSettings`).
  *
  * Cross-references:
  *   - Server side: `apps/api/plane/app/views/user/base.py` (settings endpoint);
  *     `apps/api/plane/db/models/user.py` (data model).
- *   - Composition root: `./index.ts:67` (`userSettings: IUserSettingsStore` on
- *     `IUserStore`); `./index.ts:77` (`new UserSettingsStore()` construction).
- *   - Cache-busting consumer: `./profile.store.ts:185` (after onboarding
- *     finalization).
+ *   - Composition root: sibling `./index.ts` declares
+ *     `userSettings: IUserSettingsStore` on `IUserStore` and constructs the
+ *     instance inside `UserStore`.
+ *   - Cache-busting consumer: `ProfileStore.finishUserOnboarding` (sibling
+ *     `./profile.store.ts`) after onboarding finalization.
  */
 
 import { action, makeObservable, observable, runInAction } from "mobx";

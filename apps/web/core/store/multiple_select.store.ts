@@ -9,10 +9,10 @@
  * navigation pointers and computed selection helpers; used by bulk-action UI
  * primitives and selectable list/spreadsheet/gantt layouts in `apps/web`.
  *
- * Selection state is purely in-memory — no service calls or persistence are
- * triggered from this store. Keyboard and mouse semantics (ctrl/shift-click
- * range fill, arrow-key navigation, route-change reset) are layered on top
- * through the `useMultipleSelect` hook at
+ * Selection state is purely in-memory — none of the actions registered in
+ * `makeObservable` issue network calls. Keyboard and mouse semantics
+ * (ctrl/shift-click range fill, arrow-key navigation, route-change reset) are
+ * layered on top through the `useMultipleSelect` hook at
  * `apps/web/core/hooks/use-multiple-select.ts`.
  *
  * State slice (observables on `MultipleSelectStore`):
@@ -25,6 +25,15 @@
  *   - previousActiveEntity / nextActiveEntity: TEntityDetails | null —
  *     pre-computed navigation cursor neighbors so arrow keys advance focus
  *     without re-scanning the rendered list.
+ *
+ * Wired services (instantiated in the constructor and held as private fields):
+ *   - issueService: IssueService (`@/services/issue`)
+ *       // INTENT UNCLEAR: instantiated on the store but none of the actions
+ *       // registered in `makeObservable` invoke any IssueService method. The
+ *       // store's selection actions remain purely in-memory. Retained because
+ *       // removing the construction would be a behavioral change outside the
+ *       // documentation-only scope of this work, and consumer call sites may
+ *       // ultimately reach into it for bulk issue mutations.
  *
  * Computed (top-level getters — recompute when observables mutate):
  *   - isSelectionActive: boolean — true when at least one entity is selected;
@@ -43,7 +52,7 @@
  *     navigation/anchor observables.
  *
  * Actions (each mutates observables only — wrapped in `runInAction`, no API
- * calls):
+ * calls from this file):
  *   - updateSelectedEntityDetails(entityDetails, "add" | "remove") — toggle a
  *     single entity and refresh the last-selected anchor used by range fills.
  *   - bulkUpdateSelectedEntityDetails(entitiesList, "add" | "remove") — batch

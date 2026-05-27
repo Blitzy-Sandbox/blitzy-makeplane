@@ -7,9 +7,10 @@
 /**
  * MobX store for editor-driven asset uploads and duplications, scoped per editor block.
  *
- * Owned by RootStore as `editorAssetStore` (see apps/web/core/store/root.store.ts:30-31,
- * 101, 131, 165) and consumed via the `useEditorAsset` hook
- * (apps/web/core/hooks/store/use-editor-asset.ts).
+ * Owned by `CoreRootStore` as the `editorAssetStore` field (declared on the
+ * root composition class and instantiated in both the constructor and
+ * `resetOnSignOut`); consumed by components via the `useEditorAsset` hook
+ * at `apps/web/core/hooks/store/use-editor-asset.ts`.
  *
  * State slice (observables):
  *   - assetsUploadStatus: Record<string, TAttachmentUploadStatus>

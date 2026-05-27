@@ -11,9 +11,9 @@
  * subclass at `apps/web/ce/store/command-palette.store.ts`
  * (`CommandPaletteStore`), which adds the `isAnyModalOpen` `computed`
  * selector on top of `super.getCoreModalsState()` and is wired into the
- * root composition at `apps/web/core/store/root.store.ts` (L15-L16).
+ * root composition as `CoreRootStore.commandPalette`.
  *
- * State slice (observables, registered in `makeObservable` at L75-L102):
+ * State slice (observables, each registered in the `makeObservable` block):
  *   - `isCreateProjectModalOpen`, `isCreateCycleModalOpen`,
  *     `isCreateModuleModalOpen`, `isCreateViewModalOpen`,
  *     `isCreateIssueModalOpen`, `isDeleteIssueModalOpen`,
