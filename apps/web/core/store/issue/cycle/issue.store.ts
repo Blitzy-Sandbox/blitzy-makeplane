@@ -4,6 +4,178 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Cycle-scoped issue collection store. Owns the issue list, pagination,
+ * creation, mutation, archive, parent-cycle statistics, the urgent/high
+ * priority active-cycle stream, and cycle-membership lifecycle (attach /
+ * transfer) for issues displayed in a single cycle's view; keeps cycle
+ * membership in sync with the parent cycle via the inherited cycle-issue
+ * lifecycle helpers.
+ *
+ * Extends BaseIssuesStore (`../helpers/base-issues.store`), which already
+ * registers MobX observability for `addIssue`, `removeIssueFromList`,
+ * `clear`, `setLoader`, `issueUpdate`, `issueArchive`, `removeBulkIssues`,
+ * `bulkArchiveIssues`, `bulkUpdateProperties`, `addIssueToCycle`,
+ * `removeIssueFromCycle`, `addCycleToIssue`, `removeCycleFromIssue`,
+ * `changeModulesInIssue`, and owns the shared `IssueService` /
+ * `IssueArchiveService` / `CycleService` instances reused here. Stores
+ * are injected via React context (MobX exclusively — not Redux) per
+ * AAP §0.2.2.
+ *
+ * Module exports:
+ *   - `ACTIVE_CYCLE_ISSUES` — sentinel string key used by callers that
+ *     need to address the active-cycle issue bucket separately from the
+ *     cycle's paged issue list (e.g., the active-cycle sidebar widgets).
+ *   - `ActiveCycleIssueDetails` — cache shape for a single active cycle:
+ *     flat `issueIds`, `issueCount` total, `nextCursor`, `nextPageResults`,
+ *     and `perPageCount` for paginated continuation.
+ *   - `ICycleIssues` — public contract; consumers should import this type,
+ *     not the concrete `CycleIssues` class.
+ *
+ * State slice (observable):
+ *   - activeCycleIds: Record<string, ActiveCycleIssueDetails> — per-cycle
+ *     active-cycle pagination caches keyed by `cycleId`; populated by
+ *     `fetchActiveCycleIssues` and extended by
+ *     `fetchNextActiveCycleIssues`. Distinct from the inherited
+ *     `groupedIssueIds` (which holds the cycle's main paged list).
+ *   - viewFlags: ViewFlags — fixed `{ enableQuickAdd: true,
+ *     enableIssueCreation: true, enableInlineEditing: true }`; gates UI
+ *     capabilities on cycle issue screens.
+ *   - issueFilterStore: ICycleIssuesFilter — injected companion filter
+ *     store used to compose request parameters via `getFilterParams`.
+ *   - Inherited from BaseIssuesStore: `issues`, `groupedIssueIds`,
+ *     `groupedIssueCount`, `issuePaginationData`, `loader`,
+ *     `paginationOptions`, `controller`, plus the issue-detail accessors.
+ *     See base class for full slice.
+ *
+ * Actions (own — registered in `makeObservable` here):
+ *   - fetchIssues(workspaceSlug, projectId, loadType, options, cycleId,
+ *     isExistingPaginationOptions?): Promise<TIssuesResponse | undefined>
+ *       Side effects: sets loader, conditionally clears the local list
+ *       (skipped when re-using existing pagination), builds params via
+ *       `issueFilterStore.getFilterParams`, calls `issueService.getIssues`
+ *       with `controller.signal`, then delegates to inherited
+ *       `onfetchIssues` to populate `rootIssueStore.issues` and the
+ *       grouped indices.
+ *   - fetchNextIssues(workspaceSlug, projectId, cycleId, groupId?,
+ *     subGroupId?): Promise<TIssuesResponse | undefined>
+ *       Side effects: cursor-based next-page fetch using stored
+ *       `paginationOptions` and `getNextCursor(groupId, subGroupId)`;
+ *       no-op when `paginationOptions` is unset or the targeted group's
+ *       `nextPageResults` is false; delegates to inherited
+ *       `onfetchNexIssues`.
+ *   - fetchIssuesWithExistingPagination(workspaceSlug, projectId, loadType,
+ *     cycleId): Promise<TIssuesResponse | undefined>
+ *       Side effects: re-fetches page 1 with the cached
+ *       `paginationOptions`; called by `CycleIssuesFilter` after
+ *       filter/group/order changes that require a list rebuild.
+ *   - fetchActiveCycleIssues(workspaceSlug, projectId, perPageCount,
+ *     cycleId): Promise<TIssuesResponse | undefined>
+ *       Side effects: clears `activeCycleIds[cycleId]`, then fetches the
+ *       urgent/high priority issue list via `cycleService.getCycleIssues`
+ *       with hard-coded params `{ priority: "urgent,high",
+ *       cursor: "${perPageCount}:0:0", per_page: perPageCount }`; pushes
+ *       fetched rows into `rootIssueStore.issues` and stores the flat
+ *       `ALL_ISSUES`-bucket ids plus pagination cursors in
+ *       `activeCycleIds[cycleId]`. This is the AAP-required
+ *       "urgent/high-priority active-cycle stream" specialized lifecycle.
+ *   - fetchNextActiveCycleIssues(workspaceSlug, projectId, cycleId):
+ *     Promise<TIssuesResponse | undefined>
+ *       Side effects: appends the next page of urgent/high active-cycle
+ *       issues using the stored `nextCursor`; no-op when the cycle has no
+ *       active record or `nextPageResults` is false; merges and
+ *       de-duplicates ids via `issuesSortWithOrderBy(uniq(concat(...)),
+ *       orderBy)` from the base class.
+ *   - quickAddIssue(workspaceSlug, projectId, data, cycleId):
+ *     Promise<TIssue | undefined>
+ *       Side effects: optimistic — inserts a temp row via inherited
+ *       `addIssue`, calls the overridden `createIssue` (which also runs
+ *       `addIssueToCycle`), removes the temp row in `runInAction`, then
+ *       (if `data.module_ids` is non-empty and not "None") wires the new
+ *       issue to its target modules via inherited `changeModulesInIssue`.
+ *   - transferIssuesFromCycle(workspaceSlug, projectId, cycleId, payload):
+ *     Promise<TIssue>
+ *       Side effects: POSTs via `cycleService.transferIssues` to move
+ *       open issues from a completed cycle to the cycle named in
+ *       `payload.new_cycle_id`; then re-fetches page 1 with the current
+ *       `paginationOptions` so the local store reflects the moved-out
+ *       state. Consumed by
+ *       `apps/web/core/components/cycles/transfer-issues-modal.tsx`.
+ *
+ * Actions (own — NOT in `makeObservable` here, but declared as class
+ * fields / overrides):
+ *   - createIssue(workspaceSlug, projectId, data, cycleId): Promise<TIssue>
+ *       Overrides `BaseIssuesStore.createIssue`. Side effects: calls
+ *       `super.createIssue(..., isAddIssue=false)` then attaches the new
+ *       issue to the active cycle via inherited
+ *       `addIssueToCycle(workspaceSlug, projectId, cycleId,
+ *       [response.id], false)`.
+ *   - fetchParentStats(workspaceSlug, projectId?, id?): void
+ *       Side effects: refreshes the parent cycle via
+ *       `rootIssueStore.rootStore.cycle.fetchCycleDetails`; additionally
+ *       (only when the `cycle_sidebar_collapsed` local-storage flag is
+ *       explicitly `false` and the cycle has `version === 2`) refreshes
+ *       Pro active-cycle progress via
+ *       `rootIssueStore.rootStore.cycle.fetchActiveCycleProgressPro`. The
+ *       conditional avoids the heavier Pro endpoint when the sidebar is
+ *       collapsed or the cycle is a legacy v1 cycle.
+ *   - updateParentStats(prevIssueState?, nextIssueState?, id?): void
+ *       Side effects: computes distribution deltas via
+ *       `getDistributionPathsPostUpdate` (against the state map and the
+ *       active project estimate's `estimatePointById`) and pushes them
+ *       into `rootIssueStore.rootStore.cycle.updateCycleDistribution`
+ *       for optimistic cycle-stat refresh. Wrapped in try/catch with a
+ *       `console.warn` fallback — per AAP folder spec: failures must
+ *       not block issue updates.
+ *   - archiveBulkIssues = this.bulkArchiveIssues — cycle-oriented alias.
+ *   - updateIssue = this.issueUpdate — cycle-oriented alias.
+ *   - archiveIssue = this.issueArchive — cycle-oriented alias.
+ *   - Inherited (NOT redefined here, exposed verbatim via the
+ *     `IBaseIssuesStore` contract): `getIssueIds`, `removeBulkIssues`,
+ *     `bulkUpdateProperties`, `addIssueToCycle`, `removeIssueFromCycle`,
+ *     `addCycleToIssue`, `removeCycleFromIssue`, `addIssuesToModule`,
+ *     `removeIssuesFromModule`, `changeModulesInIssue`, `addIssue`,
+ *     `removeIssueFromList`, `clear`, `setLoader`.
+ *
+ * Computed:
+ *   - getActiveCycleById(cycleId) — `computedFn` from `mobx-utils` that
+ *     returns the cached `ActiveCycleIssueDetails` entry for a given
+ *     cycle id; memoized per id and recomputes when
+ *     `activeCycleIds[cycleId]` changes. Used by active-cycle widgets
+ *     to read the urgent/high stream without re-deriving from
+ *     `groupedIssueIds`.
+ *   - Derived pagination state (`getPaginationData`, `getNextCursor`,
+ *     `getGroupIssueCount`) is owned by `BaseIssuesStore` as
+ *     `computedFn`-based helpers; see the base class.
+ *
+ * Consumers:
+ *   - apps/web/core/components/issues/issue-layouts/list/roots/cycle-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/kanban/roots/cycle-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/spreadsheet/roots/cycle-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/calendar/roots/cycle-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/gantt/base-gantt-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/roots/cycle-layout-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/empty-states/cycle.tsx
+ *   - apps/web/core/components/issues/issue-layouts/quick-action-dropdowns/cycle-issue.tsx
+ *   - apps/web/core/components/issues/issue-modal/base.tsx
+ *   - apps/web/core/components/cycles/transfer-issues-modal.tsx
+ *     (reads `transferIssuesFromCycle` via
+ *     `useIssues(EIssuesStoreType.CYCLE)`)
+ *   - apps/web/core/components/cycles/active-cycle/use-cycles-details.ts
+ *   - apps/web/core/components/cycles/active-cycle/cycle-stats.tsx
+ *     (reads `getActiveCycleById` / `fetchActiveCycleIssues` /
+ *     `fetchNextActiveCycleIssues`)
+ *   - apps/web/core/components/cycles/analytics-sidebar/issue-progress.tsx
+ *   - apps/web/core/hooks/store/use-issues.ts (selects via
+ *     `EIssuesStoreType.CYCLE`)
+ *   - apps/web/core/hooks/use-issues-actions.tsx
+ *   - apps/web/core/store/issue/issue-details/issue.store.ts — cross-store
+ *     reader of `rootIssueStore.cycleIssues.addCycleToIssue` /
+ *     `removeCycleFromIssue` for issue-detail cycle mutations.
+ *   - apps/web/core/store/issue/root.store.ts — singleton wiring under
+ *     `cycleIssues` (constructed with `(this, this.cycleIssuesFilter)`).
+ */
+
 import { get, set, concat, uniq, update } from "lodash-es";
 import { action, observable, makeObservable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";
