@@ -4,6 +4,83 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Cycle domain store: per-project cycle cache, lifecycle CRUD, archive workflows,
+ * and per-cycle progress/distribution analytics for the web client.
+ *
+ * State slice:
+ *   - loader: boolean — top-level list/details loading flag
+ *   - progressLoader: boolean — active-cycle progress fetch flag
+ *   - fetchedMap: Record<string, boolean> — keyed by `<scope>_<projectId>` to
+ *       short-circuit duplicate fetches across navigation
+ *   - cycleMap: Record<string, ICycle> — all cycles keyed by cycle id (includes
+ *       active, completed, archived; partitioned via the computed selectors)
+ *   - plotType: Record<string, TCyclePlotType> — per-cycle chart selection
+ *       (burndown | burnup), persisted only in memory (no localStorage)
+ *   - estimatedType: Record<string, TCycleEstimateType> — per-cycle estimate
+ *       mode (issues | points), persisted only in memory
+ *   - activeCycleIdMap: Record<string, boolean> — fast set lookup for cycles
+ *       currently flagged active in their project
+ *
+ * Actions (each calls a service from `@/services/*` and mutates state under
+ * `runInAction` for atomic batched updates):
+ *   - fetchWorkspaceCycles(workspaceSlug) → CycleService.getWorkspaceCycles
+ *       Side effects: merges cycles into cycleMap; sets fetchedMap.
+ *   - fetchAllCycles(workspaceSlug, projectId) → CycleService.getCyclesWithParams
+ *       Side effects: merges cycles into cycleMap; sets fetchedMap.
+ *   - fetchActiveCycle / fetchActiveCycleProgress / fetchActiveCycleProgressPro
+ *       Side effects: updates cycleMap[cycleId].progress_snapshot;
+ *       fetchActiveCycleProgressPro is the EE-only variant routed through
+ *       CycleService for the enriched plot data.
+ *   - fetchActiveCycleAnalytics(workspaceSlug, projectId, cycleId, analytic_type)
+ *       Side effects: merges distribution into cycleMap[cycleId].distribution
+ *       (or estimate_distribution depending on analytic_type).
+ *   - fetchArchivedCycles / fetchArchivedCycleDetails →
+ *       CycleService + CycleArchiveService.
+ *   - updateCycleDistribution(distributionUpdates, cycleId): applies
+ *       `updateDistribution` from `@plane/utils` to mutate cycleMap[cycleId]
+ *       in place — used by realtime progress streaming.
+ *   - setPlotType / setEstimateType: pure observable mutation; no network.
+ *   - Plus CRUD actions (create/update/delete/archive/restore/favorite) that
+ *     call CycleService/CycleArchiveService and emit cross-store updates to
+ *     rootStore.favorite where applicable.
+ *
+ * Computed (re-evaluated only when their reactive inputs change):
+ *   - currentProjectCycleIds — recomputes when cycleMap or
+ *       routerStore.projectId changes; returns ordered list of cycle ids for
+ *       the active project route.
+ *   - currentProjectCompletedCycleIds / currentProjectIncompleteCycleIds /
+ *       currentProjectArchivedCycleIds — partition cycleMap by status using
+ *       `isPast` from `date-fns`.
+ *   - currentProjectActiveCycleId / currentProjectActiveCycle — derived from
+ *       activeCycleIdMap intersected with the current project's cycle list.
+ *
+ * Computed actions (computedFn from mobx-utils — memoize per-argument set,
+ * AAP §0.3.2 explicit call-out):
+ *   - getFilteredCycleIds(projectId, sortByManual): returns the filtered+sorted
+ *       cycle id list driven by rootStore.cycleFilter; recomputes when
+ *       cycleMap, the filter slice, or the manual-sort flag changes.
+ *   - getFilteredCompletedCycleIds(projectId) / getFilteredArchivedCycleIds(projectId):
+ *       same shape for completed/archived partitions.
+ *   - getCycleById(cycleId) / getCycleNameById(cycleId): O(1) lookups, memoized
+ *       so identical id calls share a reference.
+ *   - getProjectCycleDetails(projectId) / getProjectCycleIds(projectId):
+ *       per-project cycle slice, recomputes when cycleMap changes.
+ *   - getPlotTypeByCycleId / getEstimateTypeByCycleId / getIsPointsDataAvailable:
+ *       per-cycle preference lookups; memoized to keep chart components
+ *       cheap on re-render.
+ *
+ * Consumers:
+ *   - apps/web/core/components/cycles/list/** (cycle list views)
+ *   - apps/web/core/components/cycles/active-cycle/** (active cycle widgets)
+ *   - apps/web/core/components/cycles/analytics-sidebar/** (per-cycle analytics)
+ *   - apps/web/core/components/cycles/applied-filters/** (filter rendering)
+ *   - apps/web/core/components/cycles/archived-cycles/** (archive views)
+ *   - apps/web/core/components/cycles/dropdowns/** (cycle pickers)
+ *   - apps/web/core/store/issue/cycle/** (cross-store reads via rootStore.cycle)
+ *   - apps/web/core/store/cycle_filter.store.ts (filter inputs feed back here)
+ */
+
 import { isPast, isToday } from "date-fns";
 import { sortBy, set, isEmpty } from "lodash-es";
 import { action, computed, observable, makeObservable, runInAction } from "mobx";
