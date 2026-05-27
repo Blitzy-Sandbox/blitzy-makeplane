@@ -4,6 +4,11 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Composition root for sign-in/sign-up auth flows, wiring together the auth-input, password,
+ * confirm-password, and forgot-password primitives into a single controlled form.
+ */
+
 import React, { useState, useMemo } from "react";
 import { E_PASSWORD_STRENGTH } from "@plane/constants";
 import { Button } from "../button/button";
@@ -14,14 +19,31 @@ import { AuthForgotPassword } from "./auth-forgot-password";
 import { AuthInput } from "./auth-input";
 import { AuthPasswordInput } from "./auth-password-input";
 
+/**
+ * Operating mode of the `AuthForm`: `"sign-in"` exposes the forgot-password link only,
+ * `"sign-up"` reveals the confirm-password field and the password-strength indicator.
+ */
 export type AuthMode = "sign-in" | "sign-up";
 
+/**
+ * Controlled form payload emitted by `AuthForm` via `onSubmit`. `confirmPassword` is only
+ * populated when `mode === "sign-up"`.
+ */
 export interface AuthFormData {
   email: string;
   password: string;
   confirmPassword?: string;
 }
 
+/**
+ * Props for `AuthForm`. The form is fully controlled by the parent through `mode`, optional
+ * error strings, and the three callback hooks (`onSubmit`, `onForgotPassword`, `onModeChange`).
+ *
+ * `loading` short-circuits the submit button to a spinner; `disabled` deactivates every input.
+ * `showPasswordStrength` only takes effect in sign-up mode (gated internally), and the
+ * `*ButtonText` / `alternateMode*` props let consumers override the default sign-in/sign-up
+ * copy without subclassing the component.
+ */
 export interface AuthFormProps {
   mode: AuthMode;
   initialData?: Partial<AuthFormData>;
@@ -41,6 +63,35 @@ export interface AuthFormProps {
   alternateModeButtonText?: string;
 }
 
+/**
+ * Controlled sign-in / sign-up form orchestrating the auth-form primitives in a single layout.
+ *
+ * Holds local state for the three controlled values (email, password, confirmPassword), the
+ * derived password strength reported by `AuthPasswordInput`, and a private match flag updated
+ * by `AuthConfirmPasswordInput`. The memoized `isFormValid` gate blocks submission unless the
+ * mandatory fields are populated and — in sign-up mode — the password reaches
+ * `E_PASSWORD_STRENGTH.STRENGTH_VALID` and matches `confirmPassword`.
+ *
+ * Sign-in mode renders email + password + (optional) forgot-password link.
+ * Sign-up mode additionally renders the confirm-password field and the password-strength UI.
+ *
+ * Side effects via parent-supplied callbacks (all optional):
+ *   - `onSubmit(formData)`: invoked on form submit only when `isFormValid` is true; native
+ *     submit default is suppressed.
+ *   - `onForgotPassword()`: forwarded from the embedded `AuthForgotPassword` (sign-in only).
+ *   - `onModeChange(newMode)`: fired by the alternate-mode toggle (button, type="button" so it
+ *     does not submit the form).
+ *
+ * State neutrality: `@plane/ui` components are state-agnostic primitives. This component does
+ * NOT read any MobX store; consumers wire `onSubmit` to Plane's session-based auth flow.
+ *
+ * Props: see `AuthFormProps`.
+ *
+ * Accessibility: native HTML form semantics provide submit-on-Enter and focus management.
+ * INTENT UNCLEAR: per-field error strings are forwarded to children but no `aria-describedby`
+ * linkage from input to error message is wired at this level — error-to-input announcement is
+ * delegated to the child components and is not currently implemented there either.
+ */
 export function AuthForm({
   mode,
   initialData = {},
