@@ -4,6 +4,93 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX filter store for workspace-draft issues. Extends `IssueFilterHelperStore`
+ * to reuse normalization (`computedIssueFilters`, `computedDisplayFilters`,
+ * `computedDisplayProperties`), applied-filter computation (`computedFilteredParams`),
+ * pagination parameter construction (`getPaginationParams`), and the
+ * `issue_local_filters` `localStorage`-backed persistence helper
+ * (`handleIssuesLocalFilters`). Owns the per-workspace filter state used by the
+ * workspace-draft list experience.
+ *
+ * State slice (observables):
+ *   - `workspaceSlug: string` — active workspace slug; default `""` (`observable.ref`).
+ *   - `filters: { [userId: string]: IIssueFilters }` — per-workspace snapshot keyed by
+ *     `workspaceSlug` (the workspaceSlug doubles as the userId-discriminant key); holds
+ *     `richFilters`, `displayFilters`, `displayProperties`, and `kanbanFilters` for each
+ *     workspace (`observable`).
+ *   - `rootIssueStore: IIssueRootStore` — back-reference assigned in the constructor; not
+ *     registered as observable. Provides reactive access to `rootIssueStore.workspaceSlug`
+ *     and cross-store reads.
+ *   - `issueFilterService: IssueFiltersService` — instantiated in the constructor; not
+ *     registered as observable.
+ *
+ * Computed:
+ *   - `issueFilters` — derives the full `IIssueFilters` object for
+ *     `rootIssueStore.workspaceSlug` via `getIssueFilters`; recomputes when `filters` or
+ *     `rootIssueStore.workspaceSlug` change.
+ *   - `appliedFilters` — derives the route-ready
+ *     `Partial<Record<TIssueParams, string | boolean>>` for the active workspace via
+ *     `getAppliedFilters` → `computedFilteredParams`; recomputes when `issueFilters` change.
+ *   - `getFilterParams(options, userId, cursor, groupId, subGroupId)` — `computedFn`
+ *     factory that calls `getAppliedFilters(this.workspaceSlug)` and merges the result into
+ *     the inherited `getPaginationParams`; memoized per
+ *     `(options, userId, cursor, groupId, subGroupId)` tuple.
+ *
+ * Helper methods (not registered as actions/computed):
+ *   - `getIssueFilters(workspaceSlug)` — pulls the persisted `IIssueFilters` for the
+ *     workspace and normalizes it through the inherited `computedIssueFilters`.
+ *   - `getAppliedFilters(workspaceSlug)` — selects the route-param subset for the current
+ *     layout via `handleIssueQueryParamsByLayout(..., "profile_issues")` and reconciles
+ *     rich/display filters into route params via `computedFilteredParams`.
+ *
+ * Actions:
+ *   - `fetchFilters(workspaceSlug)` — sets `this.workspaceSlug`, loads persisted
+ *     `richFilters`, `displayFilters`, `displayProperties`, and `kanbanFilters` from local
+ *     storage via `handleIssuesLocalFilters.get(EIssuesStoreType.PROFILE, …)`, normalizes
+ *     each shape through the inherited `computedDisplayFilters` / `computedDisplayProperties`
+ *     helpers, and commits the four fields into `this.filters[workspaceSlug]` inside a
+ *     `runInAction`. No API calls — purely localStorage hydration.
+ *   - `updateFilterExpression(workspaceSlug, userId, filters)` — replaces
+ *     `this.filters[workspaceSlug].richFilters` inside `runInAction`, calls
+ *     `rootIssueStore.profileIssues.fetchIssuesWithExistingPagination(workspaceSlug,
+ *     workspaceSlug, "mutation")` to refresh listings, and persists the new rich filters via
+ *     `handleIssuesLocalFilters.set(EIssuesStoreType.PROFILE, EIssueFilterType.FILTERS, …)`.
+ *     Errors are logged and re-thrown.
+ *   - `updateFilters(workspaceSlug, type, filters)` — switches on `type`:
+ *       - `DISPLAY_FILTERS`: merges the partial into `_filters.displayFilters` and enforces
+ *         the kanban layout invariants — clears `sub_group_by` when `group_by` is `null`,
+ *         clears `sub_group_by` when it equals `group_by` under the kanban layout, defaults
+ *         `group_by` to `"priority"` when kanban + `group_by` is `null`. Commits each
+ *         updated key into `this.filters[workspaceSlug].displayFilters` inside `runInAction`,
+ *         triggers `rootIssueStore.profileIssues.fetchIssuesWithExistingPagination`
+ *         (`"mutation"` reason), then persists via `handleIssuesLocalFilters.set`.
+ *       - `DISPLAY_PROPERTIES`: merges the partial into `_filters.displayProperties` and
+ *         commits each updated key inside `runInAction`, then persists via
+ *         `handleIssuesLocalFilters.set`. Does NOT refresh `profileIssues`.
+ *       - Other types: no-op.
+ *     On error, re-hydrates via `fetchFilters(workspaceSlug)` to recover from a partial
+ *     mutation, then re-throws.
+ *
+ * Cross-store dependencies:
+ *   - Reads `rootIssueStore.workspaceSlug` in the `issueFilters` and `appliedFilters`
+ *     computed getters to keep the surface reactive to the active route.
+ *   - Calls `rootIssueStore.profileIssues.fetchIssuesWithExistingPagination(...)` after
+ *     rich-filter or display-filter mutations to keep the issue list in sync.
+ *   - Uses the inherited `handleIssuesLocalFilters` helper (from `IssueFilterHelperStore`)
+ *     for `issue_local_filters` `localStorage` persistence.
+ *
+ * Consumers:
+ *   - `apps/web/core/hooks/store/workspace-draft/use-workspace-draft-issue-filters.ts` —
+ *     typed hook returning `context.issue.workspaceDraftIssuesFilter` from `StoreContext`.
+ *   - `apps/web/core/components/issues/workspace-draft/**` — list, root, filter dropdowns,
+ *     and applied-filters UI consume the computed `issueFilters` / `appliedFilters` and call
+ *     `updateFilters` / `updateFilterExpression`.
+ *   - Composed by `apps/web/core/store/issue/root.store.ts` as
+ *     `workspaceDraftIssuesFilter` (instantiated alongside `WorkspaceDraftIssues`).
+ */
+// INTENT UNCLEAR: workspace-draft filters persist under the EIssuesStoreType.PROFILE namespace and refresh rootIssueStore.profileIssues instead of a dedicated workspace-draft store; observed but not derivable from naming alone.
+
 import { isEmpty, set } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";
