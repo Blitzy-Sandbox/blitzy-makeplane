@@ -4,6 +4,46 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Theme store: persisted sidebar/panel visibility and collapse state across
+ * the web app's chrome.
+ *
+ * State slice (each observable is `boolean | undefined`; `undefined` until
+ * the first toggle reads from localStorage, then a concrete boolean):
+ *   - isAnySidebarDropdownOpen — whether any sidebar dropdown is currently
+ *     open (used to short-circuit hover behaviors)
+ *   - sidebarCollapsed / sidebarPeek / isExtendedSidebarOpened /
+ *     isExtendedProjectSidebarOpened — main app sidebar state
+ *   - profileSidebarCollapsed / workspaceAnalyticsSidebarCollapsed /
+ *     issueDetailSidebarCollapsed / epicDetailSidebarCollapsed /
+ *     initiativesSidebarCollapsed / projectOverviewSidebarCollapsed —
+ *     per-page secondary panel state
+ *
+ * Actions (each persists to localStorage via the toggle implementation;
+ * argument is optional — when omitted the action flips the current value):
+ *   - toggleAnySidebarDropdown(open?) — ephemeral dropdown coordination
+ *   - toggleSidebar(collapsed?) / toggleSidebarPeek(peek?) /
+ *     toggleExtendedSidebar(collapsed?) / toggleExtendedProjectSidebar(collapsed?) —
+ *     main sidebar toggles
+ *   - toggleProfileSidebar / toggleWorkspaceAnalyticsSidebar /
+ *     toggleIssueDetailSidebar / toggleEpicDetailSidebar /
+ *     toggleInitiativesSidebar / toggleProjectOverviewSidebar — per-page
+ *     panel toggles
+ *
+ * Computed: none.
+ *
+ * Persistence: writes to `localStorage` under per-flag keys; reads on first
+ * access. This means SSR/static renders see `undefined` (no theme persistence
+ * on the server) — components must handle the undefined initial state.
+ *
+ * Consumers:
+ *   - apps/web/core/components/workspace/sidebar/** (main sidebar chrome)
+ *   - apps/web/core/components/issues/issue-detail/** (issue detail panel)
+ *   - apps/web/core/components/analytics/** (workspace analytics sidebar)
+ *   - apps/web/core/components/profile/** (profile sidebar)
+ *   - Plus any component that reads sidebar visibility via useTheme store hook
+ */
+
 import { action, observable, makeObservable, runInAction } from "mobx";
 
 export interface IThemeStore {
