@@ -4,6 +4,85 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Workspace-scope MobX composition root — defines `IWorkspaceRootStore` and
+ * `BaseWorkspaceRootStore`, parallel to `apps/web/core/store/root.store.ts`
+ * (the global core composition root). This module owns the workspace slice of
+ * the global state graph: workspace CRUD, sidebar/project navigation
+ * preferences, and aggregation of the workspace-scoped sub-stores below.
+ *
+ * Composition (instantiated in the constructor at runtime):
+ *   - `home: HomeStore` — workspace home widgets + nested `quickLinks:
+ *     WorkspaceLinkStore` (the link store is reachable ONLY via
+ *     `home.quickLinks`; it is NOT exposed directly off the workspace root).
+ *   - `webhook: WebhookStore` — workspace webhook CRUD + secret-key rotation.
+ *   - `apiToken: ApiTokenStore` — per-user workspace API token CRUD.
+ *
+ * Cross-store wiring (constructor takes `_rootStore: CoreRootStore`):
+ *   - `this.router = _rootStore.router` — read by the `currentWorkspace`
+ *     computed (via `router.workspaceSlug`).
+ *   - `this.user = _rootStore.user` — read by `workspacesCreatedByCurrentUser`
+ *     (filters on `user.data.id`) and `getWorkspaceRedirectionUrl` (reads
+ *     `user.userSettings.data.workspace.last_workspace_slug` /
+ *     `fallback_workspace_slug`).
+ *   - `_rootStore` is forwarded into `WebhookStore` and `ApiTokenStore`
+ *     constructors (both accept a `CoreRootStore`); `HomeStore` takes no
+ *     arguments so the root reference is NOT forwarded there.
+ *
+ * Extension pattern (this is the only abstract MobX store in this codebase):
+ *   - `BaseWorkspaceRootStore` is `abstract`; the single abstract method is
+ *     `mutateWorkspaceMembersActivity(workspaceSlug)`.
+ *   - The CE concrete subclass at `apps/web/ce/store/workspace/index.ts`
+ *     supplies a no-op implementation; the EE/`plane-web` variant supplies
+ *     the real implementation.
+ *   - The tsconfig path alias `@/plane-web/*` resolves to `./ce/*` in this
+ *     CE-only tree, so `CoreRootStore` (at `apps/web/core/store/root.store.ts`)
+ *     imports `WorkspaceRootStore` from `@/plane-web/store/workspace` and
+ *     receives whichever concrete subclass the active build supplies.
+ *
+ * Primary state (registered as observables in `makeObservable`):
+ *   - `loader: boolean` — true only while `fetchWorkspaces` is in flight.
+ *   - `workspaces: Record<string, IWorkspace>` — id-keyed workspace map.
+ *   - `navigationPreferencesMap: Record<workspaceSlug, IWorkspaceSidebarNavigation>`
+ *     — sidebar pin/order preferences per workspace.
+ *   - `projectNavigationPreferencesMap: Record<workspaceSlug, IWorkspaceUserPropertiesResponse>`
+ *     — project listing filters/display preferences per workspace.
+ *
+ * Computed (recomputation conditions):
+ *   - `currentWorkspace` — recomputes when `router.workspaceSlug` or any entry
+ *     in `workspaces` changes.
+ *   - `workspacesCreatedByCurrentUser` — recomputes when `workspaces` or
+ *     `user.data` changes.
+ *   - `getNavigationPreferences(workspaceSlug)` — `computedFn`-memoized
+ *     selector on `navigationPreferencesMap[workspaceSlug]`.
+ *   - `getProjectNavigationPreferences(workspaceSlug)` — `computedFn`-memoized
+ *     selector on `projectNavigationPreferencesMap[workspaceSlug]`.
+ *   - `getWorkspaceBySlug` / `getWorkspaceById` are registered as `action` but
+ *     act as synchronous selectors over `workspaces`.
+ *
+ * Action groups:
+ *   - Workspace CRUD: `fetchWorkspaces`, `createWorkspace`, `updateWorkspace`,
+ *     `updateWorkspaceLogo` (synchronous; THROWS if the slug is not found),
+ *     `deleteWorkspace` (logs and swallows errors instead of re-throwing).
+ *   - Sidebar preferences: `fetchSidebarNavigationPreferences`,
+ *     `updateSidebarPreference`, `updateBulkSidebarPreferences`.
+ *   - Project navigation preferences: `fetchProjectNavigationPreferences`,
+ *     `updateProjectNavigationPreferences`.
+ *   - Abstract hook: `mutateWorkspaceMembersActivity` (extension point).
+ *
+ * Optimistic-update-with-rollback pattern: `updateSidebarPreference`,
+ * `updateBulkSidebarPreferences`, and `updateProjectNavigationPreferences`
+ * snapshot the prior preference state via `clone(...)` before writing, then
+ * revert to the snapshot inside the `catch` block if the API call fails. This
+ * keeps the UI responsive while guaranteeing eventual consistency with the
+ * server on transient failure.
+ *
+ * Consumer access pattern: components read this store through the typed hooks
+ * under `apps/web/core/hooks/store/` — `useWorkspace()` for the workspace root
+ * (this module), `useHome()` for `home`, `useWebhook()` for `webhook`, and
+ * `useApiTokens()` for `apiToken`.
+ */
+
 import { clone, set } from "lodash-es";
 import { action, computed, observable, makeObservable, runInAction } from "mobx";
 // types
