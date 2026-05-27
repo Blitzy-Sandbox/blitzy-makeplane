@@ -4,6 +4,67 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Project publish store — manages publish/deploy-board lifecycle state for
+ * individual projects.
+ *
+ * Publishing a project creates a `DeployBoard` entity server-side (see
+ * apps/api/plane/db/models/deploy_board.py) that exposes a read-only public
+ * URL for the project. This store caches publish settings client-side keyed
+ * by project ID and synchronizes the project's `anchor` field on the main
+ * project store so detail pages know whether a project is currently public.
+ *
+ * State slice (from `makeObservable` block, lines 52-63):
+ *   - generalLoader: boolean (observable.ref) — true while publish/unpublish
+ *     or settings-update is in flight.
+ *   - fetchSettingsLoader: boolean (observable.ref) — true while fetching
+ *     existing publish settings.
+ *   - publishSettingsMap: Record<string, TProjectPublishSettings>
+ *       In-memory cache of publish settings keyed by projectID.
+ *
+ * Helper:
+ *   - getPublishSettingsByProjectID(projectID) — synchronous lookup against
+ *     `publishSettingsMap`; returns undefined when the project has not been
+ *     fetched/published.
+ *
+ * Actions:
+ *   - fetchPublishSettings(workspaceSlug, projectID) — GETs settings from
+ *     ProjectPublishService; populates publishSettingsMap[projectID];
+ *     toggles fetchSettingsLoader.
+ *   - publishProject(workspaceSlug, projectID, data) — POSTs to
+ *     ProjectPublishService.publishProject; on success writes settings into
+ *     publishSettingsMap[projectID] AND mutates
+ *     projectRootStore.project.projectMap[projectID].anchor with the new
+ *     anchor returned by the server.
+ *   - updatePublishSettings(workspaceSlug, projectID, projectPublishId, data)
+ *       — PATCHes publish settings via ProjectPublishService.updatePublishSettings
+ *       and refreshes publishSettingsMap[projectID].
+ *   - unPublishProject(workspaceSlug, projectID, projectPublishId) — DELETEs
+ *     the deploy-board; on success `unset`s publishSettingsMap[projectID] and
+ *     nulls projectMap[projectID].anchor so detail pages re-render as private.
+ *
+ * Cross-store writes (anchor field synchronization):
+ *   - projectRootStore.project.projectMap[projectID].anchor — set on publish,
+ *     cleared on unpublish. This is the channel by which other consumers
+ *     observe whether a project is currently public.
+ *
+ * Service dependency:
+ *   - ProjectPublishService (from @/services/project) — performs the HTTP
+ *     calls against apps/api publish endpoints.
+ *
+ * Consumers:
+ *   - Project settings → publish dialog/components under
+ *     apps/web/core/components/project/** that invoke publishProject /
+ *     unPublishProject.
+ *   - Components that read `anchor` on TProject to decide whether to render
+ *     "View public page" affordances (e.g., project header / settings).
+ *
+ * Composition:
+ *   - Constructed by ProjectRootStore (apps/web/core/store/project/index.ts)
+ *     with `this` (the ProjectRootStore instance) so it can mutate the sibling
+ *     project store's `projectMap.anchor` field on publish/unpublish.
+ */
+
 import { unset, set } from "lodash-es";
 import { observable, action, makeObservable, runInAction } from "mobx";
 // types
