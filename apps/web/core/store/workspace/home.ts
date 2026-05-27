@@ -4,6 +4,79 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for workspace home dashboard widget configuration and quick-link composition.
+ *
+ * Workspace-scoped: persists user-configurable home page widget visibility
+ * and ordering through `WorkspaceService.fetchWorkspaceWidgets` /
+ * `updateWorkspaceWidget`. Distinct from the top-level
+ * `apps/web/core/store/dashboard.store.ts`, which models read-only
+ * project/global dashboards (issue distribution, recent activity, etc.) —
+ * a separate domain, service surface, and consumer set.
+ *
+ * State slice (observables):
+ *  - `loading: boolean` — true while `fetchWidgets` is in flight.
+ *  - `showWidgetSettings: boolean` — UI flag for the widget settings panel,
+ *    toggled via `toggleWidgetSettings`.
+ *  - `widgetsMap: Record<string, TWidgetEntityData>` — widget entries keyed
+ *    by widget key (`@plane/types`).
+ *  - `widgets: THomeWidgetKeys[]` — ordered widget-key list materialized from
+ *    `sort_order` at fetch time (the first-paint render order).
+ *
+ * Sub-store composition:
+ *  - `quickLinks: IWorkspaceLinkStore` — a `WorkspaceLinkStore` constructed
+ *    in the constructor; gives the home dashboard its own scoped link store
+ *    for managing user quick-links independently of any other workspace link
+ *    surface.
+ *
+ * Computed:
+ *  - `isAnyWidgetEnabled` — true when any entry in `widgetsMap` has
+ *    `is_enabled === true`. Recomputes when `widgetsMap` changes.
+ *  - `orderedWidgets` — `widgetsMap` values sorted by `sort_order` descending,
+ *    projected to widget keys. Recomputes when `widgetsMap` changes; used as
+ *    the live render order after mutations (vs. the snapshot held in
+ *    `widgets`).
+ *
+ * Actions:
+ *  - `toggleWidgetSettings(value?: boolean)` — synchronous state mutation
+ *    only; no API call. Sets to `value` when provided, otherwise flips the
+ *    current value.
+ *  - `fetchWidgets(workspaceSlug)` — GET via
+ *    `WorkspaceService.fetchWorkspaceWidgets`; hydrates `widgets` (ordered
+ *    keys) and `widgetsMap` (entries by key) inside `runInAction`. Sets and
+ *    clears `loading`; logs and re-throws on error.
+ *  - `toggleWidget(workspaceSlug, widgetKey, is_enabled)` — PATCH via
+ *    `WorkspaceService.updateWorkspaceWidget`, then writes
+ *    `widgetsMap[widgetKey].is_enabled` on success. No rollback is required
+ *    because state is not optimistically mutated before the API call.
+ *    Re-throws on error.
+ *  - `reorderWidget(workspaceSlug, widgetKey, destinationId, edge)` —
+ *    optimistic drag-and-drop reorder. Computes a `resultSequence`
+ *    `sort_order` as the midpoint between the destination's `sort_order` and
+ *    its previous sibling (for `reorder-above` with a prev) or as
+ *    `destinationSequence ± 10000` for boundary cases. This midpoint-
+ *    interleaving keeps sibling `sort_order`s stable so the backend never
+ *    has to renumber on every move. Optimistically writes the new
+ *    `sort_order` into `widgetsMap`, then PATCHes. ROLLBACK: a
+ *    `sortOrderBeforeUpdate` snapshot captured before mutation is restored
+ *    via `set(...)` on error before re-throwing.
+ *
+ * Wiring:
+ *  - Composed as `home` on `BaseWorkspaceRootStore`
+ *    (`apps/web/core/store/workspace/index.ts`) and accessed in components
+ *    via the `useHome()` hook (`apps/web/core/hooks/store/use-home.ts`).
+ *
+ * Consumer components:
+ *  - `apps/web/core/components/home/root.tsx`,
+ *    `apps/web/core/components/home/home-dashboard-widgets.tsx`, and the
+ *    widget management UIs under
+ *    `apps/web/core/components/home/widgets/manage/` (`widget-item.tsx`,
+ *    `widget-list.tsx`).
+ *  - `apps/web/core/components/home/widgets/links/**`
+ *    (`link-detail.tsx`, `root.tsx`, `links.tsx`, `use-links.tsx`) — consume
+ *    the composed `home.quickLinks` sub-store specifically.
+ */
+
 import { orderBy, clone, set } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 // plane imports
