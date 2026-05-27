@@ -4,6 +4,83 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX issue store for Plane's custom Project Views — the `EIssuesStoreType.PROJECT_VIEW`
+ * adapter atop the shared `BaseIssuesStore`. Owns view-scoped issue fetching and cursor
+ * pagination for the saved-view layout, and re-exposes inherited base mutations under the
+ * public method names declared on `IProjectViewIssues`.
+ *
+ * Inheritance:
+ *   - extends `BaseIssuesStore` (../helpers/base-issues.store) — inherits the underlying
+ *     issue cache, grouping / sorting / pagination machinery, loader state, abort
+ *     `controller`, optimistic mutation helpers, and the `onfetchIssues` /
+ *     `onfetchNexIssues` response processors. The constructor calls
+ *     `super(_rootStore, issueFilterStore)`.
+ *   - implements `IProjectViewIssues extends IBaseIssuesStore`.
+ *
+ * State slice (own — see `BaseIssuesStore` for inherited observables such as the cached
+ * `groupedIssueIds`, `groupedIssueCount`, `paginationOptions`, `controller`, and loader
+ * maps):
+ *   - viewFlags: ViewFlags
+ *       `{ enableQuickAdd: true, enableIssueCreation: true, enableInlineEditing: true }` —
+ *       UI capability switches read by the issue-layout components. All three are enabled
+ *       for project views (quick-add row, plus-button issue creation, and inline-field
+ *       editing are all permitted), which is what distinguishes this store from read-only
+ *       contexts such as `archived`.
+ *   - issueFilterStore: IProjectViewIssuesFilter
+ *       Sibling filter store used to derive backend query parameters from the active
+ *       saved-view filter snapshot via `getFilterParams`. Captured in the constructor and
+ *       also threaded through `super()` for base-class use.
+ *
+ * Actions (registered on `makeObservable` as `action`):
+ *   - fetchIssues(workspaceSlug, projectId, viewId, loadType, options, isExistingPaginationOptions=false)
+ *       Fetches the first page of issues for `viewId`. Sets the loader, clears the local
+ *       issue collection unless `isExistingPaginationOptions` is true, derives params via
+ *       `issueFilterStore.getFilterParams(options, viewId, undefined, undefined, undefined)`,
+ *       calls `issueService.getIssues(workspaceSlug, projectId, params, { signal: this.controller.signal })`,
+ *       and forwards the response through the inherited `onfetchIssues` so grouping and
+ *       pagination metadata are committed. On error, resets the loader and rethrows.
+ *   - fetchNextIssues(workspaceSlug, projectId, viewId, groupId?, subGroupId?)
+ *       Advances cursor-based pagination using the stored `paginationOptions`. When
+ *       `groupId` / `subGroupId` are supplied, only that group / subgroup's cursor
+ *       advances; otherwise all top-level groups advance. Returns early when
+ *       `paginationOptions` is unset or the group's cursor reports
+ *       `nextPageResults === false`. Forwards the response through `onfetchNexIssues`.
+ *   - fetchIssuesWithExistingPagination(workspaceSlug, projectId, viewId, loadType)
+ *       Re-runs `fetchIssues` for the first page using the current `paginationOptions` and
+ *       `isExistingPaginationOptions=true`. This is the contract that lets the view refresh
+ *       on filter / groupBy / orderBy changes without losing pagination context or
+ *       flickering during the swap.
+ *   - fetchParentStats = async () => {} / updateParentStats = () => {}
+ *       No-op overrides of the base contract. Project views have no parent aggregate to
+ *       update (unlike cycle or module views which roll up into a parent entity), so the
+ *       hooks are satisfied without work.
+ *
+ * Inherited mutation aliases (per the inline note "Using aliased names as they cannot be
+ * overridden in other stores" — these are alias bindings onto the public surface declared
+ * by `IProjectViewIssues`, NOT overrides; they do not change behavior):
+ *   - archiveBulkIssues = this.bulkArchiveIssues
+ *   - quickAddIssue     = this.issueQuickAdd
+ *   - updateIssue       = this.issueUpdate
+ *   - archiveIssue      = this.issueArchive
+ *   `createIssue`, `removeBulkIssues`, and `bulkUpdateProperties` are inherited from
+ *   `BaseIssuesStore` directly under their interface names — they are not aliased here
+ *   because the interface name already matches the base implementation name.
+ *
+ * Consumers:
+ *   - apps/web/core/store/issue/root.store.ts — composes this store as `projectViewIssues`,
+ *     paired with its filter store, alongside the other per-scope issue stores
+ *   - apps/web/core/components/issues/issue-layouts/roots/project-view-layout-root.tsx —
+ *     primary mounting point; provides `EIssuesStoreType.PROJECT_VIEW` to
+ *     `IssuesStoreContext` so the issue-layout subtree resolves this store
+ *   - apps/web/core/components/issues/issue-layouts/{kanban,list,calendar,gantt,spreadsheet,roots}/**
+ *     when invoked under the project-view context
+ *   - apps/web/core/components/issues/issue-layouts/empty-states/project-view.tsx —
+ *     empty-state UI gated on this store's load state
+ *   - Accessed by all of the above through the `useIssues(EIssuesStoreType.PROJECT_VIEW)`
+ *     hook in apps/web/core/hooks/store/use-issues.ts
+ */
+
 import { action, makeObservable, runInAction } from "mobx";
 // base class
 import type {
