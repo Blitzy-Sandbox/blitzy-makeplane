@@ -58,13 +58,11 @@ const HeaderContext = React.createContext<THeaderVariant | null>(null);
  * class string composed via `getHeaderStyle`. Broadcasts the active variant
  * through `HeaderContext` so `Header.RightItem` can read it without prop drilling.
  *
- * Composition:
- *   ```tsx
- *   <Header variant={EHeaderVariant.PRIMARY}>
- *     <Header.LeftItem>{breadcrumbs}</Header.LeftItem>
- *     <Header.RightItem>{actions}</Header.RightItem>
- *   </Header>
- *   ```
+ * @example
+ * <Header variant={EHeaderVariant.PRIMARY}>
+ *   <Header.LeftItem>{breadcrumbs}</Header.LeftItem>
+ *   <Header.RightItem>{actions}</Header.RightItem>
+ * </Header>
  */
 function Header(props: HeaderProps) {
   const {

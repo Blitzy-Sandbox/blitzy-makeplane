@@ -18,10 +18,15 @@
  * Types: `AuthFormProps`, `AuthFormData`, `AuthMode`, `TAuthInputProps`,
  * `TAuthPasswordInputProps`, `TAuthConfirmPasswordInputProps`, `AuthForgotPasswordProps`.
  *
- * Consumed by app-level sign-in / sign-up routes in `apps/web`, `apps/admin`, and `apps/space`
- * via the `@plane/ui` star re-export. These primitives are state-agnostic — they hold only
- * local UI state (focus, visibility toggle) and delegate every behavioral concern (validation,
- * submission, navigation) to the consumer via callback props.
+ * These primitives are state-agnostic — they hold only local UI state (focus, visibility
+ * toggle) and delegate every behavioral concern (validation, submission, navigation) to the
+ * consumer via callback props.
+ *
+ * INTENT UNCLEAR: this barrel is not re-exported from `packages/ui/src/index.ts`, and no
+ * consumer of `AuthForm`, `AuthInput`, `AuthPasswordInput`, `AuthConfirmPasswordInput`, or
+ * `AuthForgotPassword` was found in `apps/web`, `apps/admin`, or `apps/space`. The file may
+ * be dead code or pending future wiring; `apps/web/core/components/account/auth-forms/`
+ * defines its own `AuthFormRoot`/`AuthFormHeader` that do NOT import from this module.
  */
 
 export { AuthForm } from "./auth-form";

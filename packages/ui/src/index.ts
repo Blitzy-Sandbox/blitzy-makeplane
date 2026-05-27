@@ -9,7 +9,7 @@
  *
  * Public API surface (33 sub-modules star-re-exported below):
  *
- * Buttons & input: button, form-fields, auth-form, oauth, color-picker
+ * Buttons & input: button, form-fields, oauth, color-picker
  * Containers:      card, content-wrapper, modals, row, header
  * Navigation:      tabs, breadcrumbs, dropdown, dropdowns
  * Data display:    avatar, badge, tag, progress, loader, tables, typography
