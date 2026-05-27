@@ -4,6 +4,22 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Stateless React-PDF SVG icon components used by the PDF subsystem.
+ *
+ * Each component renders a small flat-line icon (callouts, attachments, file
+ * type tiles, mentions, task checkmarks, etc.) and accepts `size` and `color`
+ * props with sensible per-icon defaults. Used by `./node-renderers` when
+ * rendering nodes that need iconography (callouts, attachments, embedded
+ * references); icons are intentionally NOT re-exported from `./index.ts` —
+ * they are internal to the PDF subsystem.
+ *
+ * `getFileIcon` dispatches a MIME / file-type string to the appropriate icon
+ * component (`ImageIcon`, `VideoIcon`, `MusicIcon`, `FileTextIcon`,
+ * `TableIcon`, `PresentationIcon`, `ArchiveIcon`) with the matching brand
+ * accent color, falling back to `PaperclipIcon` for unknown types.
+ */
+
 import { Circle, Path, Rect, Svg } from "@react-pdf/renderer";
 
 type IconProps = {
@@ -11,7 +27,9 @@ type IconProps = {
   color?: string;
 };
 
-// Lightbulb icon for callouts (default)
+/**
+ * Default callout glyph. Props: `size` (default 16) and `color` (default white).
+ */
 export const LightbulbIcon = ({ size = 16, color = "#ffffff" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Path
@@ -25,7 +43,10 @@ export const LightbulbIcon = ({ size = 16, color = "#ffffff" }: IconProps) => (
   </Svg>
 );
 
-// Document/file icon for page embeds
+/**
+ * Document/page glyph for page embeds and file links. Props: `size` (default 12)
+ * and `color` (default brand blue `#1e40af`).
+ */
 export const DocumentIcon = ({ size = 12, color = "#1e40af" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Path
@@ -41,7 +62,10 @@ export const DocumentIcon = ({ size = 12, color = "#1e40af" }: IconProps) => (
   </Svg>
 );
 
-// Link icon for page links and external links
+/**
+ * Chain-link glyph for hyperlinks and page references. Props: `size`
+ * (default 12) and `color` (default brand blue `#2563eb`).
+ */
 export const LinkIcon = ({ size = 12, color = "#2563eb" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Path
@@ -63,7 +87,10 @@ export const LinkIcon = ({ size = 12, color = "#2563eb" }: IconProps) => (
   </Svg>
 );
 
-// Paperclip icon for attachments (default)
+/**
+ * Generic attachment glyph. Used as the `getFileIcon` fallback for unknown
+ * MIME types. Props: `size` (default 16) and `color` (default gray `#374151`).
+ */
 export const PaperclipIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Path
@@ -77,7 +104,10 @@ export const PaperclipIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   </Svg>
 );
 
-// Image icon for image attachments
+/**
+ * Image-attachment glyph. Selected by `getFileIcon` when the MIME prefix is
+ * `image/`. Props: `size` (default 16) and `color` (default gray `#374151`).
+ */
 export const ImageIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Rect x={3} y={3} width={18} height={18} rx={2} ry={2} fill="none" stroke={color} strokeWidth={2} />
@@ -86,7 +116,10 @@ export const ImageIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   </Svg>
 );
 
-// Video icon for video attachments
+/**
+ * Video-attachment glyph. Selected by `getFileIcon` when the MIME prefix is
+ * `video/`. Props: `size` (default 16) and `color` (default gray `#374151`).
+ */
 export const VideoIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Rect x={2} y={4} width={15} height={16} rx={2} ry={2} fill="none" stroke={color} strokeWidth={2} />
@@ -94,7 +127,10 @@ export const VideoIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   </Svg>
 );
 
-// Music/audio icon
+/**
+ * Audio-attachment glyph. Selected by `getFileIcon` when the MIME prefix is
+ * `audio/`. Props: `size` (default 16) and `color` (default gray `#374151`).
+ */
 export const MusicIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Path d="M9 18V5l12-2v13" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" />
@@ -103,7 +139,11 @@ export const MusicIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   </Svg>
 );
 
-// File-text icon for PDFs and documents
+/**
+ * Text-document glyph. Selected by `getFileIcon` for PDFs (rendered red) and
+ * Word documents (rendered blue). Props: `size` (default 16) and `color`
+ * (default gray `#374151`).
+ */
 export const FileTextIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Path
@@ -117,7 +157,10 @@ export const FileTextIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   </Svg>
 );
 
-// Table/spreadsheet icon
+/**
+ * Spreadsheet glyph. Selected by `getFileIcon` for Excel / spreadsheet MIME
+ * types. Props: `size` (default 16) and `color` (default gray `#374151`).
+ */
 export const TableIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Rect x={3} y={3} width={18} height={18} rx={2} fill="none" stroke={color} strokeWidth={2} />
@@ -125,7 +168,10 @@ export const TableIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   </Svg>
 );
 
-// Presentation icon
+/**
+ * Slide-deck glyph. Selected by `getFileIcon` for PowerPoint / presentation
+ * MIME types. Props: `size` (default 16) and `color` (default gray `#374151`).
+ */
 export const PresentationIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Rect x={2} y={3} width={20} height={14} rx={2} fill="none" stroke={color} strokeWidth={2} />
@@ -133,7 +179,10 @@ export const PresentationIcon = ({ size = 16, color = "#374151" }: IconProps) =>
   </Svg>
 );
 
-// Archive/zip icon
+/**
+ * Compressed-archive glyph. Selected by `getFileIcon` for zip / archive MIME
+ * types. Props: `size` (default 16) and `color` (default gray `#374151`).
+ */
 export const ArchiveIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Path
@@ -154,7 +203,10 @@ export const ArchiveIcon = ({ size = 16, color = "#374151" }: IconProps) => (
   </Svg>
 );
 
-// Globe icon for external embeds (rich cards)
+/**
+ * Globe glyph for external rich embed cards. Props: `size` (default 12) and
+ * `color` (default gray `#374151`).
+ */
 export const GlobeIcon = ({ size = 12, color = "#374151" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Circle cx={12} cy={12} r={10} fill="none" stroke={color} strokeWidth={2} />
@@ -167,7 +219,10 @@ export const GlobeIcon = ({ size = 12, color = "#374151" }: IconProps) => (
   </Svg>
 );
 
-// Clipboard icon for whiteboards
+/**
+ * Clipboard glyph for whiteboard embeds. Props: `size` (default 12) and
+ * `color` (default gray `#6b7280`).
+ */
 export const ClipboardIcon = ({ size = 12, color = "#6b7280" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Path
@@ -181,7 +236,10 @@ export const ClipboardIcon = ({ size = 12, color = "#6b7280" }: IconProps) => (
   </Svg>
 );
 
-// Ruler/diagram icon for diagrams
+/**
+ * Document-with-lines glyph for diagram embeds. Props: `size` (default 12)
+ * and `color` (default gray `#6b7280`).
+ */
 export const DiagramIcon = ({ size = 12, color = "#6b7280" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Path
@@ -202,7 +260,10 @@ export const DiagramIcon = ({ size = 12, color = "#6b7280" }: IconProps) => (
   </Svg>
 );
 
-// Work item / task icon
+/**
+ * Checkbox-with-check glyph for work-item / task references. Props: `size`
+ * (default 14) and `color` (default gray `#374151`).
+ */
 export const TaskIcon = ({ size = 14, color = "#374151" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Rect x={3} y={3} width={18} height={18} rx={2} fill="none" stroke={color} strokeWidth={2} />
@@ -210,14 +271,32 @@ export const TaskIcon = ({ size = 14, color = "#374151" }: IconProps) => (
   </Svg>
 );
 
-// Checkmark icon for checked task items
+/**
+ * White checkmark drawn inside the filled `taskCheckbox` view for checked task
+ * list items. Props: `size` (default 10) and `color` (default white).
+ */
 export const CheckIcon = ({ size = 10, color = "#ffffff" }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Path d="M20 6L9 17l-5-5" fill="none" stroke={color} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
   </Svg>
 );
 
-// Helper to get file icon component based on file type
+/**
+ * Dispatches a MIME / file-type string to the matching icon component
+ * (with the brand accent color for well-known formats). Order is significant:
+ * MIME-prefix matches (`image/`, `video/`, `audio/`) run first, then substring
+ * checks for `pdf`, `spreadsheet`/`excel`, `document`/`word`,
+ * `presentation`/`powerpoint`, and `zip`/`archive`. Unknown types fall back to
+ * `PaperclipIcon`.
+ *
+ * @param fileType - MIME string (e.g., `"image/png"`, `"application/pdf"`) or
+ *                   a file-type label that contains one of the recognized
+ *                   substrings.
+ * @param size     - Icon size in PDF user-space units. Defaults to 16.
+ * @param color    - Fallback icon color for unrecognized formats. Defaults to
+ *                   `"#374151"`. Recognized formats (`pdf`, spreadsheet, etc.)
+ *                   override this with their brand accent.
+ */
 export const getFileIcon = (fileType: string, size = 16, color = "#374151") => {
   if (fileType.startsWith("image/")) return <ImageIcon size={size} color={color} />;
   if (fileType.startsWith("video/")) return <VideoIcon size={size} color={color} />;
