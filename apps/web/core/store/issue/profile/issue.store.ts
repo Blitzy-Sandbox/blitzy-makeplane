@@ -4,6 +4,90 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Profile-scoped MobX issue list store that backs the `/profile/[userId]` views;
+ * extends `BaseIssuesStore` (`../helpers/base-issues.store`) and specializes
+ * issue fetching for the active profile-view discriminant
+ * (`"assigned"` | `"created"` | `"subscribed"`). Inherits generic list
+ * management — pagination state, abort controller, normalization hooks
+ * (`onfetchIssues`, `onfetchNexIssues`), and bulk operations
+ * (`bulkArchiveIssues`, `issueUpdate`, `issueArchive`) — and routes its
+ * server reads through `UserService.getUserProfileIssues`.
+ *
+ * State slice:
+ *   - currentView (observable.ref): TProfileViews — defaults to "assigned";
+ *       acts as the discriminant for which profile list (assigned / created /
+ *       subscribed) is hydrated.
+ *   - issueFilterStore: IProfileIssuesFilter — paired filter store from
+ *       `./filter.store`, used to derive query params via `getFilterParams`.
+ *   - userService: UserService — issues the workspace-scoped profile-issues
+ *       HTTP call (`getUserProfileIssues`).
+ *   - inherited from BaseIssuesStore: pagination data, controller abort
+ *       signal, loader flags, grouped/sub-grouped issue maps (not enumerated).
+ *
+ * Computed:
+ *   - viewFlags (computed): derives `{ enableQuickAdd, enableIssueCreation,
+ *       enableInlineEditing }` from `currentView`. Subscribed views disable
+ *       issue creation (`enableIssueCreation: false`); assigned and created
+ *       views enable it. Quick add is universally disabled across all profile
+ *       views (`enableQuickAdd: false`); inline editing is universally enabled
+ *       (`enableInlineEditing: true`). Recomputes when `currentView` changes.
+ *
+ * Actions:
+ *   - setViewId(viewId) (action.bound): assigns `currentView`; no async or
+ *       external side effects.
+ *   - fetchIssues(workspaceSlug, userId, loadType, options, view,
+ *       isExistingPaginationOptions?) (action): first-page fetch. Sets the
+ *       loader, clears state (clear-on-fresh-load), calls `setViewId(view)`,
+ *       derives params via `issueFilterStore.getFilterParams`, narrows by view
+ *       (`assignees`/`created_by`/`subscriber` = `userId`), and calls
+ *       `userService.getUserProfileIssues` with the abort signal. Delegates
+ *       response normalization to inherited `onfetchIssues`.
+ *   - fetchNextIssues(workspaceSlug, userId, groupId?, subGroupId?) (action):
+ *       cursor-based subsequent-page fetch using stored `paginationOptions`
+ *       and `getPaginationData(groupId, subGroupId)`; applies the same view
+ *       narrowing rules; delegates to inherited `onfetchNexIssues`. Early
+ *       returns when no `paginationOptions` exist or the next page is
+ *       exhausted.
+ *   - fetchIssuesWithExistingPagination(workspaceSlug, userId, loadType)
+ *       (action): refetches page 1 with stored `paginationOptions` and the
+ *       current `currentView`; called by the paired filter store after filter
+ *       mutations to refresh results without changing the view discriminant.
+ *
+ * Aliased / disabled members:
+ *   - archiveBulkIssues = bulkArchiveIssues; updateIssue = issueUpdate;
+ *     archiveIssue = issueArchive — aliases over inherited mutations; bulk
+ *     archive, inline update, and archive are allowed on profile views.
+ *   - quickAddIssue = undefined — quick add is explicitly unsupported on
+ *     profile views (matches `viewFlags.enableQuickAdd: false`).
+ *   - fetchParentStats / updateParentStats — no-ops; profile lists have no
+ *     parent-entity stat aggregation (no parent cycle/module/project to roll
+ *     up into).
+ *
+ * Side effects:
+ *   - Network: GET via `userService.getUserProfileIssues` (workspace-scoped
+ *     profile-issues endpoint).
+ *   - Observable mutations on `currentView` plus all inherited pagination /
+ *     loader / grouped-issue mutations from `BaseIssuesStore`.
+ *   - No direct local-storage writes (those live in the paired filter store).
+ *   - No navigation triggers.
+ *
+ * Consumers (read via `useIssues(EIssuesStoreType.PROFILE)`):
+ *   - apps/web/core/components/profile/profile-issues.tsx — renders the
+ *       profile issue list/kanban.
+ *   - apps/web/core/components/profile/profile-issues-filter.tsx — reads
+ *       view flags + currentView for the filter UI.
+ *   - apps/web/core/hooks/use-issues-actions.tsx — issue action dispatch
+ *       for profile views (PROFILE discriminant).
+ *   - apps/web/app/(all)/[workspaceSlug]/(projects)/profile/[userId]/mobile-header.tsx
+ *       — mobile filter/header.
+ *   - apps/web/core/components/issues/issue-layouts/{list, kanban,
+ *       empty-states} — consume via the `EIssuesStoreType.PROFILE`
+ *       discriminant.
+ *   - Composed in apps/web/core/store/issue/root.store.ts as
+ *     `rootIssueStore.profileIssues`.
+ */
+
 import { action, observable, makeObservable, computed, runInAction } from "mobx";
 // base class
 import type {
