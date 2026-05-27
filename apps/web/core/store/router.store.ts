@@ -4,6 +4,42 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Router store: thin projection of the parsed URL query into typed observable
+ * route parameters; the source of truth for "which entity is the user
+ * currently viewing" across every domain store and component.
+ *
+ * State slice:
+ *   - query: ParsedUrlQuery — the raw parsed query object from React Router
+ *     (set externally by the route layout via setQuery on every navigation)
+ *
+ * Actions:
+ *   - setQuery(query: ParsedUrlQuery) — replaces the observable query;
+ *     called by `apps/web/core/lib/wrappers/store-wrapper.tsx` (or similar
+ *     route-listener wrapper) on every navigation event. No service calls.
+ *
+ * Computed (all recompute when `query` changes; each extracts a single
+ * named parameter from the URL):
+ *   - workspaceSlug: string | undefined — workspace slug from /:workspaceSlug/
+ *   - teamspaceId: string | undefined — teamspace id (EE only)
+ *   - projectId: string | undefined — project uuid from route params
+ *   - cycleId / moduleId / viewId / globalViewId — entity ids when on
+ *     entity routes; undefined otherwise
+ *   - profileViewId: TProfileViews | undefined — profile sub-view discriminant
+ *   - userId / peekId / issueId / inboxId / webhookId / epicId — additional
+ *     route parameter projections
+ *
+ * Consumers (this store is read by virtually every domain store and most
+ * components; representative examples below):
+ *   - apps/web/core/store/cycle.store.ts (uses workspaceSlug + projectId in
+ *     currentProjectCycleIds and other computed selectors)
+ *   - apps/web/core/store/module.store.ts
+ *   - apps/web/core/store/issue/** (every issue-store branch keys caches by
+ *     route ids)
+ *   - apps/web/core/components/** (any component that reads route state
+ *     reactively via useRouter store hook)
+ */
+
 import type { ParsedUrlQuery } from "node:querystring";
 import { action, makeObservable, observable, computed, runInAction } from "mobx";
 
