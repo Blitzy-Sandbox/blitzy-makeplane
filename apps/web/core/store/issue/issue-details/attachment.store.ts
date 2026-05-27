@@ -4,6 +4,45 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for issue attachments — normalized cache (id → attachment entity), per-issue
+ * attachment-id lists, and a per-issue upload-progress map used by the upload UI.
+ *
+ * State slice:
+ * - attachments: TIssueAttachmentIdMap — per-issue lists of attachment ids
+ * - attachmentMap: TIssueAttachmentMap — normalized cache of attachment entities keyed by attachment id
+ * - attachmentsUploadStatusMap: Record<issueId, Record<tempId, TAttachmentUploadStatus>> — in-flight upload
+ *   progress entries, keyed by a uuid generated client-side before the upload starts
+ *
+ * Actions:
+ * - addAttachments(issueId, attachments): merges new attachments into both maps without dropping existing ids
+ * - fetchAttachments(workspaceSlug, projectId, issueId): GET via IssueAttachmentService.getIssueAttachments and hydrates the cache
+ * - createAttachment(workspaceSlug, projectId, issueId, file): POST upload via IssueAttachmentService.uploadIssueAttachment;
+ *   inserts the response into both maps AND denormalizes the new `attachment_count` onto the parent issue in
+ *   `rootIssueStore.issues` so list/board widgets stay in sync. The temporary upload-status entry is always
+ *   cleared in the `finally` block — including on error.
+ * - removeAttachment(workspaceSlug, projectId, issueId, attachmentId): DELETE via the service; removes the id
+ *   from both maps and decrements the parent issue's `attachment_count` in `rootIssueStore.issues`.
+ *
+ * Upload progress is updated via a 16ms-debounced helper so that high-frequency Axios `onUploadProgress`
+ * callbacks do not thrash MobX observers.
+ *
+ * Computed:
+ * - issueAttachments: ids of attachments for the currently-peeked issue, recomputes when `peekIssue.issueId`
+ *   or the per-issue attachment list changes.
+ *
+ * Helper queries (computedFn / plain): getAttachmentsUploadStatusByIssueId, getAttachmentsByIssueId,
+ * getAttachmentById, getAttachmentsCountByIssueId.
+ *
+ * Consumers: issue-detail attachment widgets under apps/web/core/components/issues/attachment/**,
+ * apps/web/core/components/issues/issue-detail-widgets/** and apps/web/core/components/issues/peek-overview/**,
+ * via the apps/web/core/hooks/store/use-issue-detail.ts hook.
+ *
+ * Note on dual storage: the attachment count is intentionally denormalized onto the parent issue's
+ * `attachment_count` in `rootIssueStore.issues` so the shared work-item caches that drive list/board layouts
+ * do not need to read this detail store on every render.
+ */
+
 import { uniq, pull, set, debounce, update, concat } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";
