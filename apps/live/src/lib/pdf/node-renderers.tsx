@@ -4,6 +4,27 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Recursive document-tree renderer for the PDF subsystem.
+ *
+ * Maps TipTap node `type` names to React-PDF primitives via the `nodeRenderers`
+ * registry. The exported `renderNode` traversal walks the document depth-first,
+ * threading an internal context (parent type, list nesting level, list-item
+ * index, inherited `textAlign`, and a per-render `KeyGenerator`) so each
+ * renderer can reproduce the layout the TipTap editor would show on screen.
+ *
+ * Supported node types include: `doc`, `paragraph`, `heading` (levels 1-6),
+ * `blockquote`, `codeBlock`, `bulletList`, `orderedList`, `listItem`,
+ * `taskList`, `taskItem`, `table`, `tableRow`, `tableHeader`, `tableCell`,
+ * `horizontalRule`, `hardBreak`, `image`, `imageComponent`, `calloutComponent`,
+ * and `mention`. Unknown types fall through to a generic children-only `View`.
+ *
+ * Pulls in shared styles from `./styles`, inline-mark application from
+ * `./mark-renderers`, color resolution from `./colors`, and icon components
+ * from `./icons`. Consumed by `./plane-pdf-exporter` which wraps the rendered
+ * children in a React-PDF `Document` / `Page` shell.
+ */
+
 import { Image, Link, Text, View } from "@react-pdf/renderer";
 import type { Style } from "@react-pdf/types";
 import type { ReactElement } from "react";
@@ -14,6 +35,12 @@ import { applyMarks } from "./mark-renderers";
 import { pdfStyles } from "./styles";
 import type { KeyGenerator, NodeRendererRegistry, PDFExportMetadata, PDFRenderContext, TipTapNode } from "./types";
 
+/**
+ * Resolves the icon element shown inside a callout node from the node's
+ * `data-logo-in-use` / `data-icon-name` / `data-emoji-unicode` attrs.
+ * Falls back to a generic lightbulb when neither an emoji nor a known
+ * icon name is provided.
+ */
 const getCalloutIcon = (node: TipTapNode, color: string): ReactElement => {
   const logoInUse = node.attrs?.["data-logo-in-use"] as string | undefined;
   const iconName = node.attrs?.["data-icon-name"] as string | undefined;
@@ -49,11 +76,23 @@ const getCalloutIcon = (node: TipTapNode, color: string): ReactElement => {
   return <LightbulbIcon size={16} color={color} />;
 };
 
+/**
+ * Returns a fresh `KeyGenerator` that yields monotonically unique string keys
+ * (`node-0`, `node-1`, …) per call. Each `renderPlaneDocToPdf*` invocation
+ * builds its own generator so React keys are stable within one render pass
+ * and disjoint across documents — preventing key collisions when multiple
+ * documents are rendered in the same Node process.
+ */
 export const createKeyGenerator = (): KeyGenerator => {
   let counter = 0;
   return () => `node-${counter++}`;
 };
 
+/**
+ * Renders a TipTap text node, folding its `marks` into a single React-PDF
+ * `Style` and emitting either a `<Link>` (when a `link` mark is present) or a
+ * plain `<Text>` element.
+ */
 const renderTextWithMarks = (node: TipTapNode, getKey: KeyGenerator): ReactElement => {
   const style = applyMarks(node.marks, {});
   const hasLink = node.marks?.find((m) => m.type === "link");
@@ -74,6 +113,7 @@ const renderTextWithMarks = (node: TipTapNode, getKey: KeyGenerator): ReactEleme
   );
 };
 
+/** Returns a React-PDF style with `textAlign` set, used for paragraph / heading text alignment. */
 const getTextAlignStyle = (textAlign: string | null | undefined): Style => {
   if (!textAlign) return {};
   return {
@@ -81,6 +121,7 @@ const getTextAlignStyle = (textAlign: string | null | undefined): Style => {
   };
 };
 
+/** Returns a React-PDF flexbox style that aligns container children to match the node's textAlign attr. */
 const getFlexAlignStyle = (textAlign: string | null | undefined): Style => {
   if (!textAlign) return {};
   if (textAlign === "right") return { alignItems: "flex-end" };
@@ -88,6 +129,32 @@ const getFlexAlignStyle = (textAlign: string | null | undefined): Style => {
   return {};
 };
 
+/**
+ * Registry mapping TipTap node `type` names to renderer functions. Each
+ * renderer receives `(node, alreadyRenderedChildren, ctx)` and returns a
+ * React-PDF element keyed via `ctx.getKey()`. Registry entries can be
+ * overridden by reassigning a key, but the live PDF pipeline does not do so
+ * in production — additions are made by extending the registry inline.
+ *
+ * Notable behaviors:
+ *  - `paragraph`/`heading` honor a `textAlign` attr and an optional
+ *    `backgroundColor` resolved through `./colors`.
+ *  - `bulletList`/`orderedList` apply nesting indent only when nested under a
+ *    `listItem` (signalled via the internal `_nestingLevel` context attr).
+ *  - `listItem` chooses `•` vs. a numeric bullet from `_parentType` /
+ *    `_listItemIndex`.
+ *  - `taskItem` renders a checkbox `View` and a check icon when `checked`.
+ *  - `tableRow` switches header vs. body row style from the internal
+ *    `_isHeader` attr injected during traversal.
+ *  - `image` renders a `<View>` placeholder when `ctx.metadata.noAssets` is
+ *    true, otherwise an `<Image>` sized from the node's `width` attr.
+ *  - `imageComponent` resolves an asset id against
+ *    `ctx.metadata.resolvedImageUrls` and renders a placeholder card when no
+ *    resolved URL is available (so the PDF still renders something visible).
+ *  - `mention` displays the resolved user `display_name` when
+ *    `entity_name === "user_mention"` / `"user"`, falling back to the raw
+ *    `id` / `entity_identifier`.
+ */
 export const nodeRenderers: NodeRendererRegistry = {
   doc: (_node: TipTapNode, children: ReactElement[], ctx: PDFRenderContext): ReactElement => (
     <View key={ctx.getKey()}>{children}</View>
@@ -360,6 +427,13 @@ export const nodeRenderers: NodeRendererRegistry = {
   },
 };
 
+/**
+ * Internal traversal state threaded through `renderNodeWithContext`. The
+ * underscore-prefixed `_parentType`, `_nestingLevel`, `_listItemIndex`,
+ * `_textAlign`, and `_isHeader` attrs are injected onto each node's `attrs`
+ * before lookup so individual renderers can read them without re-walking the
+ * tree.
+ */
 type InternalRenderContext = {
   parentType?: string;
   nestingLevel: number;
@@ -368,6 +442,14 @@ type InternalRenderContext = {
   pdfContext: PDFRenderContext;
 };
 
+/**
+ * Depth-first traversal that recursively renders a node's children, computes
+ * the next traversal context (incrementing list nesting only when the current
+ * node is a list container directly under a `listItem`, propagating
+ * `textAlign` inheritance from paragraph nodes), and dispatches to
+ * `nodeRenderers[node.type]`. Falls back to a generic `<View>` with children
+ * when no renderer is registered for the type.
+ */
 const renderNodeWithContext = (node: TipTapNode, context: InternalRenderContext): ReactElement => {
   const { parentType, nestingLevel, listItemIndex, textAlign, pdfContext } = context;
 
@@ -426,6 +508,24 @@ const renderNodeWithContext = (node: TipTapNode, context: InternalRenderContext)
   return <View key={pdfContext.getKey()} />;
 };
 
+/**
+ * Public entrypoint for rendering a single TipTap node (typically the document
+ * root or a top-level block) to a React-PDF element.
+ *
+ * @param node       - The TipTap node to render.
+ * @param parentType - Parent node type (e.g., `"doc"`) used by some renderers
+ *                     to decide list-item numbering / bullets.
+ * @param _index     - Reserved; currently ignored. Kept for backward
+ *                     compatibility with callers passing the position in a
+ *                     parent's `content[]`.
+ * @param metadata   - Entity resolution + asset suppression
+ *                     (`userMentions`, `resolvedImageUrls`, `noAssets`)
+ *                     propagated to leaf renderers.
+ * @param getKey     - Optional shared `KeyGenerator` so callers can reuse one
+ *                     generator across multiple top-level `renderNode` calls
+ *                     and keep all keys disjoint.
+ * @returns A React-PDF element tree for the node.
+ */
 export const renderNode = (
   node: TipTapNode,
   parentType?: string,
