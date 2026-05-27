@@ -4,6 +4,45 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for per-work-item sub-issue display configuration — owns the filters, display filters,
+ * display properties, grouping and ordering for each parent work item's sub-issue widget. Composed
+ * into the paired `IssueSubIssuesStore` and never instantiated independently.
+ *
+ * State slice:
+ * - subIssueFilters: Record<workItemId, Partial<ISubWorkItemFilters>> — per-work-item subscription of
+ *   { displayProperties, filters, displayFilters } that drives the sub-issue list rendering. New entries
+ *   are lazily initialized via `initializeFilters` using DEFAULT_DISPLAY_PROPERTIES.
+ *
+ * Module-level constants:
+ * - DEFAULT_DISPLAY_PROPERTIES: keys/issue_type/assignee/start_date/due_date/labels/priority/state are all
+ *   on by default; consumed by `initializeFilters` whenever a work item is first looked up.
+ *
+ * Actions:
+ * - updateSubWorkItemFilters(filterType, filters, workItemId): delegates to the shared
+ *   `getFilteredWorkItems` / `updateSubWorkItemFilters` helpers in `../helpers/base-issues-utils` so the
+ *   filter mutation logic stays aligned with the main issue list filters.
+ * - getSubIssueFilters(workItemId): lazy-init accessor — guarantees the work-item key exists in
+ *   subIssueFilters before returning it.
+ * - resetFilters(workItemId): re-initializes the work item's bucket to defaults.
+ * - initializeFilters(workItemId): seeds the work item entry with DEFAULT_DISPLAY_PROPERTIES and empty
+ *   filters/displayFilters.
+ *
+ * Computed helpers (computedFn):
+ * - getFilteredSubWorkItems(workItemId, filters): resolves the sub-issue ids from the paired
+ *   `IssueSubIssuesStore`, hydrates them from `rootIssueStore.issues.getIssuesByIds(..., "un-archived")`,
+ *   and runs them through the shared `getFilteredWorkItems` helper. Recomputes when sub-issue ids,
+ *   the shared issue cache, or `filters` change.
+ * - getGroupedSubWorkItems(parentWorkItemId): runs `getFilteredSubWorkItems` and then groups the result
+ *   via the shared `getGroupedWorkItemIds` helper using the work item's `group_by` and `order_by`.
+ *
+ * Composition: instantiated as `filters` inside `IssueSubIssuesStore`; this is the only construction site.
+ *
+ * Consumers: sub-issue widgets under apps/web/core/components/issues/issue-detail/** and
+ * apps/web/core/components/issues/issue-detail-widgets/sub-work-items/** which read filters and grouped
+ * lists via `rootIssueDetail.subIssues.filters`.
+ */
+
 import { set } from "lodash-es";
 import { action, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";
