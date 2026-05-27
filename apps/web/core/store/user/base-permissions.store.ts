@@ -4,6 +4,81 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Abstract base MobX store providing the foundation for client-side authorization
+ * logic across workspaces and projects. Concrete implementations live in
+ * `@/plane-web/store/user/permission.store` (Community/Enterprise edition split);
+ * concrete stores extend `BaseUserPermissionStore` and supply
+ * `getProjectRoleByWorkspaceSlugAndProjectId` and `fetchWorkspaceLevelProjectEntities`.
+ * Server-side counterpart: `apps/api/plane/app/permissions/` (AAP Directive 1).
+ *
+ * State slice (observables):
+ *   - `loader: boolean` - async fetch indicator for permission API calls.
+ *   - `workspaceUserInfo: Record<string, IWorkspaceMemberMe>` - keyed by workspaceSlug;
+ *     holds the current user's membership record per workspace (role, joined date, etc.).
+ *   - `projectUserInfo: Record<string, Record<string, TProjectMembership>>` - keyed by
+ *     workspaceSlug then projectId; holds per-project membership records.
+ *   - `workspaceProjectsPermissions: Record<string, IUserProjectsRole>` - keyed by
+ *     workspaceSlug; maps each project to the user's effective role within that workspace.
+ *
+ * Actions (registered in `makeObservable`):
+ *   - `fetchUserWorkspaceInfo(workspaceSlug)` - calls `workspaceService.workspaceMemberMe`;
+ *     mutates `workspaceUserInfo[workspaceSlug]`; toggles `loader`.
+ *   - `leaveWorkspace(workspaceSlug)` - calls `userService.leaveWorkspace`; unsets
+ *     `workspaceUserInfo`, `projectUserInfo`, and `workspaceProjectsPermissions` for the slug.
+ *   - `fetchUserProjectInfo(workspaceSlug, projectId)` - calls
+ *     `projectMemberService.projectMemberMe`; mutates `projectUserInfo` and
+ *     `workspaceProjectsPermissions` for the `[workspaceSlug, projectId]` pair.
+ *   - `fetchUserProjectPermissions(workspaceSlug)` - calls
+ *     `workspaceService.getWorkspaceUserProjectsRole`; mutates
+ *     `workspaceProjectsPermissions[workspaceSlug]`.
+ *   - `joinProject(workspaceSlug, projectId)` - calls `userService.joinProject`; defaults
+ *     the new membership to the user's workspace role (or `EUserPermissions.MEMBER`);
+ *     mutates `workspaceProjectsPermissions` and triggers
+ *     `fetchWorkspaceLevelProjectEntities` for additional hydration.
+ *   - `leaveProject(workspaceSlug, projectId)` - calls `userService.leaveProject`; unsets
+ *     `workspaceProjectsPermissions`, `projectUserInfo`, and
+ *     `store.projectRoot.project.projectMap` entries for the project.
+ *
+ * Computed values (`mobx-utils` `computedFn` - parameterized memoized selectors):
+ *   - `workspaceInfoBySlug(workspaceSlug)` - returns `workspaceUserInfo[workspaceSlug]`;
+ *     recomputes when `workspaceUserInfo` mutates.
+ *   - `getWorkspaceRoleByWorkspaceSlug(workspaceSlug)` - returns `.role` from the
+ *     workspace membership; recomputes when `workspaceUserInfo` mutates.
+ *   - `getProjectRole(workspaceSlug, projectId)` (protected) - returns
+ *     `EUserPermissions.ADMIN` when the user holds workspace ADMIN role, else falls back
+ *     to the per-project role; recomputes when `workspaceProjectsPermissions` or
+ *     `workspaceUserInfo` mutates.
+ *   - `getProjectRolesByWorkspaceSlug(workspaceSlug)` - maps every project under a
+ *     workspace through the abstract `getProjectRoleByWorkspaceSlugAndProjectId`
+ *     (concrete-class supplied); recomputes when the underlying permission maps mutate.
+ *   - `hasPageAccess(workspaceSlug, key)` - resolves
+ *     `WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS_LINKS[key].access` against the
+ *     workspace role via `allowPermissions`; recomputes when role or registry changes.
+ *
+ * Permission-check helper:
+ *   - `allowPermissions(allowPermissions, level, workspaceSlug?, projectId?, onPermissionAllowed?)`
+ *     falls back to `store.router.workspaceSlug` / `projectId` when args are omitted;
+ *     resolves the current role at `EUserPermissionsLevel.WORKSPACE` or
+ *     `EUserPermissionsLevel.PROJECT`; coerces string role values to number; returns
+ *     `true` (or `onPermissionAllowed()`) when the role is included in the allowed list.
+ *
+ * Abstract members (concrete subclasses must implement):
+ *   - `getProjectRoleByWorkspaceSlugAndProjectId(workspaceSlug, projectId?)` - concrete
+ *     subclasses implement EE-aware project role resolution.
+ *   - `fetchWorkspaceLevelProjectEntities(workspaceSlug, projectId)` - concrete
+ *     subclasses hydrate additional workspace-scoped project data after a join.
+ *
+ * Consumers:
+ *   - Concrete subclass: `@/plane-web/store/user/permission.store#UserPermissionStore`,
+ *     composed inside `UserStore` at `./index.ts` line 78 (accessed as
+ *     `store.user.permission` throughout the app).
+ *   - Components under `apps/web/core/components/` that gate render on permission checks
+ *     (workspace settings, project settings, issue actions, cycle/module mutations).
+ *   - Server-side counterpart:
+ *     `apps/api/plane/app/permissions/{base,page,project,workspace}.py` (AAP Directive 1).
+ */
+
 import { unset, set } from "lodash-es";
 import { action, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";
