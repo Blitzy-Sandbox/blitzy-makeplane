@@ -4,6 +4,33 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX composition root for the web client.
+ *
+ * Owns and instantiates every domain store consumed by `apps/web/core/lib/store-context.tsx`
+ * and downstream `useStore*` hooks. Stores are injected via React context (NOT Redux) — this
+ * file is the single source of truth for the store graph.
+ *
+ * Composition graph:
+ *   Session-independent: router, commandPalette, instance, theme, multipleSelect,
+ *     stickyStore, editorAssetStore, analytics, workItemFilters, powerK
+ *   Session-scoped (recreated on sign-out via resetOnSignOut):
+ *     user, workspaceRoot, projectRoot, memberRoot, cycle, cycleFilter, module,
+ *     moduleFilter, projectView, globalView, issue, state, label, dashboard,
+ *     projectInbox, projectPages, projectEstimate, workspaceNotification, favorite
+ *
+ * SSR contract:
+ *   `enableStaticRendering(typeof window === "undefined")` disables observer
+ *   subscriptions during server rendering so React's strict-mode double-render
+ *   does not leak MobX reactions on the server (NOT a Next.js codebase — this is
+ *   React Router v7 + Vite per tech spec §5.2.2.2).
+ *
+ * Consumers:
+ *   - apps/web/core/lib/store-context.tsx (React context provider wiring)
+ *   - apps/web/core/hooks/store/* (every `useStore*` hook reads from this root)
+ *   - apps/web-plane/store/root.store.ts (plane-web layer extends this with EE stores)
+ */
+
 import { enableStaticRendering } from "mobx-react";
 // plane imports
 import { FALLBACK_LANGUAGE, setLanguage } from "@plane/i18n";
@@ -71,6 +98,30 @@ import type { IWorkspaceRootStore } from "./workspace";
 
 enableStaticRendering(typeof window === "undefined");
 
+/**
+ * MobX root store that holds one instance of every domain sub-store.
+ *
+ * State slice: each public field is a sub-store reference — see the field-level
+ * type declarations for the interfaces (`ICycleStore`, `IThemeStore`, etc.).
+ * Sub-stores receive `this` (`CoreRootStore`) at construction so they can read
+ * cross-store data (e.g. `cycle` reading `router.workspaceSlug`).
+ *
+ * Actions:
+ *   - constructor(): instantiates every sub-store in dependency order; called
+ *       once at app boot from `store-context.tsx`.
+ *   - resetOnSignOut(): drops all session-scoped sub-stores and reinstantiates
+ *       them. Side effects: sets `localStorage.theme = "system"` and resets
+ *       i18n to FALLBACK_LANGUAGE before rebuilding the store graph. NOT
+ *       idempotent — every call rebuilds fresh instances so component
+ *       observers will re-subscribe.
+ *
+ * Computed: none — the root is a pure composition container; derivation lives
+ * in the individual sub-stores.
+ *
+ * Consumers:
+ *   - apps/web/core/lib/store-context.tsx
+ *   - apps/web-plane/store/root.store.ts (RootStore extends CoreRootStore)
+ */
 export class CoreRootStore {
   workspaceRoot: IWorkspaceRootStore;
   projectRoot: IProjectRootStore;
