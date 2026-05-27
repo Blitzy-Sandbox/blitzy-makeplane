@@ -4,6 +4,63 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Abstract base page model — the foundational MobX class that turns a `TPage` API
+ * payload into a reactive, mutable, optimistic-with-rollback page store. Extended
+ * by `ProjectPage` (in this folder) and by any EE variants under
+ * `apps/web/plane-web/store/pages/extended-base-page.ts`. Subclasses inject the
+ * scope-specific `TBasePageServices` (workspace, project, etc.) and add their own
+ * permission-aware computed getters.
+ *
+ * State slice (observables registered via `makeObservable`):
+ *   - isSubmitting: TNameDescriptionLoader — "saved" | "submitting" | "submitted"; toggled by the debounced title-persistence reaction (see below).
+ *   - isSyncingWithServer: "syncing" | "synced" | "error" — surfaced in the editor sync status indicator; updated via `setSyncingStatus`.
+ *   - id, name, logo_props, description_json, description_html, color, label_ids, owned_by, access, is_favorite, is_locked, archived_at, workspace, project_ids, created_by, updated_by, created_at, updated_at, deleted_at — page metadata mirrored from the `TPage` payload; declared with `observable.ref` for scalar/object refs and plain `observable` for arrays (`label_ids`, `project_ids`).
+ *   - oldName: string — rollback snapshot of the previous title; reset on every `updateTitle` call to enable revert-on-failure inside the debounced persistence reaction.
+ *   - editor: PageEditorInstance — sub-store owning ephemeral editor runtime state (selection, asset list, editorRef). Not registered in `makeObservable` because `PageEditorInstance` declares its own observables.
+ *
+ * Computed:
+ *   - asJSON: TPage | undefined — full `TPage` snapshot suitable for rollback, duplication, or off-thread serialization. Includes whatever extension fields the `ExtendedBasePage` subclass exposes via `asJSONExtended`. Recomputes when any observable field listed above changes.
+ *   - isCurrentUserOwner: boolean — true when `owned_by === rootStore.user.data?.id`; the primary discriminant for private-page access checks in subclass capability flags.
+ *
+ * Actions (all registered as `action` in `makeObservable`):
+ *   - setIsSubmitting(value) — toggle the title-submission flag (wrapped in `runInAction`).
+ *   - cleanup() — disposes every registered MobX reaction (see `disposers`). MUST be called when the page detail view unmounts to avoid the title reaction firing against an orphan instance.
+ *   - update(pageData) — optimistic: writes every key in `pageData` to `this` via `lodash-es/set`, then calls `services.update(asJSON)`. On failure, restores every key from the pre-update snapshot and rethrows.
+ *   - updateTitle(title) — synchronous: stashes the current name into `oldName`, then sets `this.name = title`. The actual server persistence is triggered by the debounced `reaction` on `name` (see "Reactions" below), not by this method.
+ *   - updateDescription(document) — optimistic: writes `document.description_html` immediately, then calls `services.updateDescription(document)`. Rollback restores the previous HTML on failure.
+ *   - makePublic({ shouldSync }), makePrivate({ shouldSync }) — optimistic access toggles; only call `services.updateAccess` when `shouldSync` is true (passed false when the change originates from a live-server push to avoid an echo back to the server).
+ *   - lock({ shouldSync, recursive }), unlock({ shouldSync, recursive }) — optimistic lock toggles; same `shouldSync` echo-prevention semantics. The `recursive` flag is passed through unchanged to subclass services that support sub-page locking.
+ *   - archive({ shouldSync, archived_at }), restore({ shouldSync }) — optimistic archive toggles; archive additionally calls `rootStore.favorite.removeFavoriteFromStore(this.id)` when the page was favorited, since archived pages cannot remain in the favorites list.
+ *   - updatePageLogo(value) — optimistic logo update; accepts a `TChangeHandlerProps` from `@plane/propel/emoji-icon-picker`, converts emoji/icon payload shape into a `TLogoProps`, writes locally, then calls `services.update({ logo_props })`.
+ *   - addToFavorites(), removePageFromFavorites() — optimistic favorite toggles routed through `rootStore.favorite.addFavorite` / `rootStore.favorite.removeFavoriteEntity`.
+ *   - duplicate() — async pass-through to `services.duplicate()`; returns the duplicated `TPage` for the caller to insert into the parent store cache.
+ *   - mutateProperties(data, shouldUpdateName) — bulk merge of partial page data WITHOUT triggering the title reaction. Used by the parent store (`ProjectPageStore#fetchPagesList`, `#fetchPageDetails`) to merge fresh fetch results into existing instances. `shouldUpdateName = false` skips the `name` field to avoid stomping in-flight edits.
+ *   - setSyncingStatus(status) — flips `isSyncingWithServer` (used by the editor sync indicator).
+ *
+ * Reactions (registered in the constructor, owned by `disposers`):
+ *   - Title persistence reaction — watches `this.name` with a `{ delay: 2000 }` debounce. On each settled change it sets `isSubmitting = "submitting"`, calls `services.update({ name })`, and on failure reverts `this.name = this.oldName`. The finally block always sets `isSubmitting = "submitted"`. This is the canonical "debounce title saves" implementation referenced by editor toolbars in `components/pages/editor/header/`.
+ *
+ * Services (injected via constructor):
+ *   - TBasePageServices — `{ update, updateDescription, updateAccess, lock, unlock, archive, restore, duplicate }`. Subclasses (e.g., `ProjectPage`) bind these to the appropriate REST service (e.g., `ProjectPageService`) before invoking `super(...)`. The base class is intentionally agnostic of workspace vs. project vs. EE scope.
+ *
+ * Cross-system surfaces:
+ *   - Live-server pushback — `apps/live/src/services/page/handler.ts` writes binary/html description updates back through the REST API which then propagates to instances of this class via `updateDescription`. The Y.Doc-bound description binary is NOT stored on this class; only the rendered `description_html` and `description_json` projections are.
+ *   - Editor sub-store — `editor: PageEditorInstance` exposes ephemeral selection / focus / asset state used by the page editor toolbars (`apps/web/core/components/pages/editor/toolbar`, `editor/header`, `editor/summary`).
+ *
+ * Exported symbols:
+ *   - TBasePage — observable + action + computed contract on every page instance.
+ *   - TBasePagePermissions — permission flag contract; each subclass implements these as computed getters using its own scope-specific role resolution.
+ *   - TBasePageServices — REST service contract; each subclass binds these to its scope-specific service.
+ *   - TPageInstance — union of `TBasePage` + `TBasePagePermissions` + `{ getRedirectionLink }`; the fully-realized page model surface consumed by UI.
+ *   - BasePage — concrete extendable class.
+ *
+ * Consumers:
+ *   - apps/web/core/store/pages/project-page.ts — extends `BasePage` to add project-scoped service bindings and permission computed getters.
+ *   - apps/web/plane-web/store/pages/extended-base-page.ts — EE intermediate base; provides `asJSONExtended` and any additional observable extensions.
+ *   - apps/web/core/components/pages/** — every page-related component reads instances of subclasses of `BasePage` from the parent store cache.
+ */
+
 import { set } from "lodash-es";
 import { action, computed, makeObservable, observable, reaction, runInAction } from "mobx";
 // plane imports
