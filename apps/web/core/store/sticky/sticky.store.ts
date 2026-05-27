@@ -4,6 +4,96 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for workspace-scoped sticky note records — manages cached
+ * entities, pagination, search, active/recent selection, and the CRUD +
+ * reorder lifecycle for the workspace stickies surface.
+ *
+ * State slice (observables wired via `makeObservable`):
+ *   - creatingSticky: boolean — true while a `createSticky` API call is in
+ *     flight; gates the add-new UI from re-submitting.
+ *   - loader: TLoader — `"init-loader" | "mutation" | "pagination" |
+ *     "loaded" | undefined` (from `@plane/types`); reflects fetch lifecycle.
+ *   - workspaceStickies: Record<string, string[]> — workspaceSlug →
+ *     server-ordered sticky IDs. Rendering uses `getWorkspaceStickyIds`
+ *     for the `sort_order` desc projection.
+ *   - stickies: Record<string, TSticky> — id-keyed cache of sticky entities.
+ *   - searchQuery: string — current full-text filter applied on the next
+ *     fetch (not auto-triggered).
+ *   - activeStickyId: string | undefined — currently focused sticky.
+ *   - recentStickyId: string | undefined — most recently touched sticky
+ *     (last created / updated / fetched).
+ *   - showAddNewSticky: boolean — visibility of the add-new affordance;
+ *     gates `createSticky`.
+ *   - paginationInfo: TPaginationInfo | undefined — server-returned cursor
+ *     and page metadata driving `fetchNextWorkspaceStickies`.
+ *
+ * Computed (memoized via `computedFn` from `mobx-utils`):
+ *   - getWorkspaceStickyIds(workspaceSlug: string): string[] — workspace
+ *     IDs sorted by `sort_order` desc via `lodash-es#orderBy`. Recomputes
+ *     when `workspaceStickies[slug]` changes or any cached sticky's
+ *     `sort_order` changes.
+ *
+ * Actions (each registered as `action` in `makeObservable`; cache mutations
+ * applied directly or under `runInAction` for atomic batched updates):
+ *   - toggleShowNewSticky(value) — mutates `showAddNewSticky`; no API call.
+ *   - updateSearchQuery(query) — mutates `searchQuery`; consumer must
+ *     invoke a fetch separately.
+ *   - updateActiveStickyId(id) — mutates `activeStickyId`; no API call.
+ *   - fetchRecentSticky(workspaceSlug) → `StickyService.getStickies(slug,
+ *     "1:0:0", undefined, 1)`; caches the single result into `stickies`
+ *     and records it as `recentStickyId`.
+ *   - fetchNextWorkspaceStickies(workspaceSlug) → cursor-paginated follow-up
+ *     fetch using `paginationInfo.next_cursor` and `searchQuery`. Sets
+ *     `loader = "pagination"` in flight; merges new IDs into
+ *     `workspaceStickies[slug]` (de-duplicated), updates `stickies` and
+ *     `paginationInfo`; restores `loader = "loaded"` on success or error.
+ *   - fetchWorkspaceStickies(workspaceSlug) → initial page fetch sized by
+ *     `STICKIES_PER_PAGE` (`@plane/constants`). Sets `loader = "init-loader"`
+ *     on first fetch for the workspace, else `"mutation"`. On success:
+ *     rewrites `workspaceStickies[slug]`, populates `stickies`, updates
+ *     `paginationInfo`, restores `loader = "loaded"`.
+ *   - createSticky(workspaceSlug, sticky) — no-op when `showAddNewSticky`
+ *     is false. Closes the add-new UI, sets `creatingSticky = true`, calls
+ *     `StickyService.createSticky`, inserts the result into `stickies`,
+ *     prepends the new id onto `workspaceStickies[slug]`, and sets
+ *     `activeStickyId` + `recentStickyId` to the new id.
+ *   - updateSticky(workspaceSlug, id, updates) — optimistic PATCH; applies
+ *     `updates` field-by-field to `stickies[id]`, sets `recentStickyId = id`,
+ *     then calls `StickyService.updateSticky`. On error: restores the
+ *     previous sticky reference and rethrows.
+ *   - deleteSticky(workspaceSlug, id) — optimistic DELETE; removes id from
+ *     `workspaceStickies[slug]` and `stickies`, clears `activeStickyId`
+ *     if equal, repoints `recentStickyId` to the new head, then calls
+ *     `StickyService.deleteSticky`. On error: restores the deleted entity
+ *     into `stickies`.
+ *   - updateStickyPosition(workspaceSlug, stickyId, destinationId, edge) —
+ *     optimistic reorder; computes a new `sort_order` for `stickyId`
+ *     relative to `destinationId` driven by `edge` (`"reorder-above"`
+ *     places between destination and previous neighbor as midpoint, or
+ *     `+10000` if no previous neighbor; `"reorder-below"` subtracts
+ *     `10000`). Persists via `StickyService.updateSticky({ sort_order })`.
+ *     On error: restores `previousSortOrder` and rethrows.
+ *
+ * Consumers:
+ *   - Hook: `useSticky()` in `apps/web/core/hooks/use-stickies.tsx` returns
+ *     `context.stickyStore` from the React `StoreContext`.
+ *   - Registered in `apps/web/core/store/root.store.ts` as
+ *     `stickyStore: IStickyStore` and instantiated as `new StickyStore()`.
+ *   - Components under `apps/web/core/components/stickies/**`:
+ *     `layout/{stickies-list, stickies-truncated, stickies-infinite}.tsx`,
+ *     `widget.tsx`, `action-bar.tsx`,
+ *     `sticky/{root, use-operations}.tsx`,
+ *     `modal/{stickies, search}.tsx`.
+ *
+ * Architectural notes (per AAP §0.12.2):
+ *   - State is MobX-exclusive — the store is injected via React context
+ *     (`StoreContext`), not Redux.
+ *   - Persistence is delegated to `StickyService`
+ *     (`apps/web/core/services/sticky.service.ts`), which calls the Django
+ *     REST API in `apps/api` under `/api/workspaces/<slug>/stickies/`.
+ */
+
 import { orderBy, set } from "lodash-es";
 import { observable, action, makeObservable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";
