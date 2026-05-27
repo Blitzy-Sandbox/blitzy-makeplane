@@ -25,6 +25,34 @@
  * return the existing instance, making startup idempotent. The Hocuspocus `name` option
  * is derived from `env.HOSTNAME || uuidv4()` so each pod/process has a stable identifier
  * for cluster-wide broadcasts emitted by the Redis extension.
+ *
+ * Document namespacing — how Hocuspocus `documentName` maps to Plane entities
+ * (per AAP Directive 4):
+ *   - `documentName` (the room key Hocuspocus uses to identify a collaborative
+ *     document) is the **page UUID** when `documentType === "project_page"`.
+ *     Every connected client that supplies the same page UUID joins the same Yjs
+ *     room and observes the same shared `Y.Doc` state. This is the only
+ *     `documentType` value currently dispatched to a concrete page service in
+ *     `apps/live/src/services/page/handler.ts`.
+ *   - **Workspace / project / user / cookie / documentType scoping** is NOT
+ *     encoded in `documentName`. Those fields are carried separately on the
+ *     mutable `HocusPocusServerContext` (see `apps/live/src/types/index.ts`),
+ *     which is populated by the `onAuthenticate` hook from
+ *     `apps/live/src/lib/auth.ts` and then read by every downstream extension
+ *     hook (fetch/store/title-sync/etc.) to scope each apps/api call.
+ *   - **Why split this way:** Hocuspocus indexes its in-memory Y.Doc cache and
+ *     awareness map by `documentName` alone, so collisions between workspaces
+ *     are prevented at the UUID layer rather than the namespace layer. Putting
+ *     `workspaceSlug`/`projectId` into `documentName` would not improve
+ *     uniqueness (UUIDs are already globally unique) and would force every
+ *     extension hook to parse a composite key.
+ *   - **Extending to new entities:** adding another document category requires
+ *     a coordinated change in (1) `TDocumentTypes` in `apps/live/src/types/index.ts`,
+ *     (2) the service dispatch table in `apps/live/src/services/page/handler.ts`,
+ *     and (3) the parameter parsing in `apps/live/src/lib/auth.ts`. The
+ *     `documentName` contract — "primary entity UUID for the active
+ *     documentType" — should be preserved for consistency with the existing
+ *     project_page mapping.
  */
 
 import { Hocuspocus } from "@hocuspocus/server";
@@ -81,6 +109,15 @@ import { onStateless } from "@/lib/stateless";
  * Per-document lifecycle hooks live inside the extensions, not this manager. See
  * `apps/live/src/extensions/database.ts` for the `fetchDocument`/`storeDocument`
  * implementation that backs the Hocuspocus persistence contract.
+ *
+ * Document name → Plane entity mapping (re-stated here for the class-level
+ * contract; see the module JSDoc above for the full rationale):
+ *   - `documentName` ≡ page UUID for `documentType === "project_page"` (the only
+ *     value currently dispatched in `apps/live/src/services/page/handler.ts`).
+ *   - `workspaceSlug` / `projectId` / `userId` / `cookie` / `documentType` are
+ *     not encoded in `documentName`; they are carried on the
+ *     `HocusPocusServerContext` (see `apps/live/src/types/index.ts`), populated
+ *     at `onAuthenticate` time and read by every downstream extension hook.
  */
 export class HocusPocusServerManager {
   private static instance: HocusPocusServerManager | null = null;

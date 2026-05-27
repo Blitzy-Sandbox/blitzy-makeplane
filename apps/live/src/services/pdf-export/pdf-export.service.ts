@@ -89,6 +89,57 @@ const PDF_RENDER_TIMEOUT_MS = 15000;
 const IMAGE_MAX_DIMENSION = 1200;
 
 /**
+ * Defense-in-depth scheme allowlist for {@link isAllowedImageUrl}.
+ *
+ * Only `http:` and `https:` URLs are valid sources for image assets used by the
+ * PDF exporter. The list intentionally excludes `data:`, `file:`, `blob:`,
+ * `ftp:`, `javascript:`, and any other scheme so that a misconfigured (or
+ * malicious upstream) apps/api response cannot trick the live server into
+ * reading local files, executing JS in unexpected contexts, or following
+ * arbitrary protocols.
+ */
+const ALLOWED_IMAGE_URL_SCHEMES = new Set(["http:", "https:"]);
+
+/**
+ * Defense-in-depth validation for image URLs returned by apps/api asset
+ * resolution before {@link fetch} is called.
+ *
+ * SSRF threat model: the URLs reaching this guard come from
+ * `pageService.resolveImageAssetUrl`, which captures the `Location` header from
+ * apps/api's 302 redirect for `/api/assets/v2/.../<assetId>/`. Apps/api is the
+ * source of truth for which storage backend (MinIO/S3/R2/GCS) hosts the asset
+ * and emits a presigned URL accordingly. This guard does NOT re-implement that
+ * trust decision; instead it provides a minimal scheme allowlist so that a
+ * compromised or misconfigured apps/api response cannot expand the attack
+ * surface beyond plain HTTP fetches (e.g., `file:///etc/passwd`, `data:` URLs
+ * carrying executable payloads, etc.).
+ *
+ * Host-level allowlisting is intentionally NOT performed here because the set
+ * of legitimate storage hosts is operator-configurable (every deployment may
+ * use a different bucket name or storage backend), and the apps/live service
+ * does not have access to apps/api's storage configuration. Operators that
+ * require stricter host enforcement should run apps/live behind an egress
+ * policy that restricts outbound traffic to known storage CIDRs.
+ *
+ * Behavior:
+ *   - Invalid URL → `false`.
+ *   - Scheme not in {@link ALLOWED_IMAGE_URL_SCHEMES} → `false`.
+ *   - Otherwise → `true`. The downstream `fetch(url)` still respects Node's
+ *     standard HTTP/HTTPS error handling for network-level failures.
+ *
+ * @param rawUrl - The URL string returned by apps/api asset resolution.
+ * @returns `true` iff the URL parses and has an http(s) scheme.
+ */
+const isAllowedImageUrl = (rawUrl: string): boolean => {
+  try {
+    const parsed = new URL(rawUrl);
+    return ALLOWED_IMAGE_URL_SCHEMES.has(parsed.protocol);
+  } catch {
+    return false;
+  }
+};
+
+/**
  * Minimal structural shape used only inside this module for TipTap document
  * traversal (e.g., {@link PdfExportService.extractImageAssetIds}); only `type`,
  * `attrs`, and `content` are read locally.
@@ -399,6 +450,21 @@ export class PdfExportService extends Effect.Service<PdfExportService>()("PdfExp
         // Process each image
         const processSingleImage = ([assetId, url]: [string, string]) =>
           Effect.gen(function* () {
+            // Defense-in-depth: reject any URL that isn't an http(s) string before
+            // fetch. The URL is supplied by apps/api's asset resolution (the trust
+            // boundary), but a misconfigured or compromised response must not be
+            // able to broaden the attack surface beyond plain HTTP/HTTPS. See
+            // `isAllowedImageUrl` above for the threat model and host-allowlisting
+            // rationale.
+            if (!isAllowedImageUrl(url)) {
+              return yield* Effect.fail(
+                new PdfImageProcessingError({
+                  message: "Image URL rejected by scheme allowlist",
+                  assetId,
+                })
+              );
+            }
+
             const response = yield* tryAsync(
               () => fetch(url),
               (cause) =>

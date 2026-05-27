@@ -35,7 +35,10 @@
  *     `PATCH ${basePath}/pages/${pageId}/description/` for Yjs binary updates.
  *   - `fetchUserMentions(pageId)` --
  *     `GET ${basePath}/pages/${pageId}/mentions/?mention_type=user_mention` ->
- *     `TUserMention[]`.
+ *     `TUserMention[]`. INTENT UNCLEAR: no matching OSS route was found in
+ *     `apps/api/plane/app/urls/page.py` -- this endpoint is either provided by an
+ *     enterprise-only URL config or is pending implementation; the contract here
+ *     reflects the request the live server emits, not a verified backend route.
  *   - `resolveImageAssetUrl(workspaceSlug, assetId, projectId?)` -- resolves an asset
  *     UUID to its presigned S3 URL by intercepting the apps/api 302 redirect (the
  *     binary asset itself is NOT downloaded by apps/live).
@@ -314,6 +317,15 @@ export abstract class PageCoreService extends APIService {
    * HTTP: `GET ${this.basePath}/pages/${pageId}/mentions/?mention_type=user_mention`
    * with the inherited session-cookie header.
    *
+   * INTENT UNCLEAR: no matching route exists in `apps/api/plane/app/urls/page.py`
+   * (the only `user_mention` reference in the OSS apps/api is the search ViewSet
+   * `apps/api/plane/app/views/search/base.py`, which has different request semantics).
+   * The endpoint may be provided by an enterprise-only URL config or be pending
+   * implementation. The contract here reflects what the live server emits, not a
+   * verified backend route. Callers must tolerate failure -- the PDF export
+   * pipeline already recovers with `[]` via `recoverWithDefault` in
+   * `services/pdf-export/pdf-export.service.ts`.
+   *
    * Empty-list semantics: returns `[]` when the response data is `null` or
    * `undefined` (`?? []`) -- a page with no mentions is a normal state, not an error.
    *
@@ -326,6 +338,7 @@ export abstract class PageCoreService extends APIService {
    */
   async fetchUserMentions(pageId: string): Promise<TUserMention[]> {
     try {
+      // INTENT UNCLEAR: no OSS apps/api route found for page mentions endpoint
       const response = await this.get(`${this.basePath}/pages/${pageId}/mentions/`, {
         headers: this.getHeader(),
         params: {

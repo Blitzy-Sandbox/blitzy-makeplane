@@ -34,8 +34,9 @@ import type { PdfExportInput } from "@/services/pdf-export";
  * mapping pipeline can be composed declaratively. The actual rendering is
  * delegated to `PdfExportService.Default` from `@/services/pdf-export`,
  * which handles content fetching from `apps/api`, image processing, and
- * pdfmake document generation. Tagged domain errors from the service are
- * translated to HTTP status codes by `mapErrorToHttpResponse`.
+ * React-PDF (`@react-pdf/renderer` via `@/lib/pdf/plane-pdf-exporter`) document
+ * generation. Tagged domain errors from the service are translated to HTTP
+ * status codes by `mapErrorToHttpResponse`.
  */
 @Controller("/pdf-export")
 export class PdfExportController {
@@ -148,7 +149,8 @@ export class PdfExportController {
    *   - `PdfMetadataFetchError` → 502 (upstream `apps/api` failure)
    *   - `PdfImageProcessingError` → 502 (image fetch/transform failure)
    *   - `PdfTimeoutError` → 504 (operation exceeded budget)
-   *   - `PdfGenerationError` → 500 (pdfmake/document assembly failure)
+   *   - `PdfGenerationError` → 500 (React-PDF document assembly/rendering failure
+   *     in `@/lib/pdf` via `@react-pdf/renderer`)
    *   - Unexpected defects → 500 via `Effect.catchAllDefect` with `AppError` logged
    *
    * Each request is assigned a `crypto.randomUUID()` `requestId` propagated

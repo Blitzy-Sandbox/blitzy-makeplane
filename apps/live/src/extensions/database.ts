@@ -77,7 +77,9 @@ import { forceCloseDocumentAcrossServers } from "./force-close-handler";
  *   - {@link getPageService} resolves the page service implementation for
  *     `context.documentType` (currently only `"project_page"`).
  *   - `service.fetchDescriptionBinary(pageId)` returns a `Buffer` of Yjs state
- *     (`GET /api/workspaces/<slug>/projects/<projectId>/pages/<id>/description-binary/`).
+ *     (`GET /api/workspaces/<slug>/projects/<projectId>/pages/<id>/description/`,
+ *     served as `application/octet-stream` — the route path is `description/`; the
+ *     "binary" qualifier refers to the payload encoding, not the URL segment).
  *   - `service.fetchDetails(pageId)` is consulted only when the binary is empty, to
  *     obtain `description_html` and `name` for the backfill path.
  *
@@ -167,7 +169,9 @@ const fetchDocument = async ({ context, documentName: pageId, instance }: FetchP
  * resulting `{ description_binary, description_html, description_json }` payload (typed
  * as `TDocumentPayload`) is sent via `service.updateDescriptionBinary` which PATCHes
  * apps/api at
- * `PATCH /api/workspaces/<slug>/projects/<projectId>/pages/<id>/description-binary/`.
+ * `PATCH /api/workspaces/<slug>/projects/<projectId>/pages/<id>/description/`
+ * (the route path is `description/`; the "binary" qualifier in the method name refers
+ * to the payload encoding, not the URL segment).
  *
  * Idempotency: the PATCH is idempotent — the same `pageBinaryData` always produces the
  * same persisted representation, so Hocuspocus may safely retry on transient failures

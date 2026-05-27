@@ -13,10 +13,13 @@
  * document is loaded and before any extension `onConnect` fires.
  *
  * Authentication scheme: Plane uses session cookies (NOT JWT). The client must pass
- * the session cookie during the WebSocket handshake; this module reads it from
- * `data.requestHeaders.cookie` and additionally accepts the token payload
- * (JSON-encoded `TUserDetails` from `@plane/editor`) as a fallback transport so the
- * cookie can be carried inside the token when request headers are unavailable.
+ * the session cookie during the WebSocket handshake. Cookie sources, in priority
+ * order, are: (1) the JSON-encoded token payload (`TUserDetails` from
+ * `@plane/editor`) carried in `data.token`, and (2) the `cookie` request header
+ * (`data.requestHeaders.cookie`). URL query parameters are intentionally NOT used as
+ * a credential transport — placing session cookies in URLs would leak them into
+ * proxy logs, browser histories, and server access logs. A missing cookie after both
+ * sources are tried short-circuits to `AppError("AUTH_MISSING_CREDENTIALS")`.
  *
  * Authentication chain:
  *   1. Parse the token payload and request cookie.
@@ -70,8 +73,11 @@ import type { HocusPocusServerContext, TDocumentTypes } from "@/types";
  *     extract the user `id` and `cookie`.
  *   - `data.requestHeaders.cookie` — used as a fallback when the token payload
  *     does not carry a cookie.
- *   - `data.requestParameters` URL query — `documentType`, `projectId`,
- *     `workspaceSlug`, and `cookie` (also accepted as a fallback).
+ *   - `data.requestParameters` URL query — `documentType`, `projectId`, and
+ *     `workspaceSlug` (non-credential scoping metadata). The session cookie is
+ *     NOT read from query parameters: credentials must travel in the token
+ *     payload or `Cookie` header so they do not leak into proxy/browser/server
+ *     access logs.
  *
  * State write — mutates the shared `HocusPocusServerContext`:
  *   - `context.cookie` — session cookie used by every subsequent apps/api call.
@@ -141,6 +147,10 @@ export const onAuthenticate = async ({
   }
 
   // set cookie in context, so it can be used throughout the ws connection
+  // INTENT UNCLEAR: the `requestParameters.get("cookie")` branch is unreachable because
+  // the preceding `!cookie` guard always throws when `cookie` is falsy; this fallback
+  // may be a legacy artifact, but URL-query credential transport is unsafe (leaks into
+  // proxy/browser/server access logs) so removing it should be a separate, deliberate change.
   context.cookie = cookie ?? requestParameters.get("cookie") ?? "";
   context.documentType = requestParameters.get("documentType")?.toString() as TDocumentTypes;
   context.projectId = requestParameters.get("projectId");
