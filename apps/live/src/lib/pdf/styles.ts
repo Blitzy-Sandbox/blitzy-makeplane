@@ -4,6 +4,26 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Central React-PDF stylesheet for the PDF subsystem.
+ *
+ * Uses `StyleSheet.create` from `@react-pdf/renderer` together with palette
+ * constants from `./colors` to define typography and layout for pages,
+ * headings (six levels), paragraphs, blockquotes, code (inline + block),
+ * lists (bullet, ordered, task), tables (header / body rows + cells),
+ * callouts, mentions, links, images (rendered + placeholder),
+ * horizontal rules, and inline-mark fallback styles (`bold`, `italic`,
+ * `underline`, `strike`).
+ *
+ * Colors are sourced from `./colors` so PDF output stays aligned with the
+ * Plane editor theme tokens. Typography uses the Inter family registered at
+ * module load by `./plane-pdf-exporter` (the registration must run before any
+ * `pdf(...)` call references this stylesheet).
+ *
+ * Consumed by `./node-renderers` (per-node-type styles) and by
+ * `./plane-pdf-exporter` (the top-level `page` and `title` styles).
+ */
+
 import { StyleSheet } from "@react-pdf/renderer";
 import {
   BACKGROUND_COLORS,
@@ -15,6 +35,31 @@ import {
   TEXT_COLORS,
 } from "./colors";
 
+/**
+ * Frozen React-PDF stylesheet keyed by element role.
+ *
+ * Style key groups:
+ *  - Page: `page`, `title`.
+ *  - Headings: `heading1` … `heading6` (decreasing size + decreasing color
+ *    contrast for h4-h6).
+ *  - Block text: `paragraph`, `paragraphWrapper`, `blockquote`, `codeBlock`,
+ *    `codeInline`, `horizontalRule`.
+ *  - Lists: `bulletList`, `orderedList`, `listItem`, `listItemBullet`,
+ *    `listItemContent`, `taskList`, `taskItem`, `taskCheckbox`,
+ *    `taskCheckboxChecked`.
+ *  - Tables: `table`, `tableRow`, `tableHeaderRow`, `tableCell`,
+ *    `tableHeaderCell`.
+ *  - Embeds: `image`, `imagePlaceholder`, `imagePlaceholderText`, `callout`,
+ *    `calloutIconContainer`, `calloutContent`, `mention`.
+ *  - Inline marks (fallbacks): `link`, `bold`, `italic`, `underline`,
+ *    `strike` — `applyMarks` from `./mark-renderers` typically inlines these
+ *    onto a `Style` object directly, but the named keys remain available for
+ *    composition in `./node-renderers`.
+ *
+ * `breakInside: "avoid"` is applied on entries that should not split across
+ * pages (blockquote, codeBlock, listItem, taskItem, tableRow, callout) so
+ * long content paginates predictably.
+ */
 export const pdfStyles = StyleSheet.create({
   page: {
     padding: 40,
