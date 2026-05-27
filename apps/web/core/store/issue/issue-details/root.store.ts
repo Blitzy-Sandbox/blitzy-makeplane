@@ -4,6 +4,91 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Composition root for the issue-detail MobX subsystem — defines the `IIssueDetail` contract, the modal/peek
+ * UI state observables, and the abstract `IssueDetail` class that wires together every nested store
+ * (`issue`, `reaction`, `attachment`, `activity`, `comment`, `commentReaction`, `subIssues`, `link`,
+ * `subscription`, `relation`). Every detail-level operation routes through this facade so the
+ * issue-detail UI can treat the entire subsystem as one cohesive API.
+ *
+ * Service-type indirection (critical):
+ * The constructor takes the parent `IIssueRootStore` and a `TIssueServiceType` (EIssueServiceType.ISSUES
+ * | EPICS) so the same composition powers BOTH the issue-detail surface and the epic-detail surface.
+ * The concrete subclasses are instantiated in `apps/web/core/store/issue/root.store.ts` as
+ * `issueDetail = new IssueDetail(rootStore, EIssueServiceType.ISSUES)` and
+ * `epicDetail = new IssueDetail(rootStore, EIssueServiceType.EPICS)`. Every nested store receives the
+ * same `serviceType` so DRF endpoint routing (issues vs. epics) is consistent across the whole subsystem.
+ *
+ * Module-level type aliases:
+ * - TPeekIssue: { workspaceSlug, projectId, issueId, nestingLevel?, isArchived? } — describes the issue
+ *   currently shown in the peek overlay.
+ * - TIssueRelationModal: { issueId | null, relationType | null } — drives the add-relation modal.
+ * - TIssueCrudState: { toggle, parentIssueId?, issue? } — generic create/existing-issue modal state.
+ * - TIssueCrudOperationState: { create: TIssueCrudState, existing: TIssueCrudState } — two-bucket
+ *   create-vs-link-existing modal state for the sub-issue / parent-issue flows.
+ *
+ * State slice (UI observables on `IssueDetail`):
+ * - peekIssue: TPeekIssue | undefined — the issue currently mounted in the peek overlay.
+ * - relationKey: TIssueRelationTypes | null — the relation flavor currently being added.
+ * - issueLinkData: TIssueLink | null — the link entity being edited (modal target).
+ * - issueCrudOperationState: TIssueCrudOperationState — paired create/existing modal state.
+ * - openWidgets: TWorkItemWidgets[] — which detail widgets (sub-work-items, links, attachments, …) are
+ *   expanded; initialized to ["sub-work-items", "links", "attachments"].
+ * - lastWidgetAction: TWorkItemWidgets | null — last widget the user interacted with (used by focus management).
+ * - isCreateIssueModalOpen: boolean — generic create-issue modal toggle.
+ * - isIssueLinkModalOpen: boolean — add-link modal toggle.
+ * - isParentIssueModalOpen / isDeleteIssueModalOpen / isArchiveIssueModalOpen / isSubIssuesModalOpen /
+ *   attachmentDeleteModalId: string | null — each holds the issue id (or attachment id) that the
+ *   corresponding modal is operating on; `null` means closed.
+ * - isRelationModalOpen: TIssueRelationModal | null — open + relation type tuple.
+ *
+ * Computed:
+ * - isAnyModalOpen: true iff any modal observable is currently set; used to suppress global keyboard
+ *   shortcuts when a detail modal is open.
+ * - isPeekOpen: true iff peekIssue is set.
+ *
+ * Helper actions:
+ * - getIsIssuePeeked(issueId): true iff `peekIssue.issueId === issueId`.
+ *
+ * Actions (setters / toggles):
+ * setRelationKey, setIssueCrudOperationState, setPeekIssue, toggleCreateIssueModal, toggleIssueLinkModal,
+ * toggleParentIssueModal, toggleDeleteIssueModal, toggleArchiveIssueModal, toggleRelationModal,
+ * toggleSubIssuesModal, toggleDeleteAttachmentModal, setOpenWidgets, setLastWidgetAction, toggleOpenWidget,
+ * setIssueLinkData.
+ *
+ * Delegated operation actions:
+ * Every operation defined in one of the nested store interfaces is re-exported on the root and forwards to
+ * the corresponding nested store: issue.* (fetchIssue, fetchIssueWithIdentifier, updateIssue, removeIssue,
+ * archiveIssue, addCycleToIssue, addIssueToCycle, removeIssueFromCycle, changeModulesInIssue,
+ * removeIssueFromModule), reaction.* (addReactions, fetchReactions, createReaction, removeReaction),
+ * attachment.* (addAttachments, fetchAttachments, createAttachment, removeAttachment),
+ * link.* (addLinks, fetchLinks, createLink, updateLink, removeLink),
+ * subIssues.* (fetchSubIssues, createSubIssues, updateSubIssue, removeSubIssue, deleteSubIssue),
+ * subscription.* (addSubscription, fetchSubscriptions, createSubscription, removeSubscription),
+ * relation.* (fetchRelations, createRelation, removeRelation), activity.fetchActivities,
+ * comment.* (fetchComments, createComment, updateComment, removeComment),
+ * commentReaction.* (fetchCommentReactions, applyCommentReactions, createCommentReaction,
+ * removeCommentReaction). This delegation pattern is why the UI never imports the nested stores directly —
+ * everything routes through one facade.
+ *
+ * Nested stores constructed in the constructor (in this exact order):
+ * - issue: IssueStore(this, serviceType)
+ * - reaction: IssueReactionStore(this, serviceType)
+ * - attachment: IssueAttachmentStore(rootStore, serviceType)  // receives the OUTER root, not `this`
+ * - activity: IssueActivityStore(rootStore.rootStore, serviceType)  // receives the application-wide root
+ * - comment: IssueCommentStore(this, serviceType)
+ * - commentReaction: IssueCommentReactionStore(this)
+ * - subIssues: IssueSubIssuesStore(this, serviceType)
+ * - link: IssueLinkStore(this, serviceType)
+ * - subscription: IssueSubscriptionStore(this, serviceType)
+ * - relation: IssueRelationStore(this)
+ *
+ * Consumers: every component under apps/web/core/components/issues/issue-detail/**,
+ * apps/web/core/components/issues/issue-detail-widgets/**, apps/web/core/components/issues/peek-overview/**,
+ * apps/web/core/components/issues/relations/**, and apps/web/core/components/issues/attachment/**,
+ * accessed via the `apps/web/core/hooks/store/use-issue-detail.ts` hook.
+ */
+
 import { action, computed, makeObservable, observable } from "mobx";
 // types
 import type {
