@@ -4,6 +4,85 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders a single related-issue row inside `RelationIssueList`, including the identifier badge, the
+ * tooltip-wrapped title, the inline `RelationIssueProperty` editor (state/priority/assignees), and the
+ * `CustomMenu` overflow menu wiring the per-row actions edit, copy-link, remove-relation, and delete.
+ *
+ * Rendered purpose: resolves the related issue from the issue-detail store, builds the canonical
+ * work-item link via `generateWorkItemLink`, and surfaces both the click-to-peek interaction
+ * (epic-aware) and a destructive-actions menu whose mutating items are gated on `!disabled` so that
+ * copy-link remains usable in read-only contexts.
+ *
+ * Required props:
+ *   - workspaceSlug (string): identifies the workspace; forwarded to redirection, `removeRelation`,
+ *     and the work-item link builder.
+ *   - issueId (string): the parent issue id that OWNS the relation — NOT the related issue this row
+ *     represents. Used as the host id when invoking `removeRelation` and when lifting CRUD intent via
+ *     `handleIssueCrudState`.
+ *   - relationKey (TIssueRelationTypes from `@/plane-web/types`): the relation taxonomy (e.g.
+ *     blocking, blocked_by, duplicate, relates_to); forwarded to `removeRelation` and
+ *     `handleIssueCrudState`.
+ *   - relationIssueId (string): id of the related issue this row represents. Used to look up the issue
+ *     in the issue-detail store and as the target for the edit and delete modals.
+ *   - disabled (boolean): when true, the edit, remove-relation, and delete menu items are hidden;
+ *     copy-link remains available. The `Props` type marks this required but the destructure defaults
+ *     it to `false` for callers that omit it.
+ *   - handleIssueCrudState ((key: "update" | "delete" | "removeRelation", issueId, issue?,
+ *     relationKey?, relationIssueId?) => void): parent-supplied callback that lifts CRUD intent so the
+ *     parent can coordinate modal state with this row.
+ *
+ * Optional props:
+ *   - issueServiceType (TIssueServiceType, default `EIssueServiceType.ISSUES`): routes
+ *     `useIssueDetail` to either the work-item issue-detail store (`ISSUES`) or the epic issue-detail
+ *     store (`EPICS`), so this single row component drives both surfaces.
+ *
+ * MobX stores read (via `observer`):
+ *   - useIssueDetail(issueServiceType) — destructures `issue.getIssueById(relationIssueId)` to read
+ *     the related issue plus the actions `removeRelation`, `toggleCreateIssueModal`, and
+ *     `toggleDeleteIssueModal`. The `issueServiceType` argument selects between the work-item and
+ *     epic issue-detail stores.
+ *   - useProject() — `project.getProjectById(issue.project_id)` resolves the related issue's project
+ *     identifier so the work-item URL can carry the `<IDENTIFIER>-<SEQUENCE>` suffix used in
+ *     `generateWorkItemLink`.
+ *
+ * Non-store hooks:
+ *   - useIssuePeekOverviewRedirection(!!issue?.is_epic) — epic-aware redirection helper that returns
+ *     `handleRedirection` (peek-overview for work items, route-aware navigation for epics).
+ *   - usePlatformOS() — exposes `isMobile` for tooltip rendering and redirection divergence.
+ *   - useRelationOperations(EPICS | ISSUES based on `issue.is_epic`) — supplies the
+ *     `{ copyLink, update, remove }` operations from
+ *     `apps/web/core/components/issues/issue-detail-widgets/relations/helper.tsx`. Only `copyLink` is
+ *     consumed directly here; `update` and `remove` are forwarded to the child
+ *     `RelationIssueProperty`. The service-type selection controls the entity label ("Work item" vs.
+ *     "Epic") used in toast messages.
+ *
+ * Side effects:
+ *   - Mutations:
+ *       - `removeRelation(workspaceSlug, projectId, issueId, relationKey, relationIssueId)` — MobX
+ *         action on the issue-detail store that fans out to `IssueRelationService` (see
+ *         `apps/web/core/services/issue/`).
+ *       - `toggleCreateIssueModal(true)` — opens the edit modal via the issue-detail store.
+ *       - `toggleDeleteIssueModal(relationIssueId)` — opens the delete-confirm modal via the
+ *         issue-detail store.
+ *       - `handleIssueCrudState("update" | "delete" | "removeRelation", ...)` — lifts CRUD intent into
+ *         parent state so the parent's modal stack can react.
+ *   - Navigations:
+ *       - Epic rows: `window.open(workItemLink, "_blank")` — epics live under a different route shell
+ *         (React Router v7) and are opened in a new tab on click instead of the peek-overview pane.
+ *       - Work-item rows: `handleRedirection(workspaceSlug, issue, isMobile)` opens the peek-overview
+ *         pane (or full-page route on mobile, per `usePlatformOS`).
+ *   - API calls (indirect via `issueOperations`):
+ *       - `copyLink(workItemLink)` — writes the canonical URL to the clipboard via
+ *         `copyUrlToClipboard` (`@plane/utils`) and emits a success toast.
+ *   - Toasts: success/error toasts are emitted from inside `useRelationOperations` via
+ *     `@plane/propel/toast`.
+ *
+ * Render gating: returns an empty fragment if either the related issue or its `project_id` cannot be
+ * resolved from the issue-detail / project stores (guards against the deletion-vs-render race that
+ * can occur immediately after a successful remove).
+ */
+
 import React from "react";
 import { observer } from "mobx-react";
 import { useTranslation } from "@plane/i18n";
