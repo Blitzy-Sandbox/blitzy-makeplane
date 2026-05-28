@@ -4,6 +4,47 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Compact row renderer for a single issue link, used by `./link-list.tsx`.
+ *
+ * Rendered purpose: a horizontal row with favicon (`metadata.favicon` when present, otherwise the
+ * `LinkIcon` fallback), tooltip-wrapped link text (title or URL), relative creation time, an inline
+ * copy-to-clipboard icon, and a kebab `CustomMenu` exposing edit and delete actions. Visually
+ * paired with `./link-detail.tsx`, which renders the larger card-style variant of the same link.
+ *
+ * Props (`TIssueLinkItem`, local):
+ *   - linkId (string, required): id used to resolve the link record from the issue-detail store.
+ *   - linkOperations (TLinkOperationsModal, required): update/remove handlers supplied by the
+ *     caller (`./link-list.tsx`).
+ *   - isNotAllowed (boolean, required): when true, disables the kebab menu so the viewer cannot
+ *     edit or delete (the copy + new-tab anchor remain available).
+ *   - issueServiceType (TIssueServiceType, optional, default=`EIssueServiceType.ISSUES`): selects
+ *     the issue-detail store namespace so links from epics or other service-typed surfaces resolve
+ *     correctly.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail(issueServiceType)` — `link.getLinkById(linkId)` for the hydrated link record,
+ *     `toggleIssueLinkModal` to open the shared modal, and `setIssueLinkData(linkDetail)` to stage
+ *     the record for edit.
+ *
+ * Non-store hooks:
+ *   - `useTranslation()` — localizes the copy-success toast title/message and the edit/delete menu items.
+ *   - `usePlatformOS()` — `isMobile` flag forwarded to `Tooltip` for mobile-mode rendering.
+ *
+ * Side effects:
+ *   - The anchor wrapping the link text opens `linkDetail.url` in a new tab with
+ *     `rel="noopener noreferrer"` (standard external-link protection).
+ *   - The copy affordance calls `copyTextToClipboard(linkDetail.url)` from `@plane/utils` and
+ *     emits a `TOAST_TYPE.SUCCESS` toast ("Link copied to clipboard").
+ *   - The "Delete" menu item calls `linkOperations.remove(linkDetail.id)`, which fans out to
+ *     `IssueLinkService.remove` → DELETE against `apps/api`'s `IssueLinkViewSet`.
+ *   - The "Edit" menu item toggles the shared create/update modal open and stages `linkDetail` as
+ *     `issueLinkData` so the form rehydrates with the existing record.
+ *
+ * Defensive rendering: returns an empty fragment when `getLinkById(linkId)` is undefined (the link
+ * may have been removed by another client mid-render).
+ */
+
 import { observer } from "mobx-react";
 
 import { useTranslation } from "@plane/i18n";
