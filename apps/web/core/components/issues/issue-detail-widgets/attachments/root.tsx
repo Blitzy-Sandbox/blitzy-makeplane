@@ -4,6 +4,30 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Root orchestration component for the issue-detail attachments widget.
+ *
+ * Rendered purpose: Wraps the attachments header (`IssueAttachmentsCollapsibleTitle`) and
+ * body (`IssueAttachmentsCollapsibleContent`) inside a `@plane/ui` `Collapsible` panel,
+ * deriving open/closed state from the issue-detail store and toggling the
+ * `"attachments"` widget key on click.
+ *
+ * Props:
+ *  - `workspaceSlug` (string, required) — workspace slug used by child upload/list components for API URLs.
+ *  - `projectId` (string, required) — project identifier for the issue under view.
+ *  - `issueId` (string, required) — issue whose attachments are being rendered.
+ *  - `disabled` (boolean, optional, default `false`) — when true, hides the header action button and prevents uploads.
+ *  - `issueServiceType` (TIssueServiceType, required) — selects which issue-detail store slice (issues vs. drafts vs. epics) is read.
+ *
+ * MobX stores read:
+ *  - `useIssueDetail(issueServiceType)` — destructures `openWidgets` (observable array) to compute open state
+ *    and binds `toggleOpenWidget` (action) to the collapsible's `onToggle` handler.
+ *
+ * Side effects: Invokes the `toggleOpenWidget("attachments")` MobX action when the user expands/collapses
+ * the panel; no direct API calls, navigations, or toasts originate from this file (those live in `helper.tsx`
+ * and `quick-action-button.tsx`).
+ */
+
 import React from "react";
 import { observer } from "mobx-react";
 // plane imports
