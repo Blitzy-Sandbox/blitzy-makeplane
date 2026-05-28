@@ -4,6 +4,36 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * State-group filter row inside the issue layout header filters Popover.
+ *
+ * Rendered purpose: renders a searchable, selectable list of the five canonical state groups
+ * (backlog / unstarted / started / completed / cancelled) as `FilterOption` rows with a
+ * `StateGroupIcon`; clicking a row toggles that group's key in / out of the active state-group
+ * filter set. The header shows the active count as `State group (N)` and the section can be
+ * collapsed via `FilterHeader`'s preview toggle.
+ *
+ * Props (`Props`):
+ *   - `appliedFilters` (`string[] | null`, required): currently-selected state-group keys for the
+ *     `state_group` filter slot.
+ *   - `handleUpdate` (`(val: string) => void`, required): invoked with the clicked state-group
+ *     key; the parent route root flips it into / out of `appliedFilters` and persists via
+ *     `issuesFilter.updateFilters(workspaceSlug, projectId, EIssueFilterType.FILTERS,
+ *     { state_group: <next-array> })`.
+ *   - `searchQuery` (`string`, required): substring filter applied case-insensitively to each
+ *     state group's `key` before rendering.
+ *
+ * MobX stores read: none. This is a pure-catalog filter — the state-group options are enumerated
+ * directly from the `STATE_GROUPS` constant in `@plane/constants`. Distinct from `state.tsx`,
+ * which filters by specific per-project state ids and receives its roster as a prop.
+ *
+ * Side effects: none directly. Row click invokes `handleUpdate`. The `itemsToRender` /
+ * `handleViewToggle` paginate-and-grow scaffolding is present for structural symmetry with the
+ * other filters but is functionally inert here because the `STATE_GROUPS` catalog contains only
+ * five entries (the default page size). No API calls, no router navigation, no direct store
+ * writes.
+ */
+
 import React, { useState } from "react";
 import { observer } from "mobx-react";
 // plane imports
