@@ -5,23 +5,33 @@
  */
 
 /**
- * Quick-actions affordance attached to a workspace-draft row.
+ * Quick-actions menu for a workspace draft issue row.
  *
- * Rendered purpose: dual-surface action menu — a `ContextMenu` anchored to `parentRef`
- * (triggered by right-click on the draft row) plus a `CustomMenu` kebab button (rendered
- * on hover). Both surfaces share the same caller-supplied `MENU_ITEMS` so context-menu
- * and overflow-menu actions stay in sync.
+ * Pure presentation component that renders both a right-click context menu
+ * (bound to `parentRef`) and an ellipsis-triggered custom dropdown menu,
+ * populated from a caller-supplied list of `TContextMenuItem` entries. The
+ * component performs no store mutations, network calls, or navigations of
+ * its own — all behavioral effects are delegated to `item.action()`.
  *
  * Props:
- *   - parentRef (React.RefObject<HTMLElement>, required): element the context menu is anchored to
- *   - MENU_ITEMS (TContextMenuItem[], required): action entries (Edit, Duplicate, Move to project, Delete, ...)
+ *   - parentRef (React.RefObject<HTMLElement>, required): ref to the parent
+ *     element on which the right-click context menu is bound.
+ *   - MENU_ITEMS (TContextMenuItem[], required): items with `key`, `title`,
+ *     `icon`, optional `description`, optional `disabled`, optional
+ *     `className`/`iconClassName`, and an `action` callback.
  *
- * MobX stores read: none — entirely driven by the caller-supplied `MENU_ITEMS` array.
+ * MobX stores read (via React context):
+ *   - useTranslation — translator `t` used to localize `item.title`.
  *
- * Side effects: none directly — each `MENU_ITEMS` entry owns its own action callback.
+ * Side effects:
+ *   - Invokes `item.action()` on selection; no other side effects.
  *
- * Consumers:
- *   - `apps/web/core/components/issues/workspace-draft/draft-issue-block.tsx`
+ * Accessibility / behavior:
+ *   - Disabled items get both the `disabled` prop and a `text-placeholder`
+ *     class for visual contrast.
+ *   - `closeOnSelect` collapses the menu after a click.
+ *   - `useCaptureForOutsideClick` resolves outside-click during the capture
+ *     phase to avoid conflicts with the parent row's double-click handler.
  */
 
 import { observer } from "mobx-react";
