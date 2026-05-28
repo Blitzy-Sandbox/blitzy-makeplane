@@ -4,6 +4,24 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders a "description updated" event in the issue activity timeline.
+ *
+ * Props:
+ *   - activityId (string, required): identifier of the activity record to render.
+ *   - ends ("top" | "bottom" | undefined, required): timeline-stack position marker.
+ *   - showIssue (boolean, optional, default `true`): when true, appends " of "
+ *     plus an `IssueLink` referencing the parent work item.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — reads `activity.getActivityById(activityId)`.
+ *
+ * Side effects: none. This is a presentational notice row only — `@plane/editor`
+ * is NOT instantiated here. The actual updated description body is rendered by
+ * other components elsewhere in the issue-detail view; this row only flags that
+ * a description change occurred.
+ */
+
 import { observer } from "mobx-react";
 import { AlignLeft } from "lucide-react";
 // hooks
