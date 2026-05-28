@@ -4,6 +4,36 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Cycle filter row inside the issue layout header filters Popover.
+ *
+ * Rendered purpose: renders a searchable, paginated, selectable list of the current project's
+ * cycles as `FilterOption` rows; each row displays a `CycleGroupIcon` colored by cycle status
+ * (current / upcoming / completed / draft) and clicking a row toggles that cycle's id in / out of
+ * the active cycle filter set. The "current" cycle's row pulses via `FilterOption.activePulse`.
+ *
+ * Props (`Props`):
+ *   - `appliedFilters` (`string[] | null`, required): currently-selected cycle ids for the `cycle`
+ *     filter slot.
+ *   - `handleUpdate` (`(val: string) => void`, required): invoked with the clicked cycle id; the
+ *     parent route root flips it into / out of `appliedFilters` and persists via
+ *     `issuesFilter.updateFilters(workspaceSlug, projectId, EIssueFilterType.FILTERS,
+ *     { cycle: <next-array> })`.
+ *   - `searchQuery` (`string`, required): substring filter applied case-insensitively to each
+ *     cycle's `name` before sorting.
+ *
+ * Route context: reads `projectId` from `useParams()` (route param) and resolves the candidate
+ * roster internally via `useCycle().getProjectCycleIds(projectId)` — there is no `cycleIds` prop.
+ *
+ * MobX stores read:
+ *   - `useCycle()` -> `getProjectCycleIds(projectId)` for the candidate roster, and `getCycleById`
+ *     to resolve each cycle entity for rendering (name + status).
+ *
+ * Side effects: none directly. Row click invokes `handleUpdate`; pagination ("View all" / "View
+ * less") only mutates the local `itemsToRender` state. No API calls, no router navigation, no
+ * direct store writes.
+ */
+
 import React, { useMemo, useState } from "react";
 import { sortBy } from "lodash-es";
 import { observer } from "mobx-react";
@@ -30,6 +60,11 @@ export const FilterCycle = observer(function FilterCycle(props: Props) {
   const { projectId } = useParams();
   const { getCycleById, getProjectCycleIds } = useCycle();
 
+  /**
+   * Paginated render: only the first `itemsToRender` rows are mounted at a time so that large
+   * rosters (e.g. workspaces with hundreds of members or labels) do not stall the dropdown's first
+   * paint. The user clicks "Load More" to grow the slice.
+   */
   // states
   const [itemsToRender, setItemsToRender] = useState(5);
   const [previewEnabled, setPreviewEnabled] = useState(true);
