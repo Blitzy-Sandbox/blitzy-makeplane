@@ -4,6 +4,27 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders an inbox / intake lifecycle event in the issue activity timeline.
+ *
+ * Props:
+ *   - activityId (string, required): identifier of the activity record to render.
+ *   - ends ("top" | "bottom" | undefined, required): timeline-stack position marker.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — reads `activity.getActivityById(activityId)`.
+ *
+ * Verb-to-message mapping:
+ *   - "-1" → "declined this work item from intake."
+ *   - "0"  → "snoozed this work item."
+ *   - "1"  → "accepted this work item from intake."
+ *   - "2"  → "declined this work item from intake by marking a duplicate work item."
+ *   - default → "updated intake work item status."
+ *
+ * Side effects: none. Read-only / presentational; no mutations, no navigations,
+ * no API calls.
+ */
+
 import { observer } from "mobx-react";
 // hooks
 import { IntakeIcon } from "@plane/propel/icons";
