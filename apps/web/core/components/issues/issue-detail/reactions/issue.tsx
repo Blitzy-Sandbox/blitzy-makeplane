@@ -4,6 +4,62 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Issue-level emoji reaction component for the issue detail content area.
+ *
+ * Rendered purpose: a Propel `EmojiReactionPicker` wrapping an `EmojiReactionGroup` that renders
+ * every existing reaction on a single work item as a tappable chip and exposes an "Add reaction"
+ * picker. Bound to the issue-reaction sub-store so the chip group re-renders as other users react
+ * in real time.
+ *
+ * Props (TIssueReaction — exported):
+ *   - workspaceSlug (string, required): scopes the create/remove reaction mutations
+ *   - projectId (string, required): scopes the create/remove reaction mutations
+ *   - issueId (string, required): the work item whose reactions are managed
+ *   - currentUser (IUser, required): used to compute `reactionsByUser(issueId, currentUser.id)` and
+ *     to authorize the remove mutation (the API requires the actor id)
+ *   - disabled (boolean, optional, default=false): suppresses both the "Add reaction" affordance
+ *     and direct-chip click handling while preserving display of the existing reaction group
+ *   - className (string, optional, default=""): wrapper class overrides composed through `cn` with
+ *     the baseline `"relative mt-4"` utilities
+ *
+ * MobX stores read (via React-context store hooks):
+ *   - `useIssueDetail()` —
+ *       reaction.getReactionsByIssueId(issueId): the `Record<emojiCode, reactionId[]>` bucket map
+ *       reaction.reactionsByUser(issueId, userId): the current user's reactions on this issue
+ *       reaction.getReactionById(reactionId): resolves a stored reaction's actor/display_name
+ *       createReaction / removeReaction: mutation actions
+ *   - `useMember()` — `getUserDetails(actorId)` for resolving each reaction's actor display name
+ *     (falls back to the stored `display_name` when the member is not in the loaded member set)
+ *
+ * Side effects:
+ *   - Persistence routes through `IssueReactionStore` → `IssueReactionService.createIssueReaction`
+ *     / `.deleteIssueReaction` → `apps/api`'s `IssueReactionViewSet` (POST and DELETE on
+ *     `/workspaces/<slug>/projects/<id>/issues/<issue_id>/reactions/`).
+ *   - Toast emissions via `setToast({ type: TOAST_TYPE.SUCCESS | TOAST_TYPE.ERROR })` after each
+ *     create/remove attempt (success and failure paths both notify the user).
+ *   - No router navigations and no direct API calls from this component (all I/O is mediated by the
+ *     store actions).
+ *
+ * Imperative DOM / derived state notes:
+ *   - The "decimal code-point string" emoji normalization in `handleReactionClick` exists because
+ *     the backend stores the reaction key as the dash-joined decimal Unicode code points (e.g.,
+ *     "128512" for 😀 or "129505-8205-129505" for compound glyphs), NOT the raw UTF-16 surrogate
+ *     pair string. `EmojiReactionPicker` emits the already-normalized form, so `handleEmojiSelect`
+ *     skips the conversion — this asymmetry IS the WHY of the two distinct handlers.
+ *   - `issueReactionOperations.react` implements toggle semantics: when the current user has
+ *     already reacted with the given code-point string it calls `remove`; otherwise `create`. This
+ *     keeps the chip behavior idempotent from the user's perspective.
+ *   - `reactions: EmojiReactionType[]` is `useMemo`-derived from `reactionIds` and `userReactions`
+ *     so the chip group's identity is stable across renders unless the underlying buckets change.
+ *   - Field validation in `create`/`remove` throws "Missing fields" when any of `workspaceSlug`,
+ *     `projectId`, `issueId` (and `currentUser.id` for `remove`) is falsy — the throw is caught
+ *     locally and surfaced as an error toast. Preserve this guard exactly.
+ *   - When `disabled` is true, the early-return in `handleReactionClick` suppresses chip clicks but
+ *     `EmojiReactionGroup.showAddButton={!disabled}` also hides the add-reaction button so the
+ *     existing reaction group continues to render in a strictly read-only mode.
+ */
+
 import { useMemo, useState } from "react";
 import { observer } from "mobx-react";
 import { stringToEmoji } from "@plane/propel/emoji-icon-picker";
