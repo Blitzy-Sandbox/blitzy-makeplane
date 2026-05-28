@@ -4,6 +4,70 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Layout shell for the work item peek-overview panel.
+ *
+ * Rendered purpose: switches the peek between `side-peek` (right-docked drawer), `modal`
+ * (centered overlay), and `full-screen` modes; manages dismissal via Escape key and
+ * outside-click detection; portals the panel into `#full-screen-portal` unless embedded;
+ * and composes the header, details, properties, widgets, and activity sections.
+ *
+ * Props (IIssueView):
+ *   - workspaceSlug (string, required): scopes all child mutations and links
+ *   - projectId (string, required): scopes all child mutations and links
+ *   - issueId (string, required): identifies the work item rendered in the panel
+ *   - isLoading (boolean, optional): when true, renders `<IssuePeekOverviewLoader />`
+ *   - isError (boolean, optional): when true, renders `<IssuePeekOverviewError />`
+ *   - is_archived (boolean, required): when true, the panel switches to read-only and the
+ *     properties sidebar disables pointer events
+ *   - disabled (boolean, optional, default=false): edit-disabled flag from the parent's permission check
+ *   - embedIssue (boolean, optional, default=false): when true, the panel renders inline
+ *     (no portal, no outside-click dismissal, no Escape handler)
+ *   - embedRemoveCurrentNotification (() => void, optional): callback invoked alongside `removeRoutePeekId`
+ *     when the panel is dismissed in embedded mode
+ *   - issueOperations (TIssueOperations, required): the issue-update contract sourced from `../issue-detail`
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — `setPeekIssue` (mutation to close the peek), `isAnyModalOpen`,
+ *     `issue.getIssueById(issueId)`
+ *   - `useIssueDetail(EIssueServiceType.EPICS)` — `isAnyModalOpen` aliased as `isAnyEpicModalOpen` so
+ *     epic-scoped modals do not trigger outside-click dismissal of the peek
+ *
+ * Side effects:
+ *   - `setPeekIssue(undefined)` — closes the peek and clears the active peek id in the store
+ *   - `embedRemoveCurrentNotification()` — called alongside the close in embedded mode (e.g. inbox row removal)
+ *   - DOM portal: `createPortal(content, portalContainer)` mounts the panel into `#full-screen-portal`
+ *     unless `embedIssue` is true (in which case the panel renders inline)
+ *   - Keyboard listener: `useKeypress("Escape", ...)` dismisses the panel when no editor dropbar/full-screen
+ *     image modal/dropdown input is focused and no MobX modal is open
+ *   - Outside-click: `usePeekOverviewOutsideClickDetector` watches the ref and dismisses on outside click
+ *     unless any modal, dropbar, local modal, or embed context is active. The "main-sidebar" element is
+ *     excluded from the outside-click region so clicks on the global sidebar do not close the peek.
+ *
+ * Imperative DOM / derived state notes:
+ *   - `peekOverviewIssueClassName` is composed via `cn(...)` from `@plane/utils` and switches the panel's
+ *     positioning between right-docked, centered, and full-screen variants based on `peekMode`.
+ *   - The full-screen mode renders a two-column layout (main content + right sidebar) inside an
+ *     overflow-auto container. The side-peek / modal modes render a single-column layout.
+ *   - `editorRef.current?.isAnyDropbarOpen()` is checked before dismissal so the panel does not close while
+ *     a TipTap dropbar (e.g., link editor, image popover) is active.
+ *   - On Escape dismissal, the parent issue card receives focus via
+ *     `document.getElementById(`issue-${issueId}`)?.focus()` — preserves keyboard navigation context.
+ *   - The local boolean states (`isDeleteIssueModalOpen`, `isArchiveIssueModalOpen`,
+ *     `isDuplicateIssueModalOpen`, `isEditIssueModalOpen`) are aggregated into `isAnyLocalModalOpen` to
+ *     prevent dismissal while a confirmation modal is open in front of the peek.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/issues/peek-overview/root.tsx` (the orchestration root)
+ *
+ * Architectural notes:
+ *   - MobX exclusively — stores via React context.
+ *   - Reactivity: wrapped in `observer(...)` so that changes to the resolved `issue` snapshot and to
+ *     any of the watched modal flags re-render the panel.
+ *   - The portal target `#full-screen-portal` is mounted at the app root by the layout shell; this
+ *     component fails open (renders inline) if the portal is not yet attached to the DOM.
+ */
+
 import { useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { createPortal } from "react-dom";
