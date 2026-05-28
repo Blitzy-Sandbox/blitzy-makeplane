@@ -35,6 +35,10 @@
  * Imperative DOM / derived state notes:
  *   - SWR is configured with `revalidateOnFocus: false, revalidateIfStale: false` so the page does not refetch on focus changes — pagination/refresh is owned by the store.
  *
+ * Wrapped with `observer` so MobX mutations on `loader`, `paginationInfo`, and
+ * `issueIds` trigger re-renders without local state — stores are the single
+ * source of truth (MobX exclusively, injected via React context).
+ *
  * Consumers:
  *   - `apps/web/app/[workspaceSlug]/(projects)/drafts/` route module
  */
