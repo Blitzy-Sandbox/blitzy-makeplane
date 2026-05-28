@@ -4,6 +4,32 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * `SubIssuesActionButton` — compact dropdown trigger ("Add sub-work-item") rendered inside the sub-issues title actions strip.
+ * Stages CRUD intent in the `issue-detail` store (`issueCrudOperationState`) and opens the matching modal: `create` → opens
+ * `CreateUpdateIssueModal` (new sub-work-item form); `existing` → opens `ExistingIssuesListModal` (attach by id picker).
+ * Returns an empty fragment if the parent issue cannot be resolved from the store.
+ *
+ * Props (Props):
+ *   - issueId (string, required): Parent issue id; used both for resolving the parent issue record and for staging it as `parentIssueId` in the CRUD state.
+ *   - customButton (React.ReactNode, optional): Custom trigger element; defaults to a small `PlusIcon`.
+ *   - disabled (boolean, optional, default `false`): When true, the `CustomMenu` trigger is non-interactive.
+ *   - issueServiceType (TIssueServiceType, required): Selects which `issue-detail` store slice to read.
+ *
+ * MobX stores read (via `useIssueDetail(issueServiceType)`):
+ *   - `issue.getIssueById(issueId)`: selector — resolves the parent issue record; absence triggers the empty-fragment return.
+ *   - `toggleCreateIssueModal(open: boolean)`: action — opens the shared create/update issue modal.
+ *   - `toggleSubIssuesModal(issueId: string | null)`: action — opens the attach-existing sub-issue picker for the given parent issue id.
+ *   - `setIssueCrudOperationState(nextState)`: action — replaces the CRUD operation state bag.
+ *   - `issueCrudOperationState`: observable — the canonical CRUD state bag with `create`, `existing`, `update`, `delete` slots; each slot carries `{ toggle, parentIssueId, issue }`.
+ *
+ * Side effects (the `create` vs. `existing` dichotomy):
+ *   - `handleCreateNew()` — flips `issueCrudOperationState.create.toggle`, sets `parentIssueId = issueId`, then calls `toggleCreateIssueModal(true)`. The opened modal is owned by `issue-detail-widget-modals.tsx` upstream.
+ *   - `handleAddExisting()` — flips `issueCrudOperationState.existing.toggle`, sets `parentIssueId = issueId`, then calls `toggleSubIssuesModal(issue.id)`. The opened modal is the `ExistingIssuesListModal` (also owned upstream).
+ *   - No direct API calls; modal submission handlers (in the upstream modal owner) invoke `useSubIssueOperations` for actual mutations.
+ *   - No toasts emitted at this layer.
+ */
+
 import React from "react";
 import { observer } from "mobx-react";
 // plane imports
