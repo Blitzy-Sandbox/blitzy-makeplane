@@ -4,6 +4,45 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Compact header action bar for the issue detail page (copy-link, subscribe, archive, delete, restore).
+ *
+ * Rendered purpose: a flex row containing the optional `IssueSubscription` button (hidden for
+ * archived issues and signed-out users), a "Copy work item link" `IconButton` with a transient toast,
+ * and the shared `WorkItemDetailQuickActions` overflow menu that exposes archive / delete / restore.
+ *
+ * Props:
+ *   - workspaceSlug (string, required): scopes the actions
+ *   - projectId (string, required): scopes the actions
+ *   - issueId (string, required): the work item being acted on
+ *
+ * MobX stores read:
+ *   - `useUser()` — `data: currentUser` for the subscribe-button gate
+ *   - `useProject()` — `getProjectIdentifierById(projectId)` for link composition via `generateWorkItemLink`
+ *   - `useIssueDetail()` — `issue.getIssueById(issueId)`, `removeIssue`, `archiveIssue` (the active
+ *     issues namespace)
+ *   - `useIssues(EIssuesStoreType.ARCHIVED)` — `issues.restoreIssue` and a second
+ *     `useIssues(EIssuesStoreType.ARCHIVED)` invocation for `removeIssue` (archived removal)
+ *
+ * Side effects:
+ *   - Clipboard write via `copyTextToClipboard(`${originURL}${workItemLink}`)` from `@plane/utils`.
+ *   - Toast emissions for: copy-success, copy-error, delete-error, archive-error, restore-success,
+ *     restore-error — all i18n-keyed.
+ *   - Mutations via the issue-detail store: `removeIssue` (active), `archiveIssue` (active),
+ *     `removeArchivedIssue` (archived), `restoreIssue` (archived).
+ *   - Router navigations via `useAppRouter()`: after delete or archive, redirects to the project
+ *     `issues` or `archives/issues` list; after restore, redirects to the (now-active) work item link.
+ *
+ * Imperative DOM / derived state notes:
+ *   - `parentRef` is forwarded to `WorkItemDetailQuickActions` so the overflow menu can portal/anchor
+ *     to the correct element.
+ *   - The delete/archive/restore handlers wrap async calls in try/catch and emit a single
+ *     localized error toast per failure path.
+ *   - `originURL` resolution checks `typeof window !== "undefined"` to stay SSR-safe — preserve this
+ *     guard.
+ *   - Returns `<></>` early if the active issue cannot be resolved.
+ */
+
 import { useRef } from "react";
 import { observer } from "mobx-react";
 // plane imports
