@@ -55,6 +55,9 @@
  *   - The modal is rendered with `issueServiceType={EIssueServiceType.ISSUES}` — this is hard-coded
  *     because `IssueLinkRoot` is mounted on the standard issue-detail surface, not the epic-detail
  *     surface. Epic links use a different mount point.
+ *
+ * Consumers: rendered by `../sidebar.tsx` (`IssueDetailsSidebar`) inside the
+ * issue-detail sidebar's links section.
  */
 
 import { useCallback, useMemo, useState } from "react";

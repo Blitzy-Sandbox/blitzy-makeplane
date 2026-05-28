@@ -18,13 +18,17 @@
  *  - `issueId` (string, required) — issue whose attachment count is displayed.
  *  - `disabled` (boolean, required) — when true, hides the upload action button.
  *  - `issueServiceType` (TIssueServiceType, optional, default `EIssueServiceType.ISSUES`) — selects the issue-detail
- *    store slice (issues vs. drafts vs. epics) used to look up the issue.
+ *    store slice used to look up the issue; one of `EIssueServiceType.ISSUES`, `EPICS`, `WORK_ITEMS`.
  *
  * MobX stores read:
  *  - `useIssueDetail(issueServiceType)` — destructures `issue.getIssueById` to look up `issue.attachment_count`.
  *
  * Side effects: None. This file is purely presentational; the embedded `IssueAttachmentActionButton`
- * (see `./quick-action-button.tsx`) owns the upload action handler.
+ * (see `./quick-action-button.tsx`) owns the upload action handler — uploads run through the
+ * assets V2 presigned-upload flow against `IssueAttachmentV2Endpoint` (full contract documented
+ * in `./helper.tsx`).
+ *
+ * Consumers (this directory): rendered by `./root.tsx`.
  */
 
 import React, { useMemo } from "react";

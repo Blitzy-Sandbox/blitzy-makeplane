@@ -9,6 +9,10 @@
  * sub-issues collapsible body (`./content.tsx`) and the upstream modals owner (`../issue-detail-widget-modals.tsx`).
  * Wraps the underlying `issue-detail` MobX store actions with translation-aware toast emissions and helper-state bookkeeping
  * (`setSubIssueHelpers(parentIssueId, "issue_loader", issueId)` toggled before/after each mutation).
+ *
+ * Consumers: `useSubIssueOperations` is invoked from `./content.tsx` (sub-issues collapsible
+ * body) and from `./issues-list/root.tsx` / per-row helpers under `./issues-list/*` for
+ * dispatching CRUD on individual sub-work-item rows.
  */
 
 import { useMemo } from "react";

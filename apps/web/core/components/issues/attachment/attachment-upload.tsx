@@ -25,8 +25,12 @@
  *   `attachmentOperations.create` (which in turn calls the issue-detail attachment store).
  *
  * Side effects:
- * - File upload via `attachmentOperations.create` (presigned POST flow through
- *   `IssueAttachmentService` — see `issue-detail-widgets/attachments/helper.tsx`)
+ * - File upload via `attachmentOperations.create` (assets V2 presigned-upload flow through
+ *   `IssueAttachmentService.uploadIssueAttachment` against `IssueAttachmentV2Endpoint`; the
+ *   server returns a presigned URL, the browser PUTs the file body to object storage, and the
+ *   service issues a follow-up `PATCH` to mark `is_uploaded=true` — see
+ *   `issue-detail-widgets/attachments/helper.tsx` for the full contract and the
+ *   `delete_unuploaded_file_asset` cleanup safety net for aborted uploads)
  * - Toggles local `isLoading` state to show "Uploading..." and to disable the input
  * - Surfaces a derived `fileError` string when `react-dropzone` rejects the file
  *   (type or size); no toast is emitted from here (the GRID variant relies on the

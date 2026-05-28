@@ -19,6 +19,11 @@
  * Side effects: None. Click behavior is owned by the parent (the wrapper just
  * forwards visual state; the parent passes this element as `customButton` to a
  * specialized action component).
+ *
+ * Consumers: passed as the `customButton` slot of the sibling quick-action
+ * components inside `./action-buttons.tsx` (`IssueDetailWidgetActionButtons`) —
+ * specifically `SubIssuesActionButton`, `RelationActionButton`,
+ * `IssueLinksActionButton`, and `IssueAttachmentActionButton`.
  */
 
 import React from "react";

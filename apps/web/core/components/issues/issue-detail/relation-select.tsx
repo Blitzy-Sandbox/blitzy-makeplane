@@ -48,6 +48,9 @@
  *   - The remove affordance uses `e.preventDefault(); e.stopPropagation();` to suppress the parent
  *     button's `toggleRelationModal(issueId, relationKey)` handler. Preserve this exactly.
  *   - The chip's external link also calls `stopPropagation()` to keep the modal from opening on link click.
+ *
+ * Consumers: rendered by `./sidebar.tsx` (`IssueDetailsSidebar`) inside the relations
+ * block — once per relation category — on the issue-detail sidebar.
  */
 
 import React from "react";

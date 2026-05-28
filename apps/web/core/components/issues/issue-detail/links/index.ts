@@ -20,6 +20,10 @@
  *   - `./link-list`   — `LinkList` (row-style list)
  *
  * Contains no runtime logic — pure barrel module.
+ *
+ * Consumers: imported by `../sidebar.tsx` (`IssueDetailsSidebar` links section),
+ * `../../issue-detail-widgets/links/content.tsx` (widget-side body), and any other
+ * surfaces that mount the issue-detail link panel or its row/card primitives.
  */
 
 export * from "./root";

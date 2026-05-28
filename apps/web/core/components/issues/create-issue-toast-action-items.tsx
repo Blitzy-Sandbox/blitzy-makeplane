@@ -32,6 +32,10 @@
  *   - Returns `null` early when the issue is not present in the store (avoids rendering a toast action for an
  *     unreachable resource — e.g., the toast was emitted but the store snapshot has not propagated yet).
  *   - The "Copy link" button is hidden until the parent row receives `:hover` (Tailwind `group-hover:flex`).
+ *
+ * Consumers: rendered inside the post-create success toast emitted by issue-create flows — e.g., the
+ * `CreateUpdateIssueModal` create handler in `apps/web/core/components/issues/issue-modal/modal.tsx`
+ * passes this component as the toast's `actionItems` slot, and quick-add forms reuse the same toast.
  */
 
 import React, { useState } from "react";

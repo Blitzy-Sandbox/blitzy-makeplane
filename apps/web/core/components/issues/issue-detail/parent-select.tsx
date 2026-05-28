@@ -49,6 +49,9 @@
  *   - `isParentIssueModalOpen === issueId` is the per-issue gate so two parent selectors on the
  *     same page (e.g., main + peek) do not share modal state.
  *   - Returns `<></>` early if the current issue cannot be resolved.
+ *
+ * Consumers: rendered by `./sidebar.tsx` (`IssueDetailsSidebar`) and the peek-overview
+ * properties panel as the parent-work-item assignment affordance.
  */
 
 import React from "react";

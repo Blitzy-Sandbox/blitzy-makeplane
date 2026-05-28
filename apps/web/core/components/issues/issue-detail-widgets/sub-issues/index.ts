@@ -8,6 +8,10 @@
  * Barrel module that re-exports the public surface of the sub-issues widget — the collapsible content body, display-filter and quick-action controls,
  * the collapsible root container, and the collapsible title — so consumers (notably `../issue-detail-widget-collapsibles.tsx`) can import from this folder
  * without depending on the internal file layout.
+ *
+ * Consumers: re-exported by `../index.ts` (issue-detail-widgets barrel) and consumed
+ * by `../root.tsx` (`IssueDetailWidgetCollapsibles`) inside the issue-detail widget
+ * shell mounted by `issue-detail/main-content.tsx` and the peek-overview body.
  */
 
 export * from "./content";

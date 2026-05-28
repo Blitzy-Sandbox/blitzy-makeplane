@@ -23,9 +23,10 @@
  *     `TIssueParentSiblings` (its prop shape).
  *   - From `./sibling-item`: `IssueParentSiblingItem` (single sibling-row component).
  *
- * No runtime logic — pure barrel module. The primary consumer is
- * `apps/web/core/components/issues/issue-detail/main-content.tsx`, which mounts `IssueParentDetail`
- * directly above the title editor on the issue detail page.
+ * No runtime logic — pure barrel module.
+ *
+ * Consumers: imported by `../main-content.tsx`, which mounts `IssueParentDetail`
+ * directly above the title editor on the issue-detail page.
  */
 
 export * from "./root";

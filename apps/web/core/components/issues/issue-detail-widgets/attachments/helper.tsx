@@ -15,13 +15,27 @@
  * current in-flight upload snapshot for progress UI.
  *
  * State slice read (MobX): `useIssueDetail(issueServiceType).attachment` —
- *   - `createAttachment` (async action) — POSTs the file through `IssueAttachmentService`
- *     to `/api/workspaces/<slug>/projects/<id>/issues/<issue_id>/issue-attachments/` and
- *     records an in-flight upload entry until the promise resolves.
- *   - `removeAttachment` (async action) — deletes an attachment by id via the same service.
+ *   - `createAttachment` (async action) — drives the V2 presigned-upload flow through
+ *     `IssueAttachmentService.uploadIssueAttachment`. The service first calls
+ *     `POST /api/assets/v2/workspaces/<slug>/projects/<projectId>/<serviceType>/<issueId>/attachments/`
+ *     to obtain a presigned URL (served by `IssueAttachmentV2Endpoint` in
+ *     `apps/api/plane/app/views/issue/attachment.py`), uploads the file directly to object
+ *     storage, then `PATCH`es the same path to mark the asset as uploaded. The store records an
+ *     in-flight upload entry until the round-trip resolves.
+ *   - `removeAttachment` (async action) — deletes an attachment by id via the same V2 endpoint.
  *   - `getAttachmentsUploadStatusByIssueId` (computed accessor) — returns the array of
  *     in-flight upload entries for the given issue, used by the list to render
  *     placeholder rows while uploads are processing.
+ *
+ * Backend cleanup contract:
+ *   - Assets that obtain a presigned URL but never finish the upload (`is_uploaded=false`)
+ *     are reaped by the `delete_unuploaded_file_asset` Celery task in
+ *     `apps/api/plane/bgtasks/file_asset_task.py`, which prunes records older than
+ *     `UNUPLOADED_ASSET_DELETE_DAYS` (default 7 days). This keeps orphan rows from
+ *     accumulating when the user closes the tab mid-upload.
+ *   - The PATCH step is intentionally idempotent: re-issuing it on an already-uploaded asset
+ *     is a no-op, so a transient network hiccup between the storage PUT and the PATCH does
+ *     not leave the row in a half-finalized state.
  *
  * Side effects emitted by this module:
  *   - `setPromiseToast` on upload (loading → success/error toast strings).
@@ -80,7 +94,7 @@ export type TAttachmentHelpers = {
  * @param workspaceSlug    Workspace slug used for API URL construction.
  * @param projectId        Project identifier of the parent issue.
  * @param issueId          Issue receiving the attachment operations.
- * @param issueServiceType Selects the issue-detail store slice (issues vs. drafts vs. epics).
+ * @param issueServiceType Selects the issue-detail store slice; one of `EIssueServiceType.ISSUES`, `EPICS`, `WORK_ITEMS`.
  *                         Defaults to `EIssueServiceType.ISSUES`.
  * @returns A `TAttachmentHelpers` object — `operations.create(file)` / `operations.remove(id)`
  *          memoized on the identifier tuple and store actions, plus `snapshot.uploadStatus`

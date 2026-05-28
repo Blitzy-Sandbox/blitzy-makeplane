@@ -23,8 +23,11 @@
  * - `useIssueDetail().attachment` — for upload-status snapshot and attachment IDs
  *
  * Side effects:
- * - None directly; child components invoke `IssueAttachmentService` upload and
- *   delete operations and emit toasts on completion.
+ * - None directly; child components invoke `IssueAttachmentService.uploadIssueAttachment`
+ *   (assets V2 presigned-upload flow against `IssueAttachmentV2Endpoint`, see
+ *   `./issue-detail-widgets/attachments/helper.tsx` for the full contract and the
+ *   `delete_unuploaded_file_asset` cleanup safety net) and delete operations, and emit
+ *   toasts on completion.
  *
  * Consumers:
  * - `apps/web/core/components/issues/issue-detail-widgets/attachments/content.tsx`

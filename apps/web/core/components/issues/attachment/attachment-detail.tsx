@@ -28,8 +28,10 @@
  * Side effects:
  * - Opens `IssueAttachmentDeleteModal` (locally-controlled via `useState`) which on
  *   confirmation calls `attachmentHelpers.operations.remove` (DELETE through
- *   `IssueAttachmentService`)
- * - `Link` (next/link) opens `fileURL` in a new tab via `target="_blank"`
+ *   `IssueAttachmentService` against the assets V2 endpoint at
+ *   `/api/assets/v2/workspaces/<slug>/projects/<projectId>/<serviceType>/<issueId>/attachments/<assetId>/`)
+ * - `Link` (next/link) opens `fileURL` in a new tab via `target="_blank"` with
+ *   `rel="noopener noreferrer"` to defeat reverse-tabnabbing/opener exposure
  *
  * Consumers:
  * - `./attachments-list.tsx` (`IssueAttachmentsList`).

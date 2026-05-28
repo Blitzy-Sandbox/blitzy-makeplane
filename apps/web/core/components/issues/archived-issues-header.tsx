@@ -28,6 +28,10 @@
  *     fields are visible.
  *   - Filter mutations re-merge with the existing `issueFilters?.displayFilters` so a partial update does not
  *     drop other display-filter fields.
+ *
+ * Consumers: rendered by the archived-issues route shell — e.g.,
+ * `apps/web/app/[workspaceSlug]/projects/(detail)/[projectId]/archives/` page layouts that pair this
+ * header with `ArchivedIssueLayoutRoot`.
  */
 
 import { observer } from "mobx-react";

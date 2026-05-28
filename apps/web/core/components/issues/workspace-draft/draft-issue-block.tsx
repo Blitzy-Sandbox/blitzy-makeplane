@@ -4,6 +4,39 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * One row of the workspace-level draft work-item list.
+ *
+ * Rendered purpose: a single draft work-item row carrying the project identifier badge,
+ * title, inline `DraftIssueProperties`, and a quick-actions context menu (Edit / Duplicate /
+ * Move to project / Delete). Distinct from project draft issues because the row is workspace-
+ * scoped and the underlying record is `TWorkspaceDraftIssue`, not `TIssue`.
+ *
+ * Props:
+ *   - workspaceSlug (string, required): URL slug of the parent workspace; forwarded to mutation callbacks
+ *   - issueId (string, required): id of the draft row to render (resolved against the draft store)
+ *
+ * MobX stores read:
+ *   - `useWorkspaceDraftIssues()` — reads `getIssueById`, `updateIssue`, `deleteIssue` actions
+ *   - `useAppTheme()` — reads `sidebarCollapsed` to adapt the row's horizontal padding
+ *   - `useProject()` — reads `getProjectIdentifierById` to render the per-project sequence label
+ *
+ * Side effects:
+ *   - Invokes `updateIssue(workspaceSlug, issueId, payload)` on inline edits
+ *   - Invokes `deleteIssue(workspaceSlug, issueId)` from the delete-confirmation modal
+ *   - Opens `CreateUpdateIssueModal` for duplicate / move-to-project flows
+ *   - Opens `WorkspaceDraftIssueDeleteIssueModal` for the delete-confirmation flow
+ *
+ * Imperative DOM / derived state notes:
+ *   - Uses a row-level `useRef<HTMLDivElement>` so the `WorkspaceDraftIssueQuickActions`
+ *     context menu can anchor to the row.
+ *   - `duplicateIssuePayload` strips the persisted `id`/`updated_by`/timestamps before reuse so the
+ *     duplicate flow is treated as a brand-new create.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/issues/workspace-draft/root.tsx` (renders the draft list)
+ */
+
 import React, { useRef, useState } from "react";
 import { omit } from "lodash-es";
 import { observer } from "mobx-react";

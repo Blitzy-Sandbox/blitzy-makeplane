@@ -36,6 +36,9 @@
  *   - Early-exit guard: skips the mutation when the cycle id is unchanged (`issue.cycle_id === cycleId`).
  *   - `disableSelect = disabled || isUpdating` so the dropdown stays uninteractive between optimistic
  *     UI submission and the mutation resolving.
+ *
+ * Consumers: rendered by `./sidebar.tsx` (`IssueDetailsSidebar`) inside the issue-detail
+ * sidebar's properties block.
  */
 
 import React, { useState } from "react";

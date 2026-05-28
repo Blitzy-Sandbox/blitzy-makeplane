@@ -56,6 +56,9 @@
  *     locally and surfaced as an error toast. Preserve this guard exactly.
  *   - When `disabled` is true, the early-return in `handleReactionClick` suppresses chip clicks but
  *     the existing reaction group continues to render so observers can still see who reacted.
+ *
+ * Consumers: rendered inside the issue-activity timeline (`../issue-activity/*`) for
+ * each comment row that supports reactions.
  */
 
 import { useMemo, useState } from "react";

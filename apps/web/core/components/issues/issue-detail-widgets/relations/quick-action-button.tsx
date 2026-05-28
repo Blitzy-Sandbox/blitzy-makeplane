@@ -40,6 +40,10 @@
  *
  * Wrapped in `observer` so it reactively re-renders if the store's relation
  * options or modal state would affect its disabled / open state.
+ *
+ * Consumers: rendered as the `actionItemElement` for the relations entry inside
+ * `./root.tsx` (`IssueDetailWidgetCollapsibles`) and as the `customButton` slot
+ * for the `RelationsCollapsibleTitle` header.
  */
 
 import React from "react";

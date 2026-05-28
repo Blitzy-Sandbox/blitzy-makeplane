@@ -24,12 +24,15 @@
  *
  * Side effects:
  *   - `handleDisplayFilters(updatedDisplayFilter)` / `handleDisplayPropertiesUpdate(updatedDisplayProperties)` / `handleFiltersUpdate(key, value)` — all dispatch MobX actions on the `subIssues.filters` slice. No direct API calls; the store layer is responsible for any persistence.
- *   - `handleFiltersUpdate` non-obviously toggles individual values inside an existing array (using `cloneDeep` to avoid in-place MobX mutation) and supports array-valued inputs (e.g. `start_date` custom values that arrive as `[value, otherValue]`). See the inline comment on line 75-79.
+ *   - `handleFiltersUpdate` non-obviously toggles individual values inside an existing array (using `cloneDeep` to avoid in-place MobX mutation) and supports array-valued inputs (e.g. `start_date` custom values that arrive as `[value, otherValue]`). See the inline comment inside the `handleFiltersUpdate` callback in this file.
  *   - Wrapper `onClick` calls `e.stopPropagation()` and `e.preventDefault()` so click events inside this action strip do not bubble into the parent `CollapsibleButton` and accidentally toggle the collapsible.
  *
  * Layout options:
  *   - `layoutDisplayFiltersOptions` is `ISSUE_DISPLAY_FILTERS_BY_PAGE["sub_work_items"].layoutOptions.list` — the canonical sub-work-item layout option set from `@plane/constants`.
  *   - Available filter keys are `SUB_WORK_ITEM_AVAILABLE_FILTERS_FOR_WORK_ITEM_PAGE` from `@plane/constants`.
+ *
+ * Consumers: rendered by `./title.tsx` (`SubIssuesCollapsibleTitle`) as the action
+ * strip inside the sub-issues collapsible header on the issue-detail widget shell.
  */
 
 import { useCallback } from "react";

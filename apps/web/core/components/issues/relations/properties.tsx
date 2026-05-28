@@ -47,6 +47,10 @@
  *
  * Render gating: returns an empty fragment if the related issue cannot be resolved from the issue-detail
  * store (e.g. during a deletion race).
+ *
+ * Consumers:
+ *   - `./issue-list-item.tsx` (`RelationIssueListItem`) — the only caller; renders one
+ *     `RelationIssueProperty` inside each relation row to provide inline state/priority/assignee edits.
  */
 
 import React from "react";

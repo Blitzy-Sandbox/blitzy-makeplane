@@ -38,6 +38,9 @@
  *     full-set comparisons keeps the payload minimal and lets the backend persist a single bulk update.
  *   - Early-exit guard: bails when `issue` is missing or `module_ids` is undefined.
  *   - `disableSelect = disabled || isUpdating` so the dropdown stays uninteractive during the mutation.
+ *
+ * Consumers: rendered by `./sidebar.tsx` (`IssueDetailsSidebar`) inside the issue-detail
+ * sidebar's properties block.
  */
 
 import React, { useState } from "react";

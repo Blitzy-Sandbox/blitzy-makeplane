@@ -17,15 +17,19 @@
  *  - `projectId` (string, required) — project identifier for the issue under view.
  *  - `issueId` (string, required) — issue whose attachments are being rendered.
  *  - `disabled` (boolean, optional, default `false`) — when true, hides the header action button and prevents uploads.
- *  - `issueServiceType` (TIssueServiceType, required) — selects which issue-detail store slice (issues vs. drafts vs. epics) is read.
+ *  - `issueServiceType` (TIssueServiceType, required) — selects which issue-detail store slice is read; one of `EIssueServiceType.ISSUES`, `EPICS`, `WORK_ITEMS`.
  *
  * MobX stores read:
  *  - `useIssueDetail(issueServiceType)` — destructures `openWidgets` (observable array) to compute open state
  *    and binds `toggleOpenWidget` (action) to the collapsible's `onToggle` handler.
  *
  * Side effects: Invokes the `toggleOpenWidget("attachments")` MobX action when the user expands/collapses
- * the panel; no direct API calls, navigations, or toasts originate from this file (those live in `helper.tsx`
- * and `quick-action-button.tsx`).
+ * the panel; no direct API calls, navigations, or toasts originate from this file. Downstream upload
+ * traffic (assets V2 presigned-upload flow against `IssueAttachmentV2Endpoint`, with
+ * `delete_unuploaded_file_asset` cleanup) is documented in `./helper.tsx` and triggered from
+ * `./quick-action-button.tsx`.
+ *
+ * Consumers (this directory): rendered by `../issue-detail-widget-collapsibles.tsx`.
  */
 
 import React from "react";

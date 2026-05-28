@@ -4,6 +4,39 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Inline property pill row rendered alongside a workspace draft work item.
+ *
+ * Rendered purpose: a horizontally-grouped property row (state / priority / cycle / module /
+ * assignees / labels / start-date / due-date / estimate) shown inside each
+ * `DraftIssueBlock`. Inline edits flow back to the workspace draft store through the
+ * parent-supplied `updateIssue` callback so the draft list stays a single source of truth.
+ *
+ * Props (`IIssueProperties`):
+ *   - issue (TWorkspaceDraftIssue, required): hydrated draft record being rendered
+ *   - updateIssue ((projectId, issueId, partial) => Promise<void> | undefined, required): parent-supplied update callback
+ *   - className (string, required): caller-supplied row className for layout/spacing overrides
+ *
+ * MobX stores read:
+ *   - `useProject()` — `getProjectById` to render the parent project context
+ *   - `useLabel()` — `labelMap` to render label chips
+ *   - `useProjectState()` — `getStateById` for the active state pill
+ *   - `useProjectEstimates()` — `areEstimateEnabledByProjectId` to gate the estimate dropdown
+ *   - `useWorkspaceDraftIssues()` — `addCycleToIssue`, `addModulesToIssue` mutation actions
+ *
+ * Side effects:
+ *   - Calls the parent-supplied `updateIssue` callback on every inline edit (priority, state, dates, assignees, labels, estimate)
+ *   - Routes cycle / module assignments through the draft store actions `addCycleToIssue` / `addModulesToIssue`
+ *   - Reads route params (`workspaceSlug`) via `useParams` to scope the mutations
+ *
+ * Imperative DOM / derived state notes:
+ *   - `useMemo` over `issueOperations` keeps callback identity stable so child dropdowns
+ *     don't re-mount when unrelated draft fields change.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/issues/workspace-draft/draft-issue-block.tsx`
+ */
+
 import { useCallback, useMemo } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";

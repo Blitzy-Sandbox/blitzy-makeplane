@@ -28,6 +28,10 @@
  *   - `handleAddExisting()` — flips `issueCrudOperationState.existing.toggle`, sets `parentIssueId = issueId`, then calls `toggleSubIssuesModal(issue.id)`. The opened modal is the `ExistingIssuesListModal` (also owned upstream).
  *   - No direct API calls; modal submission handlers (in the upstream modal owner) invoke `useSubIssueOperations` for actual mutations.
  *   - No toasts emitted at this layer.
+ *
+ * Consumers: rendered as the trigger inside `./title-actions.tsx` (`SubWorkItemTitleActions`)
+ * and exposed via the sub-issues barrel for `../issue-detail-widget-collapsibles.tsx`
+ * (`IssueDetailWidgetCollapsibles`).
  */
 
 import React from "react";

@@ -22,6 +22,10 @@
  * Derived state notes:
  *   - `TNameDescriptionLoader` from `@plane/types` enumerates the loader states; this component fans them out
  *     into spinner visibility and label text.
+ *
+ * Consumers: rendered next to editable name/description fields on issue-detail surfaces — e.g.,
+ * `apps/web/core/components/issues/issue-detail/main-content.tsx`, peek-overview header, and modal
+ * create/edit issue flows that share the `useNameDescriptionUpdate` debounced-save pattern.
  */
 import React from "react";
 import { observer } from "mobx-react";

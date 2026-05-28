@@ -29,8 +29,11 @@
  *   `attachmentDeleteModalId`, `toggleDeleteAttachmentModal`, `fetchActivities`
  *
  * Side effects:
- * - File upload via `attachmentHelpers.operations.create` (presigned POST flow through
- *   `IssueAttachmentService`), with error toast on failure and follow-up
+ * - File upload via `attachmentHelpers.operations.create` (assets V2 presigned-upload flow
+ *   through `IssueAttachmentService.uploadIssueAttachment` against `IssueAttachmentV2Endpoint`
+ *   at `/api/assets/v2/workspaces/<slug>/projects/<projectId>/<serviceType>/<issueId>/attachments/`;
+ *   aborted uploads are reaped by the `delete_unuploaded_file_asset` Celery task in
+ *   `apps/api/plane/bgtasks/file_asset_task.py`), with error toast on failure and follow-up
  *   `fetchActivities(workspaceSlug, projectId, issueId)` on completion
  * - Error toast via `setToast` for unsupported file count / oversize rejections
  * - Opens `IssueAttachmentDeleteModal` when `attachmentDeleteModalId` is set

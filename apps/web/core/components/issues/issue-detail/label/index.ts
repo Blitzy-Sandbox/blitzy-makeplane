@@ -27,6 +27,10 @@
  *   - `./select/label-select`   — `IssueLabelSelect` combobox picker
  *
  * No runtime logic — pure barrel module.
+ *
+ * Consumers: imported by `../sidebar.tsx` (`IssueDetailsSidebar` label section) and
+ * by per-call-site label flows that need direct access to the inline label editor,
+ * list, or selector primitives.
  */
 
 export * from "./root";

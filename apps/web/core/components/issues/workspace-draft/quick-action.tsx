@@ -4,6 +4,26 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Quick-actions affordance attached to a workspace-draft row.
+ *
+ * Rendered purpose: dual-surface action menu — a `ContextMenu` anchored to `parentRef`
+ * (triggered by right-click on the draft row) plus a `CustomMenu` kebab button (rendered
+ * on hover). Both surfaces share the same caller-supplied `MENU_ITEMS` so context-menu
+ * and overflow-menu actions stay in sync.
+ *
+ * Props:
+ *   - parentRef (React.RefObject<HTMLElement>, required): element the context menu is anchored to
+ *   - MENU_ITEMS (TContextMenuItem[], required): action entries (Edit, Duplicate, Move to project, Delete, ...)
+ *
+ * MobX stores read: none — entirely driven by the caller-supplied `MENU_ITEMS` array.
+ *
+ * Side effects: none directly — each `MENU_ITEMS` entry owns its own action callback.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/issues/workspace-draft/draft-issue-block.tsx`
+ */
+
 import { observer } from "mobx-react";
 import { useTranslation } from "@plane/i18n";
 // ui

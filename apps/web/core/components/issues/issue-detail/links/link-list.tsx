@@ -32,6 +32,10 @@
  *
  * Side effects: none directly — all link mutations originate from the rendered rows which receive
  * `linkOperations` via prop drilling.
+ *
+ * Consumers: rendered by `../../issue-detail-widgets/links/content.tsx`
+ * (`IssueLinksCollapsibleContent`) inside the widget-side links body of the
+ * issue-detail widget shell.
  */
 
 import { observer } from "mobx-react";

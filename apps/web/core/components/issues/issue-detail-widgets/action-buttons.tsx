@@ -30,6 +30,9 @@
  *   - `issue.add.relation`
  *   - `issue.add.link`
  *   - `common.attach`
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueDetailWidgets`) above the collapsible widget stack on
+ * the issue detail page (see `apps/web/core/components/issues/issue-detail/main-content.tsx`).
  */
 
 import React from "react";

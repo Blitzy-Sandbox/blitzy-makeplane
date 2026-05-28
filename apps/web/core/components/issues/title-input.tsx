@@ -38,8 +38,11 @@
  *   - `currentTitleRef` mirrors `title` for the unmount cleanup closure (captures the latest value).
  *   - Blur handler reads `document.querySelector("#title-input")` to trim trailing whitespace and re-fire a save
  *     ONLY when the trim changed and we are not mid-submission.
- *   - The dependency array on the debounce effect is intentionally `[debouncedValue]` only — the in-file
- *     comment notes that adding more dependencies would cause duplicate API calls (preserve this comment).
+ *   - The dependency array on the debounce effect is `[debouncedValue]` only — an in-file comment notes
+ *     this is to avoid duplicate API calls; keep the in-file comment verbatim.
+ *
+ * Consumers: rendered by issue-detail surfaces — `apps/web/core/components/issues/issue-detail/main-content.tsx`,
+ * peek-overview body, and modal create/edit issue flows.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";

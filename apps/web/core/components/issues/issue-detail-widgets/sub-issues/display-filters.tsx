@@ -24,6 +24,9 @@
  *   - None directly — invokes the supplied `handleDisplay*Update` callbacks; the parent maps those to MobX actions on `subIssues.filters`.
  *   - No service calls, no toasts, no navigation.
  *   - The `bg-accent-primary/20` highlight + dot indicator on the trigger is purely visual feedback driven by `isFilterApplied = isDisplayFiltersApplied({ displayProperties, displayFilters })`.
+ *
+ * Consumers: rendered by `./title-actions.tsx` (`SubWorkItemTitleActions`) inside the
+ * sub-issues collapsible header on the issue-detail widget shell.
  */
 
 import { useMemo } from "react";

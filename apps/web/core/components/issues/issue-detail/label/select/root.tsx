@@ -44,7 +44,7 @@
  *   - Toast notifications (success and failure) for both operations are emitted
  *     UPSTREAM by `labelOperations` in `../root.tsx`; this wrapper does NOT emit toasts.
  *
- * Consumer:
+ * Consumers:
  *   - `IssueLabel` in `apps/web/core/components/issues/issue-detail/label/root.tsx`,
  *     which mounts this wrapper when the issue is not disabled.
  */

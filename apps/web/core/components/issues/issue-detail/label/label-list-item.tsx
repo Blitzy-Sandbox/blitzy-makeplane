@@ -51,6 +51,9 @@
  *     — there is NO separate close button. Clicking ANY part of the chip (icon, name, or X)
  *     triggers `handleLabel`.
  *   - When `disabled`, the close affordance is omitted and `Button` renders with its disabled styling.
+ *
+ * Consumers: rendered by `./label-list.tsx` (`LabelList`) for each id in the work item's
+ * `label_ids` array inside the issue-detail sidebar label section.
  */
 
 import { observer } from "mobx-react";

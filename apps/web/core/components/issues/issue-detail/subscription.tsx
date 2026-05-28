@@ -36,6 +36,12 @@
  *   - `isNil(isSubscribed)` distinguishes "subscription state not yet fetched" (renders the skeleton)
  *     from "fetched, currently false" (renders the Subscribe variant).
  *   - The button is disabled both when `!isEditable` (no project role) and during `loading`.
+ *
+ * Consumers:
+ *   - `./issue-detail-quick-actions.tsx` — rendered in the issue-detail header quick-actions row
+ *     (work-item / epic detail page)
+ *   - `../peek-overview/header.tsx` — rendered in the peek-overview header alongside other
+ *     quick-action buttons
  */
 
 import { useState } from "react";

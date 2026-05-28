@@ -4,6 +4,26 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Empty-state placeholder for the workspace-level draft work-item list.
+ *
+ * Rendered purpose: an `EmptyStateDetailed` placeholder shown by the workspace-draft list
+ * `root` when the current viewer has no draft work items in the workspace. Surfaces a
+ * primary-action button that opens `CreateUpdateIssueModal` in draft mode for permitted users.
+ *
+ * Props: none — this component takes no props and resolves all state internally.
+ *
+ * MobX stores read:
+ *   - `useUserPermissions()` — `allowPermissions` gate that hides the create button for guests
+ *
+ * Side effects:
+ *   - Opens `CreateUpdateIssueModal` configured with `EIssuesStoreType.WORKSPACE_DRAFT` when the
+ *     create-button is clicked; the actual draft creation is owned by the issue-modal flow.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/issues/workspace-draft/root.tsx`
+ */
+
 import { Fragment, useState } from "react";
 // components
 import { observer } from "mobx-react";

@@ -4,6 +4,41 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Root container for the workspace-level draft work-item list.
+ *
+ * Rendered purpose: top-level layout for the workspace drafts page — orchestrates the
+ * initial SWR fetch, renders the skeleton loader during initial load, falls back to
+ * one of two empty states (no projects in workspace vs. no drafts), and otherwise
+ * paints the list of `DraftIssueBlock` rows with infinite-scroll-style pagination.
+ *
+ * Drafts modeled here are workspace-scoped (`EIssuesStoreType.WORKSPACE_DRAFT` —
+ * `TWorkspaceDraftIssue`) and intentionally distinct from project-, cycle-, and
+ * module-scoped draft issues: a workspace draft has `project_id = null` until the user
+ * promotes it via the "Move to project" action.
+ *
+ * Props (`TWorkspaceDraftIssuesRoot`):
+ *   - workspaceSlug (string, required): URL slug of the parent workspace; used as the SWR cache key and forwarded to mutation calls
+ *
+ * MobX stores read:
+ *   - `useWorkspaceDraftIssues()` — reads `loader`, `paginationInfo`, `issueIds`, `fetchIssues` action
+ *   - `useProject()` — `workspaceProjectIds` (used by the "no projects" empty state)
+ *   - `useCommandPalette()` — `toggleCreateProjectModal` for the empty-state CTA
+ *   - `useUserPermissions()` — `allowPermissions([ADMIN, MEMBER], WORKSPACE)` to gate the create-project CTA
+ *
+ * Side effects:
+ *   - SWR hook fetches the initial draft page via `fetchIssues(workspaceSlug, "init-loader")` keyed on the workspace slug
+ *   - `useWorkspaceIssueProperties(workspaceSlug)` ensures the issue-property store is hydrated
+ *   - `handleNextIssues` paginates forward via `fetchIssues(workspaceSlug, "pagination", EDraftIssuePaginationType.NEXT)`
+ *   - Opens the create-project modal via `toggleCreateProjectModal(true)` from the "no projects" empty state
+ *
+ * Imperative DOM / derived state notes:
+ *   - SWR is configured with `revalidateOnFocus: false, revalidateIfStale: false` so the page does not refetch on focus changes — pagination/refresh is owned by the store.
+ *
+ * Consumers:
+ *   - `apps/web/app/[workspaceSlug]/(projects)/drafts/` route module
+ */
+
 import { Fragment } from "react";
 import { observer } from "mobx-react";
 import useSWR from "swr";

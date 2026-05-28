@@ -18,7 +18,7 @@
  *  - `issueId` (string, required) — issue receiving the uploaded attachment.
  *  - `customButton` (React.ReactNode, optional) — replaces the default `PlusIcon` when provided; lets call sites use this component as a generic dropzone-trigger wrapper.
  *  - `disabled` (boolean, optional, default `false`) — disables the dropzone (also disabled while an upload is in flight).
- *  - `issueServiceType` (TIssueServiceType, required) — selects the issue-detail store slice (issues vs. drafts vs. epics).
+ *  - `issueServiceType` (TIssueServiceType, required) — selects the issue-detail store slice; one of `EIssueServiceType.ISSUES`, `EPICS`, `WORK_ITEMS`.
  *
  * MobX stores read:
  *  - `useIssueDetail(issueServiceType)` — destructures `setLastWidgetAction` (action) and `fetchActivities` (async action).
@@ -26,15 +26,24 @@
  *    `attachment.createAttachment` on the same store slice (see `./helper.tsx`).
  *
  * Side effects:
- *  - Uploads the selected `File` via `attachmentOperations.create`, which calls
- *    `IssueAttachmentService` against `/api/workspaces/<slug>/projects/<id>/issues/<issue_id>/issue-attachments/`
- *    (presigned upload + confirm pattern owned by the attachment store).
+ *  - Uploads the selected `File` via `attachmentOperations.create`, which routes through
+ *    `IssueAttachmentService.uploadIssueAttachment` and the assets V2 presigned-upload flow:
+ *    `POST /api/assets/v2/workspaces/<slug>/projects/<projectId>/<serviceType>/<issueId>/attachments/`
+ *    returns a signed URL, the client uploads the file body directly to object storage, and a
+ *    follow-up `PATCH` to the same path marks `is_uploaded=true` (see `IssueAttachmentV2Endpoint`
+ *    in `apps/api/plane/app/views/issue/attachment.py`). Aborted uploads are eventually reaped
+ *    by the `delete_unuploaded_file_asset` Celery task in
+ *    `apps/api/plane/bgtasks/file_asset_task.py` (default 7-day retention for `is_uploaded=false`
+ *    rows), so a closed tab mid-upload does not leak storage rows.
  *  - On upload failure: emits an error toast `"File could not be attached. Try uploading again."`.
  *  - On size/multi-file rejection: emits an error toast (either `"Only one file can be uploaded at a time."`
  *    or `"File must be of ${maxFileSize / 1024 / 1024}MB or less in size."`).
  *  - After every upload attempt (success or failure): refetches the issue activity timeline via
  *    `fetchActivities(workspaceSlug, projectId, issueId)` and calls `setLastWidgetAction("attachments")`.
  *  - Locally toggles `isLoading` state to disable the dropzone during an in-flight upload.
+ *
+ * Consumers (this directory): rendered by `./root.tsx` inside `IssueDetailWidgetCollapsibles` and
+ * also reused by external dropzone-trigger surfaces that pass a `customButton`.
  */
 
 import React, { useCallback, useState } from "react";

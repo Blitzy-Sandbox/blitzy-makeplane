@@ -32,6 +32,9 @@
  *   - Emits `setToast({ type: TOAST_TYPE.ERROR, ... })` from `@plane/propel/toast` when relation submit receives an empty selection.
  *   - On every modal close, resets relevant store fields (`setLastWidgetAction`, `setIssueLinkData`, `setRelationKey`, `setIssueCrudOperationState`) so the next open starts from a clean slate.
  *   - Renders `WorkItemAdditionalWidgetModals` from `@/plane-web/components/issues/issue-detail-widgets/modals` to compose any additional plane-web modals.
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueDetailWidgets`) alongside the widget toolbar and
+ * collapsibles on issue-detail surfaces.
  */
 
 import React from "react";

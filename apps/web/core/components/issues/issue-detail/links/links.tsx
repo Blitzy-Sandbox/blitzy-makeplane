@@ -34,6 +34,9 @@
  *     surfaces that operate on existing links only (update + remove). Also re-exported by
  *     `./create-update-link-modal.tsx` for the modal surface.
  *   - `TIssueLinkList` — this component's prop shape.
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueLinkRoot`) inside the issue-detail
+ * sidebar links section.
  */
 
 import { observer } from "mobx-react";

@@ -26,6 +26,9 @@
  * Accessibility notes:
  *   - Each pill is wrapped in `Tooltip` from `@plane/propel/tooltip`, which provides keyboard-accessible tooltips.
  *   - Tooltip `isMobile` is sourced from `usePlatformOS()` so touch devices get the appropriate display behavior.
+ *
+ * Consumers: rendered by issue list/spreadsheet layouts and preview cards where labels are surfaced inline —
+ * e.g., issue-layout properties in `apps/web/core/components/issues/issue-layouts/properties/labels.tsx`.
  */
 
 import React from "react";

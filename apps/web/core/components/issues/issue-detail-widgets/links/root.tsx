@@ -27,6 +27,10 @@
  *   - Invokes the `toggleOpenWidget` MobX action on collapsible toggle; no direct API calls,
  *     navigations, or modal openings happen here — those are delegated to the title and content
  *     sub-components.
+ *
+ * Consumers: rendered by `../root.tsx` (`IssueDetailWidgetCollapsibles`) alongside the
+ * sub-issues, relations, and attachments collapsibles inside the issue-detail widget shell
+ * mounted by `issue-detail/main-content.tsx` and the peek-overview body.
  */
 
 import React from "react";

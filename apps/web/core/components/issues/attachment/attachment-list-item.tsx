@@ -10,8 +10,9 @@
  * delete action exposed through an overflow menu.
  *
  * @remarks
- * Row click delegates to `window.open(fileURL, "_blank")` rather than rendering an
- * anchor element — keeping the surrounding hover/menu UI behaviorally a single button.
+ * Row click delegates to `window.open(fileURL, "_blank", "noopener,noreferrer")` rather than
+ * rendering an anchor element — keeping the surrounding hover/menu UI behaviorally a single
+ * button. The `noopener,noreferrer` features defeat reverse-tabnabbing and opener exposure.
  * Returns an empty fragment when the attachment id cannot be resolved from the store,
  * so callers can keep a stable id list even after partial deletes.
  *
@@ -29,8 +30,10 @@
  *   modal toggle invoked on delete-menu click
  *
  * Side effects:
- * - Opens the attachment URL in a new tab via `window.open(fileURL, "_blank")`
- *   (imperative DOM call — preferred over an anchor here to keep the row a single button)
+ * - Opens the attachment URL in a new tab via
+ *   `window.open(fileURL, "_blank", "noopener,noreferrer")` (imperative DOM call — preferred
+ *   over an anchor here to keep the row a single button; the `noopener,noreferrer` features
+ *   defeat reverse-tabnabbing and opener exposure to the asset host)
  * - Calls `toggleDeleteAttachmentModal(attachmentId)` to surface the delete confirmation
  *   dialog (the parent `attachment-item-list.tsx` reads `attachmentDeleteModalId` from
  *   the store to render `IssueAttachmentDeleteModal`)
@@ -96,7 +99,7 @@ export const IssueAttachmentsListItem = observer(function IssueAttachmentsListIt
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          window.open(fileURL, "_blank");
+          window.open(fileURL, "_blank", "noopener,noreferrer");
         }}
       >
         <div className="group flex h-11 items-center justify-between gap-3 pr-2 pl-9 hover:bg-surface-2">

@@ -46,6 +46,10 @@
  *   - The sidebar slide-out is implemented by setting `right: -window.innerWidth` so it animates
  *     off-screen rather than unmounting — preserve this `style` expression.
  *   - `isEditable` is recomputed each render from `allowPermissions(...)`.
+ *
+ * Consumers: imported by the work-item detail route shell (e.g. project / cycle /
+ * module work-item detail pages) and any other surface that needs the full
+ * issue-detail UI mounted with permission gating and the persistent peek-overlay.
  */
 
 import { useMemo } from "react";

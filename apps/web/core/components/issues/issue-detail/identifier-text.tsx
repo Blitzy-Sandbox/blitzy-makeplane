@@ -35,6 +35,11 @@
  *   - Native `<button type="button">` provides keyboard focus and Enter/Space activation.
  *   - The button is `disabled` whenever copy is not enabled, so screen readers announce its non-interactive state.
  *   - The wrapping `Tooltip` shows "Click to copy" hint text only when copy is enabled (`disabled={!enableClickToCopyIdentifier}`).
+ *
+ * Consumers: rendered inside issue-detail-related views and shared issue rendering
+ * primitives that surface a work-item identifier — for example `./root.tsx`
+ * (`IssueDetailRoot` header), the peek-overview body, and list/board cards across
+ * the issue layouts.
  */
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import { Tooltip } from "@plane/propel/tooltip";

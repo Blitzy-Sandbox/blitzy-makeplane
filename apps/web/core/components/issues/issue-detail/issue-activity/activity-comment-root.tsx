@@ -36,6 +36,14 @@
  *     the merged sequence; `comment.getCommentById(activityComment.id)` to resolve the full
  *     comment record (with rich-text body + reactions) for `CommentCard`
  *
+ * Backend provenance:
+ *   - The activity rows surfaced through `getActivityAndCommentsByIssueId` originate from
+ *     `IssueActivity` records persisted by `apps/api`. The `issue_activities_task.py` Celery task
+ *     consumes signal-driven activity events and writes them via the 28-entry `ACTIVITY_MAPPER`
+ *     dispatch table (one handler per event type — created, updated, state-changed, assignee-added,
+ *     etc.). This component is the rendering surface for that pipeline; the activity payload shape
+ *     follows the `ACTIVITY_MAPPER` handler output.
+ *
  * Side effects: none directly — every child renderer carries its own mutation contract. The
  * comment cards mutate via `activityOperations`; the worklog card mutates via its own store hook;
  * the additional-properties activity card is purely presentational.
@@ -57,6 +65,9 @@
  *   - `"WORKLOG"` → `<IssueActivityWorklog>` (worklog activity card from the plane-web surface)
  *   - any other type → empty fragment (silently dropped — the surrounding key/index logic still
  *     advances so the `ends` metadata of preceding/following entries stays correct)
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueActivityRoot`) as the activity timeline body of the
+ * issue-detail page.
  */
 
 import { observer } from "mobx-react";

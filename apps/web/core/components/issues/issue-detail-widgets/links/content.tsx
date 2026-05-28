@@ -28,6 +28,10 @@
  *     trigger MobX `createLink` / `updateLink` / `removeLink` actions (which call the
  *     `IssueLinkService` HTTP endpoints) and emit success/failure toasts — all encapsulated
  *     inside `useLinkOperations` (see `./helper`).
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueDetailWidgetCollapsibles`) inside the issue-detail
+ * widget collapsible group; the wider widget surface is mounted from
+ * `apps/web/core/components/issues/issue-detail/main-content.tsx` and the peek-overview body.
  */
 
 import React from "react";

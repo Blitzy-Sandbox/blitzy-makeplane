@@ -6,8 +6,8 @@
 
 /**
  * `RelationsCollapsibleContent` renders the body of the relations widget on the
- * issue-detail page — it groups the active issue's relations by relation type
- * (e.g., "blocks", "blocked_by", "duplicate", "relates_to"), renders each
+ * issue-detail page — it groups the active issue's relations by `TIssueRelationTypes`
+ * value (`"blocking" | "blocked_by" | "duplicate" | "relates_to"`), renders each
  * non-empty group inside a per-type `Collapsible`, and coordinates the
  * update / delete / remove-relation modal flows.
  *
@@ -53,6 +53,10 @@
  *
  * Wrapped in `observer` so it reactively re-renders when `getRelationsByIssueId`
  * data changes.
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueDetailWidgetCollapsibles`) inside the
+ * issue-detail widget shell mounted by `issue-detail/main-content.tsx` and the
+ * peek-overview body.
  */
 
 import { useState } from "react";

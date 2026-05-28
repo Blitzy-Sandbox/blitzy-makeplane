@@ -36,6 +36,10 @@
  *   - `authorized = isIssueCreator || canPerformProjectAdminActions`. Permission check is also re-validated server-side;
  *     the client check is a UX optimization that prevents a needless API round-trip.
  *   - `PROJECT_ERROR_MESSAGES.permissionError` / `issueDeleteError` are i18n-keyed message bundles from `@plane/constants`.
+ *
+ * Consumers: rendered by issue-detail quick-action menus and list-item quick-action dropdowns —
+ * e.g., `apps/web/core/components/issues/issue-detail/issue-detail-quick-actions.tsx`,
+ * `apps/web/core/components/issues/issue-layouts/quick-action-dropdowns/*`, and bulk-delete flows.
  */
 
 import { useEffect, useState } from "react";

@@ -21,8 +21,11 @@
  * - `canEdit` (required) — gates every dropdown's `disabled` flag; when
  *   `false` the dropdowns render in read-only mode.
  * - `updateSubIssue` (required) — row-level mutation callback bound to
- *   `subIssueOperations.updateSubIssue` (see `../helper.ts:87-112`) via
- *   `list-item.tsx:180`. The wrapper sets `issue_loader` helpers and emits
+ *   `subIssueOperations.updateSubIssue` (see the `updateSubIssue` definition inside
+ *   `useSubIssueOperations` in `../helper.ts`) via
+ *   `list-item.tsx` (`SubIssuesListItem` passes `subIssueOperations.updateSubIssue` to
+ *   `<SubIssuesListItemProperties>` as the `updateSubIssue` prop). The wrapper sets
+ *   `issue_loader` helpers and emits
  *   success/error toasts; the raw store action does not — which is why
  *   row-level edits show loading state and toast feedback automatically.
  *   The inline-edit path here NEVER supplies `fromModal = true` (the seventh
@@ -81,8 +84,9 @@
  *
  * Consumers:
  * - `apps/web/core/components/issues/issue-detail-widgets/sub-issues/issues-list/list-item.tsx`
- *   (line 180) — rendered inside the row's center column. Not referenced
- *   elsewhere in the codebase.
+ *   (`SubIssuesListItem` renders `<SubIssuesListItemProperties>` inside the row's center
+ *   property column) — rendered inside the row's center column. Not referenced elsewhere in
+ *   the codebase.
  */
 
 // plane imports

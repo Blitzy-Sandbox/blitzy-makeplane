@@ -22,6 +22,10 @@
  * Side effects:
  *   - Pure renderer at this level; no service calls, no toasts, no navigation.
  *   - Open/close interaction mutates the shared `issue-detail` store (`toggleOpenWidget`), persisting expansion state across re-mounts within the same issue session.
+ *
+ * Consumers: rendered by `../root.tsx` (`IssueDetailWidgetCollapsibles`) alongside
+ * the relations, links, and attachments collapsibles inside the issue-detail widget
+ * shell mounted by `issue-detail/main-content.tsx` and the peek-overview body.
  */
 
 import React from "react";

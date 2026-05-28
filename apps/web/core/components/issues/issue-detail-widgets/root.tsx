@@ -22,6 +22,10 @@
  * Side effects:
  *   None at this level. All mutations (link CRUD, sub-issue add, relation create,
  *   attachment upload) are performed inside the child components and helper hooks.
+ *
+ * Consumers: rendered on issue-detail surfaces — e.g.,
+ * `apps/web/core/components/issues/issue-detail/main-content.tsx`, peek-overview body, and
+ * the create/edit issue modal preview pane.
  */
 
 import React from "react";

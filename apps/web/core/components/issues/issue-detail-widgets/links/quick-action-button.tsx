@@ -24,6 +24,10 @@
  * Side effects:
  *   - On click: calls `toggleIssueLinkModal(true)` to open the modal. No direct API calls,
  *     navigations, or other mutations.
+ *
+ * Consumers: rendered as the `actionItemElement` for the "Links" entry inside `./root.tsx`
+ * (`IssueDetailWidgetCollapsibles`), and supplied as the `customButton` prop to
+ * `IssueLinksActionButton` invocations from sibling collapsible headers.
  */
 
 import React from "react";

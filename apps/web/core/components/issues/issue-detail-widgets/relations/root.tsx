@@ -31,6 +31,10 @@
  *     those originate in `RelationsCollapsibleTitle` / `RelationsCollapsibleContent`.
  *
  * Wrapped in `observer` so it reactively re-renders when `openWidgets` mutates.
+ *
+ * Consumers: rendered by `../root.tsx` (`IssueDetailWidgetCollapsibles`) alongside
+ * the sub-issues, links, and attachments collapsibles inside the issue-detail
+ * widget shell mounted by `issue-detail/main-content.tsx` and the peek-overview body.
  */
 
 import React from "react";

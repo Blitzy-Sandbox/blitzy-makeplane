@@ -25,6 +25,9 @@
  * Side effects:
  *   - None directly. Rendering `IssueLinksActionButton` defers the modal-open mutation
  *     (`toggleIssueLinkModal(true)`) to that child component.
+ *
+ * Consumers: passed as the `title` slot of the `Collapsible` rendered by `./root.tsx`
+ * (`LinksCollapsible`) inside the issue-detail widget shell.
  */
 
 import React, { useMemo } from "react";

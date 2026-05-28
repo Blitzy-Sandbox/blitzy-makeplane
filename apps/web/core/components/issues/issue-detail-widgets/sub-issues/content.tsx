@@ -28,6 +28,10 @@
  *   - The delete dialog `onSubmit` calls `subIssueOperations.deleteSubIssue(workspaceSlug, projectId, parentIssueId, issueId)` (full delete) and emits toasts on failure (via the operations hook).
  *   - The update dialog `onSubmit` calls `subIssueOperations.updateSubIssue(workspaceSlug, projectId, parentIssueId, issueId, issueData, oldIssue, fromModal=true)` and emits success/error toasts.
  *   - List rendering is gated on `subIssueHelpers.issue_visibility.includes(parentIssueId)` so the list only mounts after the initial fetch resolves.
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueDetailWidgetCollapsibles`) inside the
+ * issue-detail widget shell mounted by `issue-detail/main-content.tsx` and the
+ * peek-overview body.
  */
 
 import React, { useEffect, useState, useCallback } from "react";

@@ -59,7 +59,8 @@
  *
  * Consumers:
  *   - Rendered exclusively from `apps/web/core/components/issues/issue-detail-widgets/sub-issues/issues-list/root.tsx`
- *     (line 112) — one instance per group bucket returned by `getGroupByColumns`.
+ *     (inside the `SubIssuesListRoot` group-mapping `groups.map(...)` block) — one instance per group bucket
+ *     returned by `getGroupByColumns`.
  */
 
 import { useState } from "react";

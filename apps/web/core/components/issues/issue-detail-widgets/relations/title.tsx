@@ -38,6 +38,9 @@
  *
  * Wrapped in `observer` so it reactively re-renders when the store's relation
  * count for `issueId` changes.
+ *
+ * Consumers: passed as the `title` slot of the `Collapsible` rendered by
+ * `./root.tsx` (`RelationsCollapsible`) inside the issue-detail widget shell.
  */
 
 import React, { useMemo } from "react";

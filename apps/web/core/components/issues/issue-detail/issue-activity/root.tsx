@@ -42,6 +42,14 @@
  *     `useWorkItemCommentOperations(...)` hook (which routes through the issue-detail store).
  *   - No direct toast emissions here; the operations contract emits toasts on completion.
  *
+ * Backend provenance:
+ *   - The activity rows surfaced to `IssueActivityCommentRoot` come from `IssueActivity` records in
+ *     `apps/api`, populated asynchronously by the `issue_activities_task.py` Celery task via the
+ *     28-entry `ACTIVITY_MAPPER` dispatch table (one handler per event type). Comment writes that
+ *     happen through `useWorkItemCommentOperations` trigger the comment-created signals that this
+ *     same pipeline picks up, so newly created comments may appear on the next fetch rather than
+ *     instantaneously.
+ *
  * Derived state notes:
  *   - `isWorklogButtonEnabled = !isIntakeIssue && !isGuest && (isAdmin || isAssigned)` — guests
  *     can never log work; admins always can; non-admin members can only if they are an assignee.
@@ -59,6 +67,10 @@
  *   - The header uses `ActivityFilterRoot` from `@/plane-web/components/issues/worklog/activity/filter-root`
  *     (the proprietary EE surface), NOT the sibling `./activity-filter.tsx`. The latter is the
  *     reusable presentational primitive used by `ActivityFilterRoot`.
+ *
+ * Consumers: rendered by issue-detail page surfaces — e.g.,
+ * `apps/web/core/components/issues/issue-detail/main-content.tsx`, intake issue detail flow, and
+ * the peek-overview body.
  */
 
 import { useMemo } from "react";

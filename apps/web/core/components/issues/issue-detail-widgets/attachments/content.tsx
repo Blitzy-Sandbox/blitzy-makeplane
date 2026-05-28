@@ -17,16 +17,21 @@
  *  - `issueId` (string, required) — issue whose attachments are listed.
  *  - `disabled` (boolean, required) — when true, removes the attachment delete affordance in the list rows.
  *  - `issueServiceType` (TIssueServiceType, optional, default `EIssueServiceType.ISSUES`) — selects which issue-detail
- *    store slice the helper hook reads from (used to disambiguate epics/drafts/work-items).
+ *    store slice the helper hook reads from (one of `EIssueServiceType.ISSUES`, `EPICS`, `WORK_ITEMS`).
  *
  * MobX stores read: None directly. Indirectly, `useAttachmentOperations` calls
  * `useIssueDetail(issueServiceType)` to bind `createAttachment`, `removeAttachment`,
  * and `getAttachmentsUploadStatusByIssueId` — see `./helper.tsx`.
  *
  * Side effects: None originate here. The `attachmentHelpers` object passed down exposes
- * `operations.create` / `operations.remove` (which call `IssueAttachmentService` via the
- * store and emit promise/success/error toasts) and `snapshot.uploadStatus` (in-flight uploads).
- * Those side effects fire from the consumer `IssueAttachmentItemList`, not this file.
+ * `operations.create` / `operations.remove` (which call `IssueAttachmentService.uploadIssueAttachment`
+ * — the assets V2 presigned-upload flow against `IssueAttachmentV2Endpoint` — and the matching
+ * V2 DELETE through the store; both emit promise/success/error toasts) and `snapshot.uploadStatus`
+ * (in-flight uploads). Those side effects fire from the consumer `IssueAttachmentItemList`,
+ * not this file. See `./helper.tsx` for the full upload contract and the
+ * `delete_unuploaded_file_asset` Celery cleanup safety net.
+ *
+ * Consumers (this directory): rendered by `./root.tsx` inside `IssueDetailWidgetCollapsibles`.
  */
 
 import React from "react";

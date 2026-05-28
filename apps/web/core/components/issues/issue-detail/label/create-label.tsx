@@ -30,11 +30,12 @@
  * `react-hook-form` state and does not subscribe to any observable.
  *
  * Side effects:
- *   - `labelOperations.createLabel(workspaceSlug, projectId, formData)` — routes to the label store
- *     and ultimately `LabelService.createLabel` against `apps/api`'s `LabelViewSet`.
+ *   - `labelOperations.createLabel(workspaceSlug, projectId, formData)` — routes through the label
+ *     store, which calls `IssueLabelService.createIssueLabel` against
+ *     `POST /api/workspaces/<slug>/projects/<projectId>/issue-labels/`.
  *   - `labelOperations.updateIssue(workspaceSlug, projectId, issueId, { label_ids: [...] })` —
- *     routes to the issue-detail store and `IssueService.patchIssue` against `apps/api`'s
- *     `IssueViewSet`.
+ *     routes through the issue-detail store, which calls `IssueService.patchIssue` against the
+ *     work-item `PATCH` endpoint.
  *   - Toast emissions are handled INSIDE the `labelOperations` contract in `./root.tsx`; this file
  *     does not call `setToast` directly.
  *   - Popover anchored DOM: opens a floating panel positioned by `react-popper` (`bottom-start`
@@ -62,6 +63,9 @@
  *   - The name input is marked required via `react-hook-form`'s `rules: { required: "This is required" }`;
  *     when validation fails, `hasError` on the `Input` is set so the field renders with an error
  *     style.
+ *
+ * Consumers: rendered inside `./root.tsx` (`IssueLabel`) when the issue-detail label
+ * editor exposes the inline create-label affordance.
  */
 
 import { useState, Fragment, useEffect } from "react";

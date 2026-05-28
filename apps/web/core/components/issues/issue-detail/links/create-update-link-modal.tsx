@@ -56,6 +56,9 @@
  * `"http://"`, or even `"httpfoo"` are passed through unchanged.
  *
  * Wrapped in `mobx-react` `observer` because `useIssueDetail(...).issueLinkData` is observable.
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueLinkRoot`) inside the issue-detail links
+ * panel and re-used by the relations link surface for the create/update link flow.
  */
 
 import { useEffect } from "react";

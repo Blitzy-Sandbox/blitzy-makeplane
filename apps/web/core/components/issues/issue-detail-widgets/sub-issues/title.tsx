@@ -24,6 +24,9 @@
  * Side effects:
  *   - Pure renderer; no service calls, no toasts, no navigation. Progress percentage is a derived value (no `useMemo`; recomputed on each render but the inputs are MobX observables, so re-renders only fire on store mutation).
  *   - Pulls the title string from `@plane/i18n` so the label adapts to locale: `t("issue.label", { count: 1 })` for epics, `t("common.sub_work_items")` otherwise.
+ *
+ * Consumers: passed as the `title` slot of the `Collapsible` rendered by `./root.tsx`
+ * (`SubIssuesCollapsible`) inside the issue-detail widget shell.
  */
 
 import { observer } from "mobx-react";

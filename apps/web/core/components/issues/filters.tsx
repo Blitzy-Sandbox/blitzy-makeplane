@@ -35,6 +35,9 @@
  *   - `ISSUE_STORE_TO_FILTERS_MAP` from `@plane/constants` resolves the layout-specific filter option schema.
  *   - The three handler callbacks (`handleLayoutChange`, `handleDisplayFilters`, `handleDisplayProperties`) are
  *     memoized with `useCallback` and short-circuit when `workspaceSlug` or `projectId` is falsy.
+ *
+ * Consumers: rendered by the project issues / epics header — e.g., the project route headers under
+ * `apps/web/app/[workspaceSlug]/projects/(detail)/[projectId]/issues/` and the corresponding epics routes.
  */
 
 import { useCallback, useState } from "react";

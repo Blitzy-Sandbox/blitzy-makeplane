@@ -41,6 +41,9 @@
  *   - `originURL` resolution checks `typeof window !== "undefined"` to stay SSR-safe — preserve this
  *     guard.
  *   - Returns `<></>` early if the active issue cannot be resolved.
+ *
+ * Consumers: rendered inside `./main-content.tsx` (issue-detail header row) of the
+ * work-item detail page.
  */
 
 import { useRef } from "react";

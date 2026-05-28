@@ -28,6 +28,10 @@
  *
  * No runtime logic — pure barrel module. Adding a new public symbol REQUIRES a corresponding
  * `export *` statement here; the system boundary forbids re-shaping the public surface silently.
+ *
+ * Consumers: imported by `../main-content.tsx` (issue-detail main column), the
+ * peek-overview activity panel, intake issue detail, and `epic` detail surfaces
+ * that surface the work-item activity timeline.
  */
 
 export * from "./root";

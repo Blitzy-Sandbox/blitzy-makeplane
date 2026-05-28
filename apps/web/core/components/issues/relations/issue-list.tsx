@@ -40,6 +40,11 @@
  * Side effects:
  *   None. This is a pure presentational container; mutations, navigations,
  *   and API calls are delegated to `RelationIssueListItem`.
+ *
+ * Consumers:
+ *   - `../issue-detail-widgets/relations/content.tsx` — the only caller; renders one
+ *     `RelationIssueList` per relation-type collapsible (blocking / blocked_by / duplicate /
+ *     relates_to / project-defined epic relations) inside the issue-detail relations widget.
  */
 
 import React from "react";

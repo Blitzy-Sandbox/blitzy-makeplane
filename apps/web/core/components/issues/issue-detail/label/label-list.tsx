@@ -35,6 +35,9 @@
  *     an empty fragment from the `.map`; the early return suppresses the wrapping fragment when
  *     the `values` prop itself is missing).
  *   - Returns `<></>` early when `issueId` is missing OR `issueLabels` is undefined.
+ *
+ * Consumers: rendered inside `./root.tsx` (`IssueLabel`) to display the work item's
+ * existing label chips beside the inline create-label and label-select affordances.
  */
 
 import { observer } from "mobx-react";

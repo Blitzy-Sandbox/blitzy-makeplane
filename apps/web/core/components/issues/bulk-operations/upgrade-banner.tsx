@@ -16,7 +16,17 @@
  *   - className (string, optional): wrapper-level class overrides merged via `cn` into the default sticky
  *     container classes. No other prop is exposed; the banner has no toggling, dismissal, or state.
  *
- * MobX stores read: none. This is a pure presentation component with no observable subscriptions.
+ * MobX stores read: none directly. This file is a pure presentation component with no observable
+ * subscriptions.
+ *
+ * Coordination with bulk-selection state:
+ *   - The bulk-selection lifecycle that determines when this banner is rendered is owned upstream by
+ *     `apps/web/core/store/multiple_select.store.ts` (`MultipleSelectStore`), surfaced to component
+ *     trees via `useMultipleSelect` (`apps/web/core/hooks/use-multiple-select.ts`). That store tracks
+ *     the selected, last-selected, previous-active, and next-active entity descriptors used by the
+ *     bulk-edit menus. This banner is a community-edition stand-in for those menus, so it carries no
+ *     selection observables itself — callers (list/table layouts and the issue layout roots) decide
+ *     whether to mount it.
  *
  * Side effects:
  *   - External navigation: the CTA `<a href={MARKETING_PLANE_ONE_PAGE_LINK} target="_blank" rel="noopener noreferrer">`
@@ -29,6 +39,10 @@
  *   - The CTA is styled through the shared design-system helper `getButtonStyling("primary", "base")` from
  *     `@plane/propel/button` so it stays consistent with other primary action buttons across the app.
  *   - Layout classes use Tailwind utilities only; no imperative DOM access.
+ *
+ * Consumers: mounted by issue-layout shells that render the bulk-operations footer when a user has a
+ * multi-selection active in the community edition (e.g., list/table roots under
+ * `apps/web/core/components/issues/issue-layouts/`).
  */
 
 import { MARKETING_PLANE_ONE_PAGE_LINK } from "@plane/constants";

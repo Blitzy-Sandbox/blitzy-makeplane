@@ -79,7 +79,7 @@
  *   - Logs `console.error("Failed to create label", e)` on `createLabel`
  *       rejection — there is no toast emission at this layer.
  *
- * Consumer (verified by grep):
+ * Consumers (verified by grep):
  *   - `./dropdown.tsx` (`IssueLabelSelect` — the project-aware wrapper).
  */
 import React, { useEffect, useRef, useState } from "react";

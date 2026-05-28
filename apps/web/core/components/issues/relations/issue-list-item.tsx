@@ -68,8 +68,9 @@
  *       - `handleIssueCrudState("update" | "delete" | "removeRelation", ...)` — lifts CRUD intent into
  *         parent state so the parent's modal stack can react.
  *   - Navigations:
- *       - Epic rows: `window.open(workItemLink, "_blank")` — epics live under a different route shell
- *         (React Router v7) and are opened in a new tab on click instead of the peek-overview pane.
+ *       - Epic rows: `window.open(workItemLink, "_blank", "noopener,noreferrer")` — epics live under
+ *         a different route shell (React Router v7) and are opened in a new tab on click instead of
+ *         the peek-overview pane. The `noopener,noreferrer` features defeat reverse-tabnabbing.
  *       - Work-item rows: `handleRedirection(workspaceSlug, issue, isMobile)` opens the peek-overview
  *         pane (or full-page route on mobile, per `usePlatformOS`).
  *   - API calls (indirect via `issueOperations`):
@@ -81,6 +82,10 @@
  * Render gating: returns an empty fragment if either the related issue or its `project_id` cannot be
  * resolved from the issue-detail / project stores (guards against the deletion-vs-render race that
  * can occur immediately after a successful remove).
+ *
+ * Consumers:
+ *   - `./issue-list.tsx` (`RelationIssueList`) — renders one `RelationIssueListItem` per id in the
+ *     supplied `relationIssueIds` array (work-item or epic relation collapsible list).
  */
 
 import React from "react";
@@ -164,8 +169,8 @@ export const RelationIssueListItem = observer(function RelationIssueListItem(pro
   // handlers
   const handleIssuePeekOverview = (issue: TIssue) => {
     if (issue.is_epic) {
-      // open epics in new tab
-      window.open(workItemLink, "_blank");
+      // open epics in new tab with noopener,noreferrer to defeat reverse-tabnabbing
+      window.open(workItemLink, "_blank", "noopener,noreferrer");
       return;
     }
     handleRedirection(workspaceSlug, issue, isMobile);

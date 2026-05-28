@@ -43,6 +43,10 @@
  *
  * Defensive rendering: returns an empty fragment when `getLinkById(linkId)` is undefined (the link
  * may have been removed by another client mid-render).
+ *
+ * Consumers: rendered by `./link-list.tsx` (`LinkList` row-style list) for each id
+ * in the work item's link slice, inside the widget-side links body
+ * (`../../issue-detail-widgets/links/content.tsx`).
  */
 
 import { observer } from "mobx-react";

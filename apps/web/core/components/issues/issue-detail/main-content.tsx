@@ -54,6 +54,9 @@
  *   - `windowSize[0] < 768` mounts the inline `PeekOverviewProperties` so the metadata panel is
  *     accessible on small screens where the sidebar is hidden.
  *   - Returns `<></>` early when the issue or its `project_id` cannot be resolved.
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueDetailRoot`) as the central column of the
+ * work-item detail page route shell.
  */
 
 import { useEffect, useRef, useState } from "react";

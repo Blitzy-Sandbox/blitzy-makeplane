@@ -58,6 +58,9 @@
  *   - When `disabled` is true, the early-return in `handleReactionClick` suppresses chip clicks but
  *     `EmojiReactionGroup.showAddButton={!disabled}` also hides the add-reaction button so the
  *     existing reaction group continues to render in a strictly read-only mode.
+ *
+ * Consumers: rendered by `../main-content.tsx` (`IssueDetailRoot` main body) and by
+ * the peek-overview body beneath the work-item description.
  */
 
 import { useMemo, useState } from "react";

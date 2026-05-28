@@ -4,6 +4,36 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Confirmation modal for deleting a workspace-level draft work item.
+ *
+ * Rendered purpose: a destructive-action `AlertModalCore` that confirms deletion of a
+ * draft issue stored on the workspace (not yet promoted to a project). The actual delete
+ * mutation is performed by the parent via the `onSubmit` callback — this modal only
+ * gates the action behind a permission check and renders success/failure toasts.
+ *
+ * Props:
+ *   - isOpen (boolean, required): modal open state
+ *   - handleClose (() => void, required): close-modal callback invoked on cancel/dismiss
+ *   - dataId (string | null | undefined, optional): draft id resolved via `issueMap` when `data` is absent
+ *   - data (TWorkspaceDraftIssue, optional): hydrated draft record; takes precedence over `dataId`
+ *   - onSubmit (() => Promise<void>, optional): parent-supplied delete mutation (typically wraps `WorkspaceDraftService.deleteIssue`)
+ *
+ * MobX stores read:
+ *   - `useIssues()` — reads `issueMap` to resolve the draft when only `dataId` is passed
+ *   - `useUser()` — reads the current user id for creator-vs-admin authorization
+ *   - `useUserPermissions()` — `allowPermissions([ADMIN], PROJECT)` gate to authorize deletion
+ *
+ * Side effects:
+ *   - Invokes the parent-supplied `onSubmit` async callback (the actual delete is owned by the consumer/store)
+ *   - Emits `setToast` success/error notifications based on the mutation outcome
+ *   - Renders an explicit permission-denied toast when the viewer is neither creator nor project admin
+ *
+ * Consumers:
+ *   - `WorkspaceDraftIssueQuickActions` callers in `apps/web/core/components/issues/workspace-draft/`
+ *   - `DraftIssueBlock` / workspace-draft list rows that surface the inline delete affordance
+ */
+
 import { useEffect, useState } from "react";
 // types
 import { PROJECT_ERROR_MESSAGES, EUserPermissions, EUserPermissionsLevel } from "@plane/constants";

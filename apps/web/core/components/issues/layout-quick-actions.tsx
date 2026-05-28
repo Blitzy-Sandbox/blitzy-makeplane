@@ -22,13 +22,18 @@
  * Side effects:
  *   - Clipboard write via `copyUrlToClipboard(layoutLink)` from `@plane/utils`.
  *   - Toast emission via `setToast` ("Link copied").
- *   - `window.open` to the layout URL in a new tab.
+ *   - `window.open` to the layout URL in a new tab with `"noopener,noreferrer"` features so the
+ *     newly opened tab cannot access `window.opener` of the originating tab (defeats
+ *     reverse-tabnabbing).
  *
  * Derived state notes:
  *   - `layoutLink` is built locally (no env var lookup) using the supplied slug + id + storeType.
  *   - `useLayoutMenuItems(...)` may return either an array of items OR an object `{ items, modals }`; the code
  *     normalises both shapes via `Array.isArray(menuResult)`. Items with `shouldRender === false` are filtered
  *     out at render time.
+ *
+ * Consumers: mounted by issues/epics layout headers — e.g.,
+ * `apps/web/core/components/issues/issue-layouts/roots/*` shells and `archived-issues-header.tsx`.
  */
 
 import { observer } from "mobx-react";
@@ -60,7 +65,7 @@ export const LayoutQuickActions = observer(function LayoutQuickActions(props: Pr
       });
     });
 
-  const handleOpenInNewTab = () => window.open(`/${layoutLink}`, "_blank");
+  const handleOpenInNewTab = () => window.open(`/${layoutLink}`, "_blank", "noopener,noreferrer");
 
   const menuResult = useLayoutMenuItems({
     workspaceSlug,

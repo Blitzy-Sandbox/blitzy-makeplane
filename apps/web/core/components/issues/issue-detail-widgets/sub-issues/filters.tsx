@@ -24,6 +24,9 @@
  *   - None directly — invokes `handleFiltersUpdate(key, value)` callback; the parent maps each call to `updateSubWorkItemFilters(EIssueFilterType.FILTERS, { [key]: value }, parentId)` on the `subIssues.filters` slice.
  *   - The trigger's `bg-accent-primary/20` background + dot indicator are visual feedback driven by `isFilterApplied = isFiltersApplied(filters)`.
  *   - The local `filtersSearchQuery` state is component-local; it does NOT mutate any store and resets on unmount.
+ *
+ * Consumers: rendered by `./title-actions.tsx` (`SubWorkItemTitleActions`) inside the
+ * sub-issues collapsible header on the issue-detail widget shell.
  */
 
 import { useMemo, useState } from "react";

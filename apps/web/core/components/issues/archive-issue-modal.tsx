@@ -24,7 +24,7 @@
  *
  * Side effects:
  *   - Invokes parent-supplied `onSubmit` (typically a call into an issue store action which in turn hits
- *     `IssueService.archive` / `IssueArchiveService`).
+ *     `IssueArchiveService.archiveIssue` against the backend archive endpoint).
  *   - Emits success/error toasts via `setToast` from `@plane/propel/toast`, with i18n-keyed strings:
  *     `issue.archive.success.label`, `issue.archive.success.message`, `issue.archive.failed.message`,
  *     `common.error.label`.
@@ -32,6 +32,10 @@
  * Imperative / derived state notes:
  *   - `isArchiving` local state drives the button loading indicator and the `t("common.archiving")` label.
  *   - `if (!dataId && !data) return null;` early-exits when neither identifier nor payload is provided.
+ *
+ * Consumers: rendered by issue-detail quick-action menus and list-item quick-action dropdowns —
+ * e.g., `apps/web/core/components/issues/issue-detail/issue-detail-quick-actions.tsx`,
+ * `apps/web/core/components/issues/issue-layouts/quick-action-dropdowns/*`, and bulk-archive flows.
  */
 import { useState } from "react";
 // i18n

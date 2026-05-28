@@ -33,8 +33,10 @@
  *
  * Side effects:
  * - Calls `attachmentOperations.remove(attachment.id)` (DELETE through
- *   `IssueAttachmentService`); local `loader` state drives `AlertModalCore`'s
- *   `isSubmitting` indicator while the delete is in flight.
+ *   `IssueAttachmentService` against the assets V2 endpoint
+ *   `/api/assets/v2/workspaces/<slug>/projects/<projectId>/<serviceType>/<issueId>/attachments/<assetId>/`);
+ *   local `loader` state drives `AlertModalCore`'s `isSubmitting` indicator while
+ *   the delete is in flight.
  * - Closes the modal via `onClose` in `.finally(...)` so the modal closes on both
  *   success and failure paths (failure toasts are emitted upstream).
  *

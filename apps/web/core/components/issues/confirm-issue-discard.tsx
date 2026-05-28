@@ -27,6 +27,10 @@
  * Derived state notes:
  *   - `onClose` wraps `handleClose` plus a `setIsLoading(false)` reset so re-opening the modal starts clean.
  *   - The Save button surfaces "Saving" copy while `isLoading` is true (handled inline in JSX).
+ *
+ * Consumers: rendered by the issue create/update modal flow — e.g.,
+ * `apps/web/core/components/issues/issue-modal/draft-issue-layout.tsx` mounts this when the user
+ * tries to close a dirty draft form.
  */
 
 import { useState } from "react";

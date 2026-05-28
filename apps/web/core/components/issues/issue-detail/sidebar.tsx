@@ -38,9 +38,13 @@
  *     side-effect contracts.
  *
  * Derived state notes:
- *   - `minDate` is the start date offset by one day (used to constrain the due-date picker).
- *   - `maxDate` is the due date offset by one day (used to constrain the start-date picker). These
- *     +1-day offsets are intentional and preserve the existing UX; do NOT refactor.
+ *   - `minDate` is the start date offset by one day (used to constrain the due-date picker, so
+ *     selecting a due date strictly after the start date is enforced visually).
+ *   - `maxDate` is the due date offset by one day (used to constrain the start-date picker, so the
+ *     start date stays strictly before the due date).
+ *   // INTENT UNCLEAR: the historical reason for using `+1 day` rather than `+0` is not inferable
+ *   // from the implementation; the observed behavior is that adjacent dates (same day) are
+ *   // disallowed in both pickers. Treat the offset as the existing UX contract and preserve it.
  *   - `shouldHighlightIssueDueDate(issue.target_date, stateDetails?.group)` returns true when the
  *     issue is overdue AND its state group is not completed/cancelled, flipping the due-date text
  *     to `text-danger-primary`.
@@ -54,6 +58,9 @@
  * Accessibility notes:
  *   - Each property row is wrapped in `SidebarPropertyListItem` which provides label/icon/aria
  *     semantics; preserve this composition exactly.
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueDetailRoot`) as the right-rail of the
+ * work-item detail page.
  */
 
 import { observer } from "mobx-react";

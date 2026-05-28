@@ -10,15 +10,19 @@
  * actions against related issues or epics, with consistent localized toast
  * feedback.
  *
- * This module deliberately does NOT group relations by `relation_type`
- * (`"blocks"`, `"blocked_by"`, `"duplicate"`, `"relates_to"`, etc.) — grouping
- * is performed in the sibling `content.tsx` against `useTimeLineRelationOptions()`
- * and `getRelationsByIssueId(...)`. This file owns only the per-issue CRUD
- * primitives that the grouping layer dispatches into.
+ * This module deliberately does NOT group relations by `relation_type` — the four
+ * `TIssueRelationTypes` values (`"blocking"`, `"blocked_by"`, `"duplicate"`,
+ * `"relates_to"`) are grouped in the sibling `content.tsx` against
+ * `useTimeLineRelationOptions()` and `getRelationsByIssueId(...)`. This file owns
+ * only the per-issue CRUD primitives that the grouping layer dispatches into.
  *
  * The CRUD wrappers proxy to the `useIssueDetail` MobX store, whose underlying
  * service calls flow through `IssueService` / `IssueRelationService`
  * (`apps/web/core/services/issue/issue_relation.service.ts`).
+ *
+ * Consumers: `useRelationOperations` is invoked from `./content.tsx` (relations
+ * collapsible body), `../../relations/issue-list.tsx`, and
+ * `../../relations/issue-list-item.tsx` (per-relation row CRUD bindings).
  */
 
 import { useMemo } from "react";

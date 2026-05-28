@@ -16,7 +16,9 @@
  *     scoping ids; `rootIssueId` is also used for the root-comparison check that prevents
  *     infinite recursion at the top of the tree.
  *   - spacingLeft (defaults to 10) — pixel indent for this row's leading padding. The
- *     recursive `SubIssuesListRoot` mount adds `+22` per nesting level (line 264).
+ *     recursive `SubIssuesListRoot` mount inside this file (in the nested-render block) adds
+ *     `+22` per nesting level (see the `spacingLeft={spacingLeft + 22}` literal in the recursive
+ *     `<SubIssuesListRoot>` mount further down).
  *   - canEdit — gates the edit / remove / delete affordances in the overflow menu and the
  *     disabled state of the inline property dropdowns rendered by `SubIssuesListItemProperties`.
  *   - handleIssueCrudState — toggles the upstream CRUD modal state owned by `../content.tsx`
@@ -57,16 +59,16 @@
  *   - Row click (`ControlLink onClick`): calls `handleRedirection(workspaceSlug, issue, isMobile)`
  *     from `useIssuePeekOverviewRedirection` — navigates to the issue peek overview.
  *   - Edit menu item: invokes `handleIssueCrudState("update", parentIssueId, { ...issue })`
- *     then `toggleCreateIssueModal(true)` — opens the `CreateUpdateIssueModal` mounted at
- *     `../content.tsx:152`.
+ *     then `toggleCreateIssueModal(true)` — opens the `CreateUpdateIssueModal` mounted inside
+ *     `../content.tsx` (`IssueDetailWidgetCollapsiblesContent` modals block).
  *   - Copy-link menu item: invokes `subIssueOperations.copyLink(workItemLink)` — emits a
  *     success toast and writes the URL to the clipboard.
  *   - Remove menu item: invokes
  *     `subIssueOperations.removeSubIssue(workspaceSlug, issue.project_id, parentIssueId, issue.id)`
  *     — DETACHES the sub-issue from its parent (does NOT delete the issue record); emits toast.
  *   - Delete menu item: invokes `handleIssueCrudState("delete", parentIssueId, issue)` then
- *     `toggleDeleteIssueModal(issue.id)` — opens the `DeleteIssueModal` mounted at
- *     `../content.tsx:132`.
+ *     `toggleDeleteIssueModal(issue.id)` — opens the `DeleteIssueModal` mounted inside
+ *     `../content.tsx` (`IssueDetailWidgetCollapsiblesContent` modals block).
  *
  * CRUD state split (CRITICAL — two stores look identical but are NOT):
  *   - `content.tsx` owns the `update` / `delete` modal toggles via local `useState`
@@ -82,16 +84,18 @@
  *   4. `!isCurrentIssueRoot` — this row is NOT the rootIssueId (prevents infinite recursion).
  *
  * Consumers:
- *   - Rendered exclusively from `./list-group.tsx` (line 85) — one instance per work-item id
- *     in the group's `workItemIds` array.
+ *   - Rendered exclusively from `./list-group.tsx` (inside the `workItemIds.map(...)` block in
+ *     `SubIssuesListGroup`) — one instance per work-item id in the group's `workItemIds` array.
  *
  * Implementation notes:
- *   - `useSubIssueOperations(EIssueServiceType.ISSUES)` is hard-coded — only `fetchSubIssues`
- *     is destructured from it. The rest of the operations bundle flows in via the
- *     `subIssueOperations` prop. The hard-coded `ISSUES` service type intentionally shadows
- *     the dynamic `issueServiceType` prop here because `fetchSubIssues` always targets the
- *     issues service even when the surrounding context is epics. Do NOT add a second
- *     operations bundle at this level — keep the prop-passed bundle as the source of truth.
+ *   - `useSubIssueOperations(EIssueServiceType.ISSUES)` is called with the literal `ISSUES`
+ *     service type — only `fetchSubIssues` is destructured from it. The rest of the operations
+ *     bundle flows in via the `subIssueOperations` prop. Keep the prop-passed bundle as the
+ *     source of truth (it carries the caller's surface service type).
+ *   // INTENT UNCLEAR: why this call site uses the literal `ISSUES` service type rather than
+ *   // the prop-supplied `issueServiceType` cannot be inferred from naming or call graph;
+ *   // observed behavior is that only `fetchSubIssues` is consumed here, and the prop-supplied
+ *   // bundle covers the remaining operations.
  *   - All user-facing strings are translated via `useTranslation` from `@plane/i18n`; do NOT
  *     introduce hardcoded English literals.
  */

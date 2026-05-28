@@ -21,6 +21,10 @@
  * feature is enabled for the issue context.
  *
  * No runtime logic — pure barrel module.
+ *
+ * Consumers: imported from feature surfaces that need the full issue-detail UI —
+ * notably the work-item detail route shell, the peek-overview body, the
+ * `intake` flow, and the `epic` detail surface.
  */
 
 export * from "./root";

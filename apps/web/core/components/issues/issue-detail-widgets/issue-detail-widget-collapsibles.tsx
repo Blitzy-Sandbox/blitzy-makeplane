@@ -33,6 +33,9 @@
  *   - `shouldRenderRelations`   — `issueRelationsCount > 0 && !hideWidgets?.includes("relations")`.
  *   - `shouldRenderLinks`       — `issue.link_count > 0 && !hideWidgets?.includes("links")`.
  *   - `shouldRenderAttachments` — `attachmentsCount > 0 || (attachmentUploads.length > 0 && !hideWidgets?.includes("attachments"))`.
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueDetailWidgets`) on issue-detail surfaces — e.g.,
+ * `apps/web/core/components/issues/issue-detail/main-content.tsx` and peek-overview body.
  */
 
 import React from "react";

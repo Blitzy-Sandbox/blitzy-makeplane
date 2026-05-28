@@ -50,6 +50,9 @@
  *
  * Footer attribution: the creator's `display_name` is shown by default; when `is_bot` is true on
  * the resolved user record, the suffix " Bot" is appended to `first_name` instead.
+ *
+ * Consumers: rendered by `./links.tsx` (`IssueLinkList` card-style list) for each id
+ * in the work item's link slice, inside the issue-detail sidebar/links section.
  */
 
 import { NewTabIcon, EditIcon, TrashIcon } from "@plane/propel/icons";

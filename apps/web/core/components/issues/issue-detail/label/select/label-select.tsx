@@ -43,8 +43,9 @@
  *
  * Side effects:
  *  - Lazy fetch on open: `Combobox.Button.onClick` calls `fetchLabels()` only when
- *    `!projectLabels`, which invokes `fetchProjectLabels(workspaceSlug, projectId)` (resolves via
- *    `LabelService.fetchProjectLabels` → `LabelViewSet.list` in `apps/api`) and sets `isLoading`
+ *    `!projectLabels`, which invokes `fetchProjectLabels(workspaceSlug, projectId)` on the label
+ *    store. The store delegates to `IssueLabelService.getProjectLabels`
+ *    (`GET /api/workspaces/<slug>/projects/<projectId>/issue-labels/`) and sets `isLoading`
  *    while in flight. This is the ONLY API call this component makes directly.
  *  - Inline label creation (two paths): pressing Enter on a non-empty `query` (no native
  *    composition in progress AND `canCreateLabel` true), OR clicking the inline-create
@@ -97,6 +98,9 @@
  *    without coupling to issue-detail mutation specifics.
  *  - Inline-created labels receive `getRandomLabelColor()` from `@plane/constants` — see that
  *    module if the random color palette ever needs to be adjusted.
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueLabelSelectRoot`) inside the issue-detail
+ * label workflow as the searchable combobox affordance.
  */
 
 import { Fragment, useState } from "react";
