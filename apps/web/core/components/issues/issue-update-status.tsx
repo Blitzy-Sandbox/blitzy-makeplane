@@ -4,6 +4,25 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Compact "Saving…" / "Saved" indicator used by editable work item fields (title, description).
+ *
+ * Rendered purpose: a tiny status row with a spinning `RefreshCw` icon while a write is in flight and a
+ * static "Saved" label after completion, with a fade-in / fade-out transition controlled by the
+ * `isSubmitting` state.
+ *
+ * Props:
+ *   - isSubmitting (TNameDescriptionLoader, required): "submitting" | "submitted" | "saved" — the spinner is
+ *     shown for any state other than "submitted" / "saved"; the label switches between "Saving…" and "Saved"
+ *
+ * MobX stores read: none — pure UI primitive that reflects the caller-supplied loader state.
+ *
+ * Side effects: none.
+ *
+ * Derived state notes:
+ *   - `TNameDescriptionLoader` from `@plane/types` enumerates the loader states; this component fans them out
+ *     into spinner visibility and label text.
+ */
 import React from "react";
 import { observer } from "mobx-react";
 import { RefreshCw } from "lucide-react";
