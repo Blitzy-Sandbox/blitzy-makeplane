@@ -4,6 +4,60 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Modal used both to create a new issue link and to edit an existing one in the issue-detail panel.
+ *
+ * Rendered purpose: a `ModalCore` overlay containing a `react-hook-form` form with two `Controller`-
+ * wrapped inputs (URL required, display title optional), a "Cancel" `Button`, and a primary submit
+ * `Button`. Submit routing depends on whether a staged link id is present in the form payload —
+ * `linkOperations.update(id, …)` for edit, `linkOperations.create(…)` for create. Localized title
+ * and button labels via `useTranslation`.
+ *
+ * Props (`TIssueLinkCreateEditModal`, exported):
+ *   - isModalOpen (boolean, required): controls modal visibility.
+ *   - handleOnClose? (() => void, optional): invoked after the modal clears its staged link data;
+ *     provided by `./root.tsx` to flip its local `isIssueLinkModal` toggle.
+ *   - linkOperations (TLinkOperationsModal, required): the create/update handlers exposed by
+ *     `IssueLinkRoot` in `./root`. Locally aliased as
+ *     `TLinkOperationsModal = Exclude<TLinkOperations, "remove">` (the remove path is not used here).
+ *   - issueServiceType (TIssueServiceType, required): selects the issue-detail store namespace
+ *     (`EIssueServiceType.ISSUES` vs `EIssueServiceType.EPICS`) so the correct `issueLinkData`
+ *     slice is read for rehydration.
+ *
+ * Form state (`TIssueLinkCreateFormFieldOptions`, exported): `TIssueLinkEditableFields & { id?: string }`.
+ * The optional `id` is what discriminates create vs update at submit time.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail(issueServiceType)` — `issueLinkData` (the staged link record, `null` for
+ *     create mode), and `setIssueLinkData` (clears staged data on close).
+ *
+ * Non-store hooks:
+ *   - `useTranslation()` — localizes the modal heading, URL label, optional-title label, validation
+ *     error message ("URL is invalid"), and primary button copy (Add Link / Adding Link… /
+ *     Update Link / Updating Link…).
+ *   - `react-hook-form`'s `useForm` for field state, validation, and submit handling. The
+ *     `useEffect` on `[preloadedData, reset, isModalOpen]` rehydrates the form by spreading
+ *     `defaultValues` then `preloadedData` whenever the modal opens.
+ *
+ * Side effects:
+ *   - On submit success: routes to `linkOperations.create({ title, url: parsedUrl })` (when no
+ *     `id`) or `linkOperations.update(id, { title, url: parsedUrl })` (when `id`). Both call paths
+ *     ultimately reach `apps/api`'s `IssueLinkViewSet`
+ *     (`/api/workspaces/<slug>/projects/<id>/issues/<issue_id>/issue-links/`).
+ *   - Calls `setIssueLinkData(null)` on close (and after a successful submit) to clear the staged
+ *     edit record so the next open begins in create mode by default.
+ *   - On submit failure: logs to `console.error` (the toast is emitted by the contract layer in
+ *     `./root.tsx`, not by this file).
+ *
+ * URL normalization (preserve verbatim, security-relevant): a submitted URL that does NOT start with
+ * `"http"` is auto-prefixed with `"http://"`. This is intentional so users can paste raw hostnames
+ * like `example.com` and have them stored as valid absolute URLs. Note this prefixes ONLY when the
+ * literal substring `"http"` is missing at the start; URLs that start with `"https://"`,
+ * `"http://"`, or even `"httpfoo"` are passed through unchanged.
+ *
+ * Wrapped in `mobx-react` `observer` because `useIssueDetail(...).issueLinkData` is observable.
+ */
+
 import { useEffect } from "react";
 import { observer } from "mobx-react";
 import { Controller, useForm } from "react-hook-form";
@@ -60,6 +114,7 @@ export const IssueLinkCreateUpdateModal = observer(function IssueLinkCreateUpdat
   };
 
   const handleFormSubmit = async (formData: TIssueLinkCreateFormFieldOptions) => {
+    // Auto-prefix raw hostnames with `http://` so users can paste `example.com` and have it stored as a valid absolute URL.
     const parsedUrl = formData.url.startsWith("http") ? formData.url : `http://${formData.url}`;
     try {
       if (!formData || !formData.id) await linkOperations.create({ title: formData.title, url: parsedUrl });
