@@ -4,6 +4,35 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Confirmation modal for archiving a work item.
+ *
+ * Rendered purpose: a centered `ModalCore` dialog that displays project identifier + sequence id and
+ * confirms a non-destructive archive action; on confirm it invokes the caller-supplied `onSubmit`
+ * and emits a success or error toast.
+ *
+ * Props:
+ *   - data (TIssue | TDeDupeIssue, optional): pre-resolved issue payload (takes precedence over `dataId`)
+ *   - dataId (string | null | undefined, optional): id used to resolve issue from `issueMap` when `data` is absent
+ *   - handleClose (() => void, required): close-modal callback
+ *   - isOpen (boolean, required): modal open state
+ *   - onSubmit (() => Promise<void>, optional): archive operation invoked when the user confirms
+ *
+ * MobX stores read:
+ *   - `useIssues()` — `issueMap` for resolving the issue payload from `dataId`
+ *   - `useProject()` — `getProjectById` for resolving the project identifier used in the modal title
+ *
+ * Side effects:
+ *   - Invokes parent-supplied `onSubmit` (typically a call into an issue store action which in turn hits
+ *     `IssueService.archive` / `IssueArchiveService`).
+ *   - Emits success/error toasts via `setToast` from `@plane/propel/toast`, with i18n-keyed strings:
+ *     `issue.archive.success.label`, `issue.archive.success.message`, `issue.archive.failed.message`,
+ *     `common.error.label`.
+ *
+ * Imperative / derived state notes:
+ *   - `isArchiving` local state drives the button loading indicator and the `t("common.archiving")` label.
+ *   - `if (!dataId && !data) return null;` early-exits when neither identifier nor payload is provided.
+ */
 import { useState } from "react";
 // i18n
 import { useTranslation } from "@plane/i18n";
