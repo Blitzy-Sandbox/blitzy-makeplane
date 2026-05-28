@@ -5,23 +5,26 @@
  */
 
 /**
- * Empty-state placeholder for the workspace-level draft work-item list.
+ * Empty-state view shown when the workspace has projects but no draft
+ * issues yet.
  *
- * Rendered purpose: an `EmptyStateDetailed` placeholder shown by the workspace-draft list
- * `root` when the current viewer has no draft work items in the workspace. Surfaces a
- * primary-action button that opens `CreateUpdateIssueModal` in draft mode for permitted users.
+ * Lets workspace ADMIN/MEMBER users create the first draft issue via the
+ * shared `CreateUpdateIssueModal`, which is always mounted with the modal
+ * scoped to `EIssuesStoreType.WORKSPACE_DRAFT` and `isDraft` flagged. The
+ * modal handles persistence — this component does not call the network
+ * directly.
  *
- * Props: none — this component takes no props and resolves all state internally.
+ * Props: none. The parent `WorkspaceDraftIssuesRoot` decides when to render.
  *
- * MobX stores read:
- *   - `useUserPermissions()` — `allowPermissions` gate that hides the create button for guests
+ * MobX stores read (via React context):
+ *   - useTranslation — translator for localized strings.
+ *   - useUserPermissions — allowPermissions, used to gate the CTA on
+ *     workspace-level ADMIN/MEMBER role. Disabling client-side prevents
+ *     unauthorized users from triggering a server-side 403.
  *
  * Side effects:
- *   - Opens `CreateUpdateIssueModal` configured with `EIssuesStoreType.WORKSPACE_DRAFT` when the
- *     create-button is clicked; the actual draft creation is owned by the issue-modal flow.
- *
- * Consumers:
- *   - `apps/web/core/components/issues/workspace-draft/root.tsx`
+ *   - Toggles local `isDraftIssueModalOpen` state to open the create modal;
+ *     all persistence is delegated to `CreateUpdateIssueModal`.
  */
 
 import { Fragment, useState } from "react";
