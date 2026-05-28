@@ -4,4 +4,9 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Barrel aggregator for the issue attachments feature, re-exporting the public
+ * surface from `./root` (currently `IssueAttachmentRoot` + `TIssueAttachmentRoot`).
+ */
+
 export * from "./root";
