@@ -4,6 +4,73 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Editable metadata sidebar for the peek-overview panel.
+ *
+ * Rendered purpose: an i18n-labeled list of `SidebarPropertyListItem` rows that exposes editors
+ * for the work item's state, assignees, priority, created-by attribution, start date, due date,
+ * estimate, module(s), cycle, parent, labels, worklog, and any project-configured additional
+ * sidebar properties. Returns an empty fragment when the issue cannot be resolved from the store.
+ *
+ * Props (IPeekOverviewProperties):
+ *   - workspaceSlug (string, required): scopes all property update mutations
+ *   - projectId (string, required): scopes all property update mutations
+ *   - issueId (string, required): identifies the work item rendered in the panel
+ *   - disabled (boolean, required): when true, fades the entire panel (`opacity-60`) and disables
+ *     every individual dropdown
+ *   - issueOperations (TIssueOperations, required): the issue-update contract sourced from
+ *     `../issue-detail`; every dropdown's `onChange` calls `issueOperations.update(...)`
+ *
+ * MobX stores read:
+ *   - `useProject()` — `getProjectById(issue.project_id)`; the resolved project drives the
+ *     `isEstimateEnabled`, `module_view`, and `cycle_view` conditional rows
+ *   - `useIssueDetail()` — `issue.getIssueById(issueId)` resolves the rendered issue
+ *   - `useProjectState()` — `getStateById(issue.state_id)` resolves the state group used by
+ *     `shouldHighlightIssueDueDate` for overdue colorization
+ *   - `useMember()` — `getUserDetails(issue?.created_by)` resolves the creator's display name and
+ *     avatar; intake users (display name contains "-intake") are rendered as "Plane"
+ *
+ * Side effects:
+ *   - Property mutations (every dropdown's `onChange`):
+ *       state_id, assignee_ids, priority, start_date, target_date, estimate_point →
+ *         `issueOperations.update(workspaceSlug, projectId, issueId, { ... })` →
+ *         PATCH /api/workspaces/<slug>/projects/<projectId>/issues/<issueId>/
+ *   - Module association is delegated to `<IssueModuleSelect />` (multi-add + multi-remove
+ *     mutations via `changeModulesInIssue` from the operations contract).
+ *   - Cycle association is delegated to `<IssueCycleSelect />` (add/remove via `addCycleToIssue` /
+ *     `removeIssueFromCycle`).
+ *   - Parent association is delegated to `<IssueParentSelectRoot />`.
+ *   - Labels are delegated to `<IssueLabel />`.
+ *   - Worklog entries are delegated to `<IssueWorklogProperty />` (POST /worklog/ endpoint via the
+ *     worklog service).
+ *   - Custom additional properties are delegated to `<WorkItemAdditionalSidebarProperties />`.
+ *   - Dates persisted via `renderFormattedPayloadDate(val)` from `@plane/utils` (UTC-safe ISO).
+ *   - No toasts are emitted from this file directly — error/success feedback is handled by the
+ *     operations contract in `root.tsx`.
+ *
+ * Imperative DOM / derived state notes:
+ *   - `minDate` / `maxDate` are derived from `issue.start_date` / `issue.target_date` and bound to
+ *     the corresponding `DateDropdown` to enforce a chronological start-before-due constraint at
+ *     the UI level (server still validates).
+ *   - `shouldHighlightIssueDueDate(issue.target_date, stateDetails?.group)` toggles the danger
+ *     color on the due-date label when the issue is overdue AND the state group is not "completed"
+ *     or "cancelled".
+ *   - Module row only renders when `projectDetails?.module_view` is truthy; cycle row only when
+ *     `projectDetails?.cycle_view` is truthy; estimate row only when `projectDetails?.estimate` is set.
+ *   - The created-by row is hidden entirely when the creator cannot be resolved (intake/system events).
+ *   - `WorkItemAdditionalSidebarProperties` is mounted with `isPeekView` so the plane-web layer
+ *     can apply peek-specific styling.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/issues/peek-overview/view.tsx` (both the side-peek/modal column
+ *     and the full-screen mode's right sidebar)
+ *
+ * Architectural notes:
+ *   - MobX exclusively — stores via React context.
+ *   - Wrapped in `observer(...)` so the sidebar re-renders when any property of the resolved
+ *     issue changes in the store.
+ *   - i18n: `useTranslation` from `@plane/i18n`; every visible label is an i18n key.
+ */
 import { observer } from "mobx-react";
 // i18n
 import { useTranslation } from "@plane/i18n";
