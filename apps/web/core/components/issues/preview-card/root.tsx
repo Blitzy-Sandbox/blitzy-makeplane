@@ -4,6 +4,44 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders a compact, read-only summary card for a single work item — the
+ * hover/tooltip preview surface used wherever the app references an issue
+ * inline (links, relations, mentions, command palette results).
+ *
+ * Exported component: `WorkItemPreviewCard` (wrapped with `mobx-react`
+ * `observer` so it re-renders when observed store slices change).
+ *
+ * Props (`Props`):
+ *   - `projectId` (string, required): id of the project the work item belongs
+ *     to; used to resolve the project key prefix and scope state lookups.
+ *   - `stateDetails` (object, required): caller-supplied state metadata with
+ *     optional `group`, `id`, and `name` fields. When `group`/`name` are not
+ *     supplied, the component falls back to `useProjectState().getStateById`
+ *     keyed by `stateDetails.id`. The final `stateGroup` defaults to
+ *     `"backlog"` when no group can be resolved from either source.
+ *   - `workItem` (Pick<TIssue, ...>, required): minimal slice of the issue
+ *     model needed for display — `id`, `name`, `sequence_id`, `priority`,
+ *     `start_date`, `target_date`, `type_id`.
+ *
+ * MobX stores read (Plane uses MobX exclusively via React context):
+ *   - `useProject` — calls `getProjectIdentifierById(projectId)` for the key
+ *     prefix shown by the embedded `IssueIdentifier`.
+ *   - `useProjectState` — calls `getStateById(stateDetails.id)` only when the
+ *     caller did not provide inline `group`/`name`, so the card can fall back
+ *     to the canonical store value.
+ *
+ * Side effects:
+ *   None. The component is presentational — no API calls, no mutations, no
+ *   navigations, no DOM imperatives. It composes `IssueIdentifier`,
+ *   `StateGroupIcon`, `PriorityIcon`, and `WorkItemPreviewCardDate`.
+ *
+ * Consumers:
+ *   - `./index.ts` re-exports it as the folder's public surface.
+ *   - Issue link / relation / mention previews across
+ *     `apps/web/core/components/issues/`.
+ */
+
 import { observer } from "mobx-react";
 // plane imports
 import { PriorityIcon, StateGroupIcon } from "@plane/propel/icons";
