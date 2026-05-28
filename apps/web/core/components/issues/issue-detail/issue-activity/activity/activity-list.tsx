@@ -37,8 +37,20 @@
  *   - "archived_at"                              → IssueArchivedAtActivity
  *   - "intake" | "inbox"                         → IssueInboxActivity
  *   - "type"                                     → IssueTypeActivity (plane-web)
- *   - default                                    → AdditionalActivityRoot (plane-web fallback
- *     for custom/legacy fields so unknown activity records still render).
+ *   - "reaction"                                 → default branch (no dedicated case). Emitted by
+ *     the backend `ACTIVITY_MAPPER` for `issue_reaction.activity.created/.deleted` and
+ *     `comment_reaction.activity.created/.deleted` events in `apps/api/plane/bgtasks/
+ *     issue_activities_task.py` — rendering is therefore delegated to `AdditionalActivityRoot`
+ *     (see "default" below).
+ *   - "vote"                                     → default branch (no dedicated case). Emitted by
+ *     the backend `ACTIVITY_MAPPER` for `issue_vote.activity.created/.deleted` events — also
+ *     delegated to `AdditionalActivityRoot` (see "default" below).
+ *   - default                                    → `AdditionalActivityRoot` from the plane-web
+ *     extension point (`@/plane-web/components/issues/issue-details`, which resolves to
+ *     `apps/web/ce/components/issues/issue-details/additional-activity-root.tsx` in CE). The CE
+ *     implementation returns an empty fragment, so unknown / reaction / vote activity records
+ *     render nothing in the community build; an EE / plane-web build is expected to substitute
+ *     a real renderer for these field values.
  *
  * Side effects: none — this component is purely presentational. All activity-record writes
  * happen elsewhere; this dispatcher only reads from the store.
