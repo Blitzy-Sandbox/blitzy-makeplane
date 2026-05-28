@@ -4,6 +4,49 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Searchable multi-select dropdown for picking issue labels, with admin-gated inline creation of new
+ * labels (Enter key creates a label with a random color via `getRandomLabelColor()`) and on-open lazy
+ * fetch of the project's labels into the MobX label store. Positioned with `react-popper`; uses
+ * `@headlessui/react` `Combobox` for accessible keyboard navigation and `useDropdownKeyDown` for
+ * trigger-level key handling.
+ *
+ * Exports:
+ *   - `ILabelDropdownProps` — props interface
+ *   - `LabelDropdown` — React component (parent `IssuePropertyLabels` is the `observer` boundary)
+ *
+ * Required props:
+ *   - `projectId: string | null` — scopes label fetch + create permission
+ *   - `value: string[]` — selected label IDs (controlled)
+ *   - `onChange: (data: string[]) => void` — emits the new label-id array
+ *   - `label: React.ReactNode` — content rendered inside the trigger button (typically `LabelItem`,
+ *     `LabelSummary`, or `NoLabel` from `./labels`)
+ *
+ * Optional props:
+ *   - `onClose?: () => void` — fires on toggle-close and outside-click
+ *   - `disabled?: boolean` — disables the trigger
+ *   - `defaultOptions?: any` (default `[]`) — fallback when the store has no labels for the project
+ *   - `hideDropdownArrow?: boolean` (default `false`) — hides the chevron
+ *   - `className?`, `buttonClassName?` (default `""`), `optionsClassName?` (default `""`) — styling
+ *   - `placement?: Placement` (default `"bottom-start"`) — popper placement
+ *   - `maxRender?: number` (default `2`) — informs the trigger's cursor style
+ *   - `renderByDefault?: boolean` (default `true`) — passed to `ComboDropDown`
+ *   - `fullWidth?`, `fullHeight?: boolean` (default `false`) — sizing controls
+ *
+ * MobX stores read:
+ *   - `useLabel` → `fetchProjectLabels`, `getProjectLabels`, `createLabel`
+ *   - `usePlatformOS` → `isMobile` (suppresses auto-focus on the search input on mobile)
+ *   - `useUserPermissions` → `allowPermissions` (gates `canCreateLabel` to project admins)
+ *
+ * Side effects:
+ *   - On open: lazy-fetches `fetchProjectLabels(workspaceSlug, projectId)` if labels are not yet in the store
+ *   - On Enter (non-empty query, not composing, admin): `createLabel(...)` then appends the new id to
+ *     `value` via `onChange`
+ *   - `onClose` callback fires on outside-click and explicit close
+ *   - Focuses search input on desktop when opened (`useEffect` on `isOpen`)
+ *   - `stopPropagation()` + `preventDefault()` on the root wrapper prevents row-level click handlers
+ */
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Placement } from "@popperjs/core";
 import { useParams } from "next/navigation";
