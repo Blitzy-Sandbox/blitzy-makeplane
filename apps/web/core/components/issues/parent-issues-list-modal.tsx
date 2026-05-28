@@ -4,6 +4,36 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Searchable parent/epic selector modal for work items.
+ *
+ * Rendered purpose: a `ModalCore`-wrapped headless UI `Combobox` that lets users search
+ * project work items (or epics) by name and pick a parent reference; emits the selected
+ * `ISearchIssueResponse` via the `onChange` prop.
+ *
+ * Props:
+ *   - isOpen (boolean, required): modal open state
+ *   - handleClose (() => void, required): close-modal callback (aliased internally to `onClose`)
+ *   - value (any, optional): currently selected combobox value passed to `Combobox`
+ *   - onChange ((issue: ISearchIssueResponse) => void, required): selection callback fired when a result is picked
+ *   - projectId (string | undefined, required): scopes the search to a project
+ *   - issueId (string, optional): excludes this issue from search results (server-side filter)
+ *   - searchEpic (boolean, optional, default=false): when true, restricts search to epics; otherwise restricts to work items with `parent: true`
+ *
+ * MobX stores read: none — this component is store-free. Routing context is obtained via `useParams`
+ * (router hook), and platform context via the `usePlatformOS` hook.
+ *
+ * Side effects:
+ *   - API call: `ProjectService.projectIssuesSearch(workspaceSlug, projectId, { search, parent, issue_id, workspace_search, epic })`
+ *     via the module-level `projectService` instance, debounced through `useDebounce(searchTerm, 500)`.
+ *   - Opens external links via `target="_blank"` when the user clicks the rocket affordance on a result row.
+ *
+ * Imperative DOM/derived state notes:
+ *   - `useDebounce` debounces the user's search input by 500ms before each backend call.
+ *   - The effect on `[debouncedSearchTerm, isOpen, issueId, projectId, workspaceSlug]` re-runs both when
+ *     the modal opens AND when the debounced query changes, populating `issues` state.
+ */
+
 import React, { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 // icons
