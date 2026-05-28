@@ -4,6 +4,28 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * `SubIssuesCollapsibleTitle` — the header row of the sub-issues collapsible; renders a localized label (sub-work-items vs. issue based on
+ * `issueServiceType`), a circular progress indicator computed from completed-state distribution, and the embedded `SubWorkItemTitleActions`
+ * strip. Returns `null` when the parent issue has no sub-work-items so the entire header is hidden in that case.
+ *
+ * Props (Props):
+ *   - isOpen (boolean, required): Collapsible open state; forwarded to `CollapsibleButton` so the chevron orientation reflects the parent state.
+ *   - parentIssueId (string, required): Issue id whose sub-work-items drive title/progress; passed to title actions for filter scoping.
+ *   - disabled (boolean, required): When true, suppresses the quick-action button inside `SubWorkItemTitleActions`.
+ *   - issueServiceType (TIssueServiceType, optional, default `EIssueServiceType.ISSUES`): Selects translation label and issue-detail store slice.
+ *   - projectId (string, required): Active project id; passed to title actions for project-state and member lookups.
+ *   - workspaceSlug (string, required): Active workspace slug; currently unused at render time but retained on `Props` for symmetry with the rest of the widget.
+ *
+ * MobX stores read (via `useIssueDetail(issueServiceType)`):
+ *   - `subIssues.subIssuesByIssueId(parentIssueId)`: selector — returns the sub-work-item id list for `parentIssueId`; absence triggers the early `null` return.
+ *   - `subIssues.stateDistributionByIssueId(parentIssueId)`: selector — returns counts by state group, used to compute `completedCount` and the progress percentage.
+ *
+ * Side effects:
+ *   - Pure renderer; no service calls, no toasts, no navigation. Progress percentage is a derived value (no `useMemo`; recomputed on each render but the inputs are MobX observables, so re-renders only fire on store mutation).
+ *   - Pulls the title string from `@plane/i18n` so the label adapts to locale: `t("issue.label", { count: 1 })` for epics, `t("common.sub_work_items")` otherwise.
+ */
+
 import { observer } from "mobx-react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
