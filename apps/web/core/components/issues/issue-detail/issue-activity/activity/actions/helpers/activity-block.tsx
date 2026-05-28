@@ -4,6 +4,52 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Shared row container for every entry in the issue-detail activity timeline.
+ *
+ * Renders the vertical-connector line, the leading icon badge, the actor
+ * identity label, the activity message body (passed via `children`), and a
+ * tooltipped relative timestamp ("X minutes ago" with the full date/time on
+ * hover).
+ *
+ * Props (`TIssueActivityBlockComponent`):
+ *   - icon (ReactNode, optional): leading icon for the badge. Defaults to a
+ *     `lucide-react` `Network` icon when omitted.
+ *   - activityId (string, required): identifier of the activity record. Used
+ *     to look up the underlying activity via `useIssueDetail()`.
+ *   - ends ("top" | "bottom" | undefined, required): timeline-stack position
+ *     marker; drives the row's vertical padding so adjacent rows visually
+ *     compose into a single connected stack (top row trims top padding,
+ *     bottom row trims bottom padding, middle rows pad both sides).
+ *   - children (ReactNode, required): the per-activity-type message content
+ *     rendered between the actor name and the timestamp.
+ *   - customUserName (string, optional): overrides the resolved actor display
+ *     name. Used by system-initiated rows (e.g., the `archive` verb labels the
+ *     actor "Plane" because the archive ran as a background job, not a user).
+ *     The override flows through to both identity branches below.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — reads `activity.getActivityById(activityId)`. The
+ *     timestamp text is derived from `activity.created_at` via
+ *     `calculateTimeAgo`, `renderFormattedDate`, and `renderFormattedTime`
+ *     from `@plane/utils`.
+ *
+ * Other hooks:
+ *   - `usePlatformOS()` — reads `isMobile` and forwards it to the `Tooltip`
+ *     so the timestamp tooltip uses tap-to-show behavior on touch devices.
+ *
+ * Resilience: returns an empty fragment when `getActivityById(activityId)`
+ * is missing — prevents broken timeline rows from stale or evicted IDs.
+ *
+ * Identity rendering: when `activity.verb === "created"` AND `activity.field`
+ * is falsy, the row delegates to `IssueCreatorDisplay` (which can surface
+ * external creators such as integrations). Otherwise it delegates to
+ * `IssueUser`. The optional `customUserName` flows through to either branch.
+ *
+ * Side effects: none. Read-only / presentational — no mutations, no
+ * navigations, no API calls are triggered at render time.
+ */
+
 import type { ReactNode } from "react";
 import { Network } from "lucide-react";
 // plane imports
