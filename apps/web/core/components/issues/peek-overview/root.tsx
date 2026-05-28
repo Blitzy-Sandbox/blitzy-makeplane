@@ -4,6 +4,77 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Top-level orchestration component for the issue peek-overview panel.
+ *
+ * Rendered purpose: resolves the active peek-issue from `useIssueDetail()`, fetches it with SWR,
+ * builds a memoized `TIssueOperations` contract (fetch / update / remove / archive / restore /
+ * cycle and module association mutators), determines edit permissions for the current user, and
+ * renders `<IssueView />` with all required state and operations wired in. Returns an empty fragment
+ * when no peek issue is active or when required ids cannot be resolved.
+ *
+ * Props (IWorkItemPeekOverview from `@plane/types`):
+ *   - embedIssue (boolean, optional, default=false): when true, the panel is rendered inline (no portal,
+ *     no outside-click dismissal) by the consumer; controls notification-removal behavior
+ *   - embedRemoveCurrentNotification (() => void, optional): callback invoked when the embedded peek is
+ *     dismissed (used by inbox / notification flows to clear the current row)
+ *   - is_draft (boolean, optional, default=false): preserved verbatim from the public contract; carried
+ *     through the operations closure
+ *   - storeType (EIssuesStoreType, optional): explicit issue store override; falls back to
+ *     `useIssueStoreType()` resolved from the route layout
+ *
+ * MobX stores read:
+ *   - `useUserPermissions()` — `allowPermissions` for the project-level ADMIN/MEMBER edit gate
+ *   - `useIssues(EIssuesStoreType.ARCHIVED)` — `restoreIssue` for the archive-restore operation
+ *   - `useIssueDetail()` — `peekIssue`, `setPeekIssue`, `issue.fetchIssue`, `fetchActivities`
+ *   - `useIssueStoreType()` — resolves the active store type from the current route layout
+ *   - `useIssues(storeType)` — `issues` slice exposing `updateIssue`, `removeIssue`, `archiveIssue`,
+ *     `addCycleToIssue`, `addIssueToCycle`, `removeIssueFromCycle`, `changeModulesInIssue`,
+ *     `removeIssuesFromModule`
+ *   - `useWorkItemProperties(...)` — preloads custom work-item properties for the peek issue scoped to
+ *     ISSUES or EPICS service type
+ *
+ * Side effects:
+ *   - SWR fetch: `["peek-issue", workspaceSlug, projectId, issueId]` keyed call to
+ *     `issueOperations.fetch(...)`. Configured with `revalidateIfStale/OnFocus/OnReconnect: false`
+ *     so the peek does not refetch on focus changes — the user keeps the snapshot they opened.
+ *   - API mutations (all routed through the issue store, which fans out to the matching `IssueService`):
+ *       fetch    → GET    /api/workspaces/<slug>/projects/<projectId>/issues/<issueId>/
+ *       update   → PATCH  /api/workspaces/<slug>/projects/<projectId>/issues/<issueId>/    (+ refetch activities)
+ *       remove   → DELETE /api/workspaces/<slug>/projects/<projectId>/issues/<issueId>/    (+ close peek)
+ *       archive  → POST   /api/workspaces/<slug>/projects/<projectId>/issues/<issueId>/archive/
+ *       restore  → POST   /api/workspaces/<slug>/projects/<projectId>/archived-issues/<issueId>/unarchive/
+ *       addCycleToIssue / removeIssueFromCycle / addIssueToCycle → cycle association mutations + activity refresh
+ *       changeModulesInIssue / removeIssueFromModule              → module association mutations + activity refresh
+ *   - Toast emissions via `setToast` and `setPromiseToast` (i18n-keyed): success/error feedback for
+ *     restore, update, delete, cycle removal, and module removal flows.
+ *   - On error during `fetch`, sets the local `error` state which causes `IssueView` to render
+ *     `<IssuePeekOverviewError />` in the next paint.
+ *   - On successful `remove`, invokes `removeRoutePeekId()` to close the peek and clear the URL.
+ *
+ * Derived state notes:
+ *   - `isEditable` combines `allowPermissions([ADMIN, MEMBER], PROJECT, …)` — disabled when the user is a
+ *     guest or viewer; passed to `IssueView` as `disabled = !isEditable`.
+ *   - `removeRoutePeekId` is memoized with `useCallback` and additionally fires
+ *     `embedRemoveCurrentNotification?.()` so embedded contexts (inbox) can clear their selection.
+ *   - The `issueOperations` `useMemo` intentionally omits some dependencies (see the inline
+ *     `// eslint-disable-next-line react-hooks/exhaustive-deps` directive — preserve it as-is).
+ *   - The `useWorkItemProperties(...)` call switches between `EIssueServiceType.EPICS` and
+ *     `EIssueServiceType.ISSUES` based on the resolved `storeType` so epic-scoped custom properties
+ *     are loaded when the peeked entity is an epic.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/issues/issue-detail/...` — mounted when the work item URL has a peek query
+ *   - `apps/web/core/components/issues/issue-layouts/**` — mounted at the layout root to support deep-link peeks
+ *   - Inbox / notification widgets that pass `embedIssue` + `embedRemoveCurrentNotification`
+ *
+ * Architectural notes:
+ *   - MobX exclusively — stores are injected via React context; no Redux.
+ *   - Router context: `usePathname()` comes from `next/navigation` (imported as legacy; preserved verbatim
+ *     per system boundary "No refactoring, renaming, or restructuring of any kind").
+ *   - SWR is used for the initial fetch only; subsequent mutations re-hydrate the MobX issue store directly.
+ */
+
 import { useState, useMemo, useCallback } from "react";
 import { observer } from "mobx-react";
 import { usePathname } from "next/navigation";
