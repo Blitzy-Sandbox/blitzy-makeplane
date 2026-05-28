@@ -4,6 +4,34 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * `SubWorkItemTitleActions` — action strip embedded in the sub-issues collapsible header that composes the display-filter dropdown,
+ * the filter dropdown, and the conditional quick-action button. Derives layout/filter options from constants + the parent project's
+ * states and member ids, exposes memoized handlers that dispatch updates through the `issue-detail` filters slice, and stops click
+ * propagation on its wrapper so the collapsible parent does not toggle when the embedded controls are interacted with.
+ *
+ * Props (TSubWorkItemTitleActionsProps):
+ *   - disabled (boolean, required): When true, suppresses the trailing `SubIssuesActionButton` (no add-sub-work-item affordance).
+ *   - issueServiceType (TIssueServiceType, optional, default `EIssueServiceType.ISSUES`): Selects `issue-detail` store slice (ISSUES vs. EPICS).
+ *   - parentId (string, required): Issue id whose sub-issue filters are read and updated; used as the `parentIssueId` key in `getSubIssueFilters` / `updateSubWorkItemFilters`.
+ *   - projectId (string, required): Active project id; drives `getProjectStates` and `getProjectMemberIds` lookups so the embedded filter controls have project-scoped options.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail(issueServiceType).subIssues.filters.getSubIssueFilters(parentId)`: selector — returns the current `{ filters, displayFilters, displayProperties }` bag for this parent issue.
+ *   - `useIssueDetail(issueServiceType).subIssues.filters.updateSubWorkItemFilters(filterType, value, parentId)`: action — dispatches one of `EIssueFilterType.DISPLAY_FILTERS`, `DISPLAY_PROPERTIES`, or `FILTERS` updates through the store.
+ *   - `useProjectState().getProjectStates(projectId)`: returns project states feeding the `state` filter dropdown.
+ *   - `useMember().project.getProjectMemberIds(projectId, false)`: returns project members feeding the assignees filter dropdown (second positional arg is the `includeGuest` flag, set to `false` to exclude guests).
+ *
+ * Side effects:
+ *   - `handleDisplayFilters(updatedDisplayFilter)` / `handleDisplayPropertiesUpdate(updatedDisplayProperties)` / `handleFiltersUpdate(key, value)` — all dispatch MobX actions on the `subIssues.filters` slice. No direct API calls; the store layer is responsible for any persistence.
+ *   - `handleFiltersUpdate` non-obviously toggles individual values inside an existing array (using `cloneDeep` to avoid in-place MobX mutation) and supports array-valued inputs (e.g. `start_date` custom values that arrive as `[value, otherValue]`). See the inline comment on line 75-79.
+ *   - Wrapper `onClick` calls `e.stopPropagation()` and `e.preventDefault()` so click events inside this action strip do not bubble into the parent `CollapsibleButton` and accidentally toggle the collapsible.
+ *
+ * Layout options:
+ *   - `layoutDisplayFiltersOptions` is `ISSUE_DISPLAY_FILTERS_BY_PAGE["sub_work_items"].layoutOptions.list` — the canonical sub-work-item layout option set from `@plane/constants`.
+ *   - Available filter keys are `SUB_WORK_ITEM_AVAILABLE_FILTERS_FOR_WORK_ITEM_PAGE` from `@plane/constants`.
+ */
+
 import { useCallback } from "react";
 import { cloneDeep } from "lodash-es";
 import { observer } from "mobx-react";
