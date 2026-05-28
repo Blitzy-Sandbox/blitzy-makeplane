@@ -4,6 +4,52 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders the inline Labels property for an issue row, switching between three modes based on the
+ * number of selected labels and the configurable `maxRender` threshold:
+ *   - 0 labels  → `NoLabel` placeholder (icon + `placeholderText`)
+ *   - 1..maxRender → one `LabelDropdown`-wrapped `LabelItem` chip per selected label
+ *   - > maxRender → single `LabelDropdown` showing a condensed `LabelSummary` ("N Labels") with the
+ *     full list in a tooltip
+ *
+ * Exports:
+ *   - `IIssuePropertyLabels` — props interface
+ *   - `IssuePropertyLabels` — observer-wrapped React component
+ *
+ * Local helpers (not individually exported; referenced via the barrel):
+ *   - `NoLabel` — empty-state renderer
+ *   - `LabelSummary` — condensed count renderer with tooltip listing all selected labels
+ *   - `LabelItem` — single-label chip renderer with the label's color dot and name
+ *
+ * Required props (from `IIssuePropertyLabels`):
+ *   - `projectId: string | null` — scopes label fetch
+ *   - `value: string[]` — selected label IDs (controlled)
+ *   - `onChange: (data: string[]) => void` — emits the new label-id array; the parent dispatches it via
+ *     `updateIssue` (see `all-properties.tsx` `handleLabel`)
+ *
+ * Optional props:
+ *   - `defaultOptions?: unknown` — fallback labels when the store has none (used for guest views)
+ *   - `disabled?: boolean` — disables the dropdown trigger
+ *   - `hideDropdownArrow?: boolean` — hides the chevron in the trigger
+ *   - `className?`, `buttonClassName?`, `optionsClassName?` — styling overrides
+ *   - `placement?: Placement` — popper placement from `@popperjs/core`
+ *   - `maxRender?: number` — chip/summary threshold
+ *   - `noLabelBorder?: boolean` (default `false`) — strips the border on the empty/condensed renders
+ *   - `placeholderText?: string` — shown inside `NoLabel`
+ *   - `onClose?: () => void` — invoked when the dropdown closes
+ *   - `renderByDefault?: boolean` (default `true`) — toggles `Tooltip.renderByDefault`
+ *   - `fullWidth?`, `fullHeight?: boolean` (default `false`) — sizing controls
+ *
+ * MobX stores read:
+ *   - `useLabel` → `getProjectLabels(projectId)` for the project's label catalog
+ *   - `usePlatformOS` → `isMobile` (controls tooltip `renderByDefault` and search-input focus)
+ *
+ * Side effects:
+ *   - Selection changes are NOT mutated here — emitted via `onChange` for the parent to dispatch
+ *   - `onClose` fires on outside-click via `useOutsideClickDetector`
+ *   - Search input is focused on desktop (`!isMobile`) when the dropdown opens
+ */
+
 import { useEffect, useRef, useState } from "react";
 import type { Placement } from "@popperjs/core";
 import { observer } from "mobx-react";
