@@ -4,6 +4,55 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Inline issue property strip rendering editable metadata controls — state, priority, start/due dates
+ * (merged into a single `DateRangeDropdown` when both are present), assignees, modules, cycles, estimate,
+ * sub-issue/attachment/link counts, additional properties, and labels — for one issue row in any issue-layout
+ * view (kanban, list, spreadsheet, calendar, gantt). Wrapped in `observer` so MobX store mutations trigger re-renders.
+ *
+ * Exports:
+ *   - `IIssueProperties` — props interface for the component
+ *   - `IssueProperties` — observer-wrapped React component
+ *
+ * Required props (from `IIssueProperties`):
+ *   - `issue: TIssue` — the issue being rendered
+ *   - `updateIssue: ((projectId: string | null, issueId: string, data: Partial<TIssue>) => Promise<void>) | undefined`
+ *       — parent layout's inline-edit dispatcher; `undefined` disables every write
+ *   - `displayProperties: IIssueDisplayProperties | undefined` — visibility filter from the layout's
+ *       display-properties state; component returns `null` when undefined
+ *   - `isReadOnly: boolean` — disables every dropdown when true
+ *   - `className: string` — applied to the root container
+ *   - `activeLayout: string` — current layout name
+ *
+ * Optional props:
+ *   - `isEpic?: boolean` (default `false`) — when true, hides modules, cycles, and sub-issue count chip
+ *
+ * MobX stores read:
+ *   - `useProject` → `getProjectById` (project view flags + identifier for work-item link)
+ *   - `useLabel` → `labelMap` (label lookup for `defaultLabelOptions`)
+ *   - `useIssueStoreType` + `useIssues(storeType)` → `changeModulesInIssue`, `addCycleToIssue`, `removeCycleFromIssue`
+ *   - `useProjectEstimates` → `areEstimateEnabledByProjectId` (estimate feature flag gate)
+ *   - `useProjectState` → `getStateById` (used for due-date highlight by state group)
+ *   - `usePlatformOS` → `isMobile` (controls `renderByDefault` on dropdowns)
+ *
+ * Side effects:
+ *   - Inline edits via `updateIssue` payload for: `state_id`, `priority`, `label_ids`, `assignee_ids`,
+ *     `start_date`, `target_date`, `estimate_point`
+ *   - Module membership via `changeModulesInIssue(workspaceSlug, projectId, issueId, addIds, removeIds)`
+ *   - Cycle membership via `addCycleToIssue` / `removeCycleFromIssue`
+ *   - Navigation: clicking the sub-issue count chip routes to `${workItemLink}#sub-issues` via `useAppRouter`
+ *   - `handleEventPropagation` calls `stopPropagation()` + `preventDefault()` to prevent nested dropdown
+ *     clicks from bubbling into the parent row's selection/click handlers
+ *
+ * Property visibility gating:
+ *   - Each property is wrapped in `WithDisplayPropertiesHOC` keyed off `IIssueDisplayProperties`
+ *   - `isDateRangeEnabled` merges start/due into one `DateRangeDropdown` when both dates exist and both
+ *     display flags are enabled; otherwise renders them as two independent `DateDropdown`s
+ *   - Modules + Cycles also gate on the project's `module_view` / `cycle_view` flags AND `!isEpic`
+ *   - Estimates additionally gate on `areEstimateEnabledByProjectId(projectId)`
+ *   - Sub-issue, attachment, and link count chips only render when their respective count is > 0
+ */
+
 import type { SyntheticEvent } from "react";
 import { useCallback, useMemo } from "react";
 import { xor } from "lodash-es";
