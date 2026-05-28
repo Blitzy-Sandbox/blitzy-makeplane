@@ -4,6 +4,28 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Shared utilities for issue layout components.
+ *
+ * Centralizes the helpers that every issue layout (list, kanban, calendar, gantt, spreadsheet) needs:
+ *   - Group-by column construction (project, cycle, module, state, state-group, priority, labels,
+ *     assignees, created-by, team-project) with workspace- vs. project-level scoping
+ *   - Pragmatic drag-and-drop payload extraction (`getSourceFromDropPayload`, `getDestinationFromDropPayload`)
+ *     and the cross-group/sub-group reorder logic (`handleGroupDragDrop`)
+ *   - DOM helpers for in-place highlighting and scroll-into-view after drop
+ *   - Display-property and filter-applied predicates (`isFiltersApplied`, `isDisplayFiltersApplied`,
+ *     `getDisplayPropertiesCount`)
+ *   - Sizing primitives (`getApproximateCardHeight`, `calculateIdentifierWidth`) used to pre-allocate
+ *     virtualised layout cells
+ *   - Time-range block style helpers (`getBlockViewDetails`) used by Gantt and Calendar layouts
+ *
+ * Store access is via the global `store` reference from `@/lib/store-context` rather than React hooks
+ * because these helpers are called from both component and non-component contexts (e.g. drag handlers).
+ *
+ * Consumers: every subfolder under `apps/web/core/components/issues/issue-layouts/` (kanban, list,
+ * calendar, spreadsheet, gantt, filters, properties, quick-add, quick-action-dropdowns, roots, etc.).
+ */
+
 import type { CSSProperties } from "react";
 import { extractInstruction } from "@atlaskit/pragmatic-drag-and-drop-hitbox/tree-item";
 import { clone, isNil, pull, uniq, concat } from "lodash-es";
@@ -44,9 +66,28 @@ import {
 import { ISSUE_FILTER_DEFAULT_DATA } from "@/store/issue/helpers/base-issues.store";
 import { DEFAULT_DISPLAY_PROPERTIES } from "@/store/issue/issue-details/sub_issues_filter.store";
 
+/**
+ * CSS class name applied to an issue block after a drag-and-drop drop to flash a transient highlight.
+ * Used in tandem with `highlightIssueOnDrop()`.
+ */
 export const HIGHLIGHT_CLASS = "highlight";
+/**
+ * CSS class name applied to an issue block after a drop to flash a transient highlight WITH an
+ * additional position-line indicator. Used by reorderable list layouts.
+ */
 export const HIGHLIGHT_WITH_LINE = "highlight-with-line";
 
+/**
+ * Drop location descriptor produced by `getSourceFromDropPayload` and `getDestinationFromDropPayload`.
+ *
+ * - `columnId`: the DOM column key (typically `${groupId}|${subGroupId}` shaped)
+ * - `groupId`: the active group-by value
+ * - `subGroupId`: the active sub-group-by value (optional, present for two-dimensional grouping)
+ * - `id`: the dragged issue id when source; the issue id under the cursor when destination (`undefined` when
+ *   dropped onto an empty column)
+ * - `canAddIssueBelow`: derived from the pragmatic-DnD instruction; true when the drop position is below the
+ *   last issue in the column
+ */
 export type GroupDropLocation = {
   columnId: string;
   groupId: string;
@@ -55,6 +96,12 @@ export type GroupDropLocation = {
   canAddIssueBelow?: boolean;
 };
 
+/**
+ * Record of group-key changes applied to an issue during cross-group drag-and-drop.
+ *
+ * Each outer key corresponds to an issue field (e.g. `state_id`, `labels`); the inner record tracks the
+ * `ADD`/`REMOVE` arrays of group ids so the store can derive optimistic updates to grouped indices.
+ */
 export type IssueUpdates = {
   [groupKey: string]: {
     ADD: string[];
@@ -62,6 +109,12 @@ export type IssueUpdates = {
   };
 };
 
+/**
+ * Returns true when the given issues-store type is workspace-scoped (rather than project-scoped).
+ *
+ * Workspace-level stores aggregate issues across multiple projects (Profile, Global, Team, Team View,
+ * Team Project Work Items, Workspace Draft) and therefore use workspace-level labels and member rosters.
+ */
 export const isWorkspaceLevel = (type: EIssuesStoreType) =>
   [
     EIssuesStoreType.PROFILE,
@@ -85,6 +138,14 @@ type TGetGroupByColumns = {
 // NOTE: Type of groupBy is different compared to what's being passed from the components.
 // We are using `as` to typecast it to the expected type.
 // It can break the includeNone logic if not handled properly.
+/**
+ * Resolves the list of group-by columns for an issue layout based on the active grouping option.
+ *
+ * Returns:
+ *   - `[{ id: "All Issues", ... }]` when no grouping is active but a single-column container is needed
+ *   - `undefined` when no grouping is active and no container is needed
+ *   - A list of `IGroupByColumn` populated from the relevant store slice otherwise
+ */
 export const getGroupByColumns = ({
   groupBy,
   includeNone,
@@ -313,6 +374,13 @@ const getCreatedByColumns = (): IGroupByColumn[] | undefined => {
   });
 };
 
+/**
+ * Counts how many display properties are enabled, optionally ignoring specific keys.
+ *
+ * @param displayProperties - the active `IIssueDisplayProperties` record from the filter store
+ * @param ignoreFields - optional list of property keys to exclude from the count (e.g. when a layout
+ *   does not surface certain properties)
+ */
 export const getDisplayPropertiesCount = (
   displayProperties: IIssueDisplayProperties,
   ignoreFields?: (keyof IIssueDisplayProperties)[]
@@ -492,6 +560,13 @@ const handleSortOrder = (
   return currentIssueState;
 };
 
+/**
+ * Deterministic DOM id for an issue block in a grouped layout.
+ *
+ * The composite `issue_<id>_<groupId>_<subGroupId>` ensures the same issue can render in multiple
+ * locations (e.g. when an issue belongs to multiple labels) and each render has a distinct DOM target
+ * for highlight/scroll-into-view operations.
+ */
 export const getIssueBlockId = (issueId: string | undefined, groupId: string | undefined, subGroupId?: string) =>
   `issue_${issueId}_${groupId}_${subGroupId}`;
 
@@ -505,6 +580,27 @@ const getGroupId = (groupId: string) => {
   return [groupId];
 };
 
+/**
+ * Applies a cross-group drag-and-drop to an issue, computing the new `sort_order` and any group/sub-group
+ * field mutations, then dispatching the persistence call.
+ *
+ * Side effects:
+ *   - Invokes `updateIssueOnDrop(projectId, issueId, partial, issueUpdates)` exactly once when the source
+ *     issue can be resolved and `project_id` is present.
+ *   - The store action behind `updateIssueOnDrop` (typically an issues store mutator) is responsible for
+ *     calling the issue service and patching local indices using the `issueUpdates` ADD/REMOVE record.
+ *
+ * Sort-order semantics:
+ *   - When dropping above the first issue, returns `firstIssue.sort_order - 65535`
+ *   - When dropping below the last issue, returns `lastIssue.sort_order + 65535`
+ *   - When dropping between two issues, returns the arithmetic midpoint
+ *
+ * Group / sub-group field semantics:
+ *   - For array fields (labels, modules, assignees), removes the source group id and adds the destination
+ *     group id with `lodash-es.uniq + concat`.
+ *   - For scalar fields (state_id, cycle_id, priority, ...), assigns the destination value, mapping the
+ *     sentinel `"None"` to `null`.
+ */
 export const handleGroupDragDrop = async (
   source: GroupDropLocation,
   destination: GroupDropLocation,
