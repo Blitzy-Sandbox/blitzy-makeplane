@@ -4,6 +4,87 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Inline editable property strip rendered on a sub-issue row — state, priority,
+ * start/due-date (or a merged date-range when both are visible), and assignee
+ * dropdowns — that persists every change through `updateSubIssue`. This is the
+ * ONLY file in the `sub-issues/` folder that mutates sub-issue state directly on
+ * row interaction; all other row actions (edit, delete) route through the modal
+ * flow owned by `../content.tsx` via `handleIssueCrudState`.
+ *
+ * Props (see the `Props` declaration below):
+ * - `workspaceSlug` (required) — workspace slug from the URL.
+ * - `parentIssueId` (required) — id of the parent issue; used as the
+ *   second-to-last segment of the update URL.
+ * - `issueId` (required) — id of the sub-issue whose properties are being
+ *   edited.
+ * - `canEdit` (required) — gates every dropdown's `disabled` flag; when
+ *   `false` the dropdowns render in read-only mode.
+ * - `updateSubIssue` (required) — row-level mutation callback bound to
+ *   `subIssueOperations.updateSubIssue` (see `../helper.ts:87-112`) via
+ *   `list-item.tsx:180`. The wrapper sets `issue_loader` helpers and emits
+ *   success/error toasts; the raw store action does not — which is why
+ *   row-level edits show loading state and toast feedback automatically.
+ *   The inline-edit path here NEVER supplies `fromModal = true` (the seventh
+ *   positional argument); the modal path in `../content.tsx` DOES.
+ * - `displayProperties` (optional) — display-property visibility flags
+ *   (`state`, `priority`, `start_date`, `due_date`, `assignee`) read from
+ *   the sub-issue filter snapshot. If `undefined`, the component
+ *   short-circuits and renders nothing.
+ * - `issue` (required) — `TIssue` record whose fields drive every dropdown's
+ *   current value. Issue data is passed in via this prop; the component does
+ *   NOT read it from the issue store.
+ *
+ * MobX stores read:
+ * - `useProjectState().getStateById` — resolves the `IState` record for
+ *   `issue.state_id`, used only to compute `shouldHighlight` (whether the
+ *   due-date renders in red via `shouldHighlightIssueDueDate`). The state
+ *   dropdown itself does NOT consume this lookup; `StateDropdown` resolves
+ *   its own state from `issue.state_id` + the supplied `projectId`.
+ *
+ * Side effects — direct row-level mutations:
+ * Every dropdown's `onChange` (or `onSelect`) callback invokes
+ * `updateSubIssue(workspaceSlug, issue.project_id, parentIssueId, issueId,
+ * <Partial<TIssue>>, <oldIssue?>)`. All mutations are guarded by
+ * `if (issue.project_id)` to skip the call when project context is missing.
+ * - State dropdown: payload `{ state_id: val }` and `{ ...issue }` as the
+ *   sixth `oldIssue` argument for downstream diff tracking — this is the
+ *   ONLY dropdown that supplies `oldIssue`; every other dropdown leaves it
+ *   as the wrapper's default `{}`.
+ * - Priority dropdown: payload `{ priority: val }`.
+ * - Date-range select (merged path): two sequential `updateSubIssue` calls
+ *   via `handleStartDate` and `handleTargetDate` with `{ start_date }` and
+ *   `{ target_date }` respectively.
+ * - Start-date / target-date select (split path): single `updateSubIssue`
+ *   call with `{ start_date }` or `{ target_date }`. Dates are serialized
+ *   via `renderFormattedPayloadDate` for the payload and parsed via
+ *   `getDate` for `minDate`/`maxDate` constraints — these two `@plane/utils`
+ *   helpers round-trip the date format between dropdown state and API payload.
+ * - Member dropdown: payload `{ assignee_ids: val }`.
+ *
+ * Date-range merging logic:
+ * When both `displayProperties.start_date` AND `displayProperties.due_date`
+ * are enabled AND both `issue.start_date` AND `issue.target_date` have
+ * values (the `isDateRangeEnabled` derivation), the two separate
+ * `DateDropdown` controls are replaced by a single `DateRangeDropdown`. The
+ * individual `DateDropdown` cells are then conditionally suppressed via
+ * `shouldRenderProperty={() => !isDateRangeEnabled}`. This is a UX choice
+ * only — both code paths persist to the same `start_date`/`target_date`
+ * fields through `updateSubIssue`.
+ *
+ * Display-property visibility:
+ * Every property cell is wrapped in `WithDisplayPropertiesHOC` with the
+ * appropriate `displayPropertyKey`. When the corresponding flag in
+ * `displayProperties` is `false`, the cell renders `null`. If
+ * `displayProperties` itself is `undefined` the entire component
+ * short-circuits to `null`.
+ *
+ * Consumers:
+ * - `apps/web/core/components/issues/issue-detail-widgets/sub-issues/issues-list/list-item.tsx`
+ *   (line 180) — rendered inside the row's center column. Not referenced
+ *   elsewhere in the codebase.
+ */
+
 // plane imports
 import type { SyntheticEvent } from "react";
 import { useMemo } from "react";
