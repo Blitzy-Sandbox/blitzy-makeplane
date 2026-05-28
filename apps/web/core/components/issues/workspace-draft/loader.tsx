@@ -5,20 +5,24 @@
  */
 
 /**
- * Skeleton loader shown while the workspace-draft list is loading.
+ * Skeleton loader for the workspace draft issues list.
  *
- * Rendered purpose: stacks `ListLoaderItemRow` skeletons in the same row dimensions as
- * the real `DraftIssueBlock` so the page does not visually reflow when the data resolves.
+ * Renders a configurable number of `ListLoaderItemRow` placeholders so that the parent
+ * list reserves vertical layout space during fetches and avoids cumulative layout shift
+ * (CLS) when issues arrive.
  *
  * Props (`TWorkspaceDraftIssuesLoader`):
- *   - items (number, optional, default=14): number of skeleton rows to render
+ *   - items? (number, optional, default 14): number of placeholder rows. Default of 14
+ *     matches a typical draft list page size for initial loads; the parent root component
+ *     also passes `items=1` for pagination (load-more) loaders.
  *
- * MobX stores read: none — this is a purely presentational skeleton.
+ * MobX stores read: none — this is purely presentational.
  *
  * Side effects: none.
  *
  * Consumers:
- *   - `apps/web/core/components/issues/workspace-draft/root.tsx` (rendered between SWR fetches)
+ *   - `apps/web/core/components/issues/workspace-draft/root.tsx` (initial fetch loader
+ *     and infinite-scroll pagination loader between SWR fetches)
  */
 
 import { range } from "lodash-es";
