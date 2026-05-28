@@ -4,6 +4,31 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Card-style progress row for an in-flight attachment upload in the grid layout,
+ * showing the file icon, truncated name, extension, and a circular progress indicator
+ * with percentage label.
+ *
+ * @remarks
+ * `pointer-events-none` is applied to the wrapper so users cannot interact with the
+ * row while the upload is in progress.
+ *
+ * Props (`Props`):
+ * - `uploadStatus` (`TAttachmentUploadStatus`, required) — snapshot from the
+ *   issue-detail attachment store; exposes `name` and `progress` (0–100)
+ *
+ * MobX stores read:
+ * - None directly. The `uploadStatus` object is passed in by the parent
+ *   (`attachments-list.tsx`), which reads the upload-status array from
+ *   `attachmentHelpers.snapshot.uploadStatus`.
+ *
+ * Side effects:
+ * - None — purely presentational.
+ *
+ * Consumers:
+ * - `./attachments-list.tsx` (`IssueAttachmentsList`).
+ */
+
 import { observer } from "mobx-react";
 import { Tooltip } from "@plane/propel/tooltip";
 import { CircularProgressIndicator } from "@plane/ui";
