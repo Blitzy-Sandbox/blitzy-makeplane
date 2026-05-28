@@ -4,6 +4,19 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Shared React hook factory used by the issue-detail "links" widget and by the
+ * widget-level modal host (`../issue-detail-widget-modals.tsx`) to build a workspace-,
+ * project-, and issue-bound CRUD adapter for issue links. The adapter wraps the
+ * MobX `createLink` / `updateLink` / `removeLink` actions with required-field validation
+ * and standardized localized toast notifications so call sites do not duplicate that
+ * boilerplate.
+ *
+ * Consumers:
+ *   - apps/web/core/components/issues/issue-detail-widgets/links/content.tsx
+ *   - apps/web/core/components/issues/issue-detail-widgets/issue-detail-widget-modals.tsx
+ */
+
 import { useMemo } from "react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
@@ -14,6 +27,36 @@ import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 // local imports
 import type { TLinkOperations } from "../../issue-detail/links";
 
+/**
+ * Builds a memoized `TLinkOperations` adapter (`{ create, update, remove }`) bound to a
+ * specific issue context. Each handler validates required identifiers, dispatches the
+ * matching MobX action on the issue-detail store (which delegates to `IssueLinkService`
+ * for the HTTP call), and emits a localized success or error toast.
+ *
+ * @param workspaceSlug - Workspace slug; each handler throws "Missing required fields"
+ *   when this, `projectId`, or `issueId` is falsy.
+ * @param projectId - Project ID for the link's parent issue.
+ * @param issueId - Issue ID whose links are being mutated.
+ * @param issueServiceType - Selects between the "issues" and "epics" issue-detail store
+ *   slices via `useIssueDetail`.
+ * @returns A memoized `TLinkOperations` object with three async handlers:
+ *   - `create(data)`: invokes `createLink` -> `IssueLinkService.create` -> POST. Re-throws
+ *     after emitting an error toast so the caller (e.g. the modal form) can keep the form
+ *     open on failure.
+ *   - `update(linkId, data)`: invokes `updateLink` -> `IssueLinkService.update` -> PATCH.
+ *     Re-throws after emitting an error toast.
+ *   - `remove(linkId)`: invokes `removeLink` -> `IssueLinkService.remove` -> DELETE. Swallows
+ *     errors after emitting an error toast (callers do not need to react to failure).
+ *
+ * MobX stores read:
+ *   - `useIssueDetail(issueServiceType)` destructures `createLink`, `updateLink`, and
+ *     `removeLink` — these are MobX actions whose memoization keys participate in the
+ *     `useMemo` dependency list along with `t` (i18n) and the three identifier args.
+ *
+ * Side effects:
+ *   - HTTP calls to `apps/api` via `IssueLinkService` (transitively through the store).
+ *   - Toast emissions via `setToast` from `@plane/propel/toast` on every success and failure.
+ */
 export const useLinkOperations = (
   workspaceSlug: string,
   projectId: string,
