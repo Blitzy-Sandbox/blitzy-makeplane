@@ -4,6 +4,41 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * List-variant composition for issue attachments that renders an inline `react-dropzone`
+ * area over a vertical list of persisted attachment rows plus any in-flight upload rows.
+ *
+ * @remarks
+ * Used in the issue-detail-widgets list layout (compact row-style attachment listing).
+ * Coordinates the delete-confirmation modal centrally via
+ * `useIssueDetail().attachmentDeleteModalId` so any child row can request a delete
+ * without owning modal state.
+ *
+ * Props (`TIssueAttachmentItemList`):
+ * - `workspaceSlug` (string, required) — workspace slug, used for activity refetch
+ * - `projectId` (string, required) — project identifier, used for activity refetch
+ * - `issueId` (string, required) — issue whose attachments are listed
+ * - `attachmentHelpers` (`TAttachmentHelpers`, required) — `{ operations, snapshot }`
+ *   contract from `useAttachmentOperations`
+ * - `disabled` (boolean, optional) — disables drag-and-drop and the row delete menu
+ * - `issueServiceType` (`TIssueServiceType`, optional, default `EIssueServiceType.ISSUES`)
+ *   — selects which issue-detail store namespace to bind to (e.g., epics vs. issues)
+ *
+ * MobX stores read:
+ * - `useIssueDetail(issueServiceType)` — `attachment.getAttachmentsByIssueId`,
+ *   `attachmentDeleteModalId`, `toggleDeleteAttachmentModal`, `fetchActivities`
+ *
+ * Side effects:
+ * - File upload via `attachmentHelpers.operations.create` (presigned POST flow through
+ *   `IssueAttachmentService`), with error toast on failure and follow-up
+ *   `fetchActivities(workspaceSlug, projectId, issueId)` on completion
+ * - Error toast via `setToast` for unsupported file count / oversize rejections
+ * - Opens `IssueAttachmentDeleteModal` when `attachmentDeleteModalId` is set
+ *
+ * Consumers:
+ * - `apps/web/core/components/issues/issue-detail-widgets/attachments/content.tsx`
+ */
+
 import { useCallback, useState } from "react";
 import { observer } from "mobx-react";
 import type { FileRejection } from "react-dropzone";
