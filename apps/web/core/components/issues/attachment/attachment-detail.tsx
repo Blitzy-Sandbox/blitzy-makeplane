@@ -4,6 +4,37 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Card-style row for a single persisted issue attachment in the grid layout, showing
+ * the file icon, truncated name, uploader tooltip, extension, size, an open-in-new-tab
+ * link, and a delete button gated by a locally-owned confirmation modal.
+ *
+ * @remarks
+ * Returns an empty fragment when the attachment cannot be resolved from the
+ * issue-detail store, allowing the parent list to stay declarative without
+ * pre-filtering its ID list.
+ *
+ * Props (`TIssueAttachmentsDetail`):
+ * - `attachmentId` (string, required) — id used to look up the attachment record
+ * - `attachmentHelpers` (`Exclude<TAttachmentHelpers, "create">`, required) — exposes
+ *   `operations.remove` for the delete action; the `create` field is intentionally
+ *   excluded since this row is read-only against uploads
+ * - `disabled` (boolean, optional) — hides the delete button when truthy
+ *
+ * MobX stores read:
+ * - `useMember().getUserDetails` — uploader display name for the tooltip
+ * - `useIssueDetail().attachment.getAttachmentById(attachmentId)` — resolves the attachment record
+ *
+ * Side effects:
+ * - Opens `IssueAttachmentDeleteModal` (locally-controlled via `useState`) which on
+ *   confirmation calls `attachmentHelpers.operations.remove` (DELETE through
+ *   `IssueAttachmentService`)
+ * - `Link` (next/link) opens `fileURL` in a new tab via `target="_blank"`
+ *
+ * Consumers:
+ * - `./attachments-list.tsx` (`IssueAttachmentsList`).
+ */
+
 import { useState } from "react";
 import { observer } from "mobx-react";
 import Link from "next/link";
