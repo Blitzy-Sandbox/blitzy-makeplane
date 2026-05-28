@@ -4,6 +4,29 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Header (title row) of the issue-detail attachments collapsible.
+ *
+ * Rendered purpose: Renders a `@plane/ui` `CollapsibleButton` with the translated label
+ * `common.attachments`, the current attachment count indicator, and (when not disabled)
+ * the `IssueAttachmentActionButton` as the action slot — the user's direct upload entry point.
+ *
+ * Props:
+ *  - `isOpen` (boolean, required) — current open/closed state of the parent collapsible, forwarded for chevron rotation.
+ *  - `workspaceSlug` (string, required) — workspace slug forwarded to the action button.
+ *  - `projectId` (string, required) — project identifier forwarded to the action button.
+ *  - `issueId` (string, required) — issue whose attachment count is displayed.
+ *  - `disabled` (boolean, required) — when true, hides the upload action button.
+ *  - `issueServiceType` (TIssueServiceType, optional, default `EIssueServiceType.ISSUES`) — selects the issue-detail
+ *    store slice (issues vs. drafts vs. epics) used to look up the issue.
+ *
+ * MobX stores read:
+ *  - `useIssueDetail(issueServiceType)` — destructures `issue.getIssueById` to look up `issue.attachment_count`.
+ *
+ * Side effects: None. This file is purely presentational; the embedded `IssueAttachmentActionButton`
+ * (see `./quick-action-button.tsx`) owns the upload action handler.
+ */
+
 import React, { useMemo } from "react";
 import { observer } from "mobx-react";
 import { useTranslation } from "@plane/i18n";
@@ -37,6 +60,7 @@ export const IssueAttachmentsCollapsibleTitle = observer(function IssueAttachmen
   const attachmentCount = issue?.attachment_count ?? 0;
 
   // indicator element
+  // Memoized to avoid re-rendering the count span on unrelated parent re-renders; only `attachmentCount` invalidates it.
   const indicatorElement = useMemo(
     () => (
       <span className="flex items-center justify-center">
