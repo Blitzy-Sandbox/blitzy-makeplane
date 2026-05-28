@@ -4,6 +4,72 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Central body editor for the work item peek-overview panel.
+ *
+ * Rendered purpose: composes the parent-issue context row, the type switcher, the duplicate-issue
+ * detection popover, the editable title input, the rich-text description editor, the reaction row,
+ * and the description-versions history launcher. Returns an empty fragment when the issue or its
+ * project cannot be resolved.
+ *
+ * Props (Props):
+ *   - editorRef (React.RefObject<EditorRefApi>, required): TipTap editor handle forwarded to the
+ *     description input and used by version restore to set the editor value
+ *   - workspaceSlug (string, required): scopes title / description update mutations
+ *   - projectId (string, required): scopes title / description update mutations (note: although
+ *     accepted via props, the file resolves `issue.project_id` for the persistence calls so the
+ *     editor stays correctly scoped after a parent move)
+ *   - issueId (string, required): identifies the rendered work item
+ *   - issueOperations (TIssueOperations, required): the issue-update contract sourced from
+ *     `../issue-detail`; description submits route through `issueOperations.update(...)`
+ *   - disabled (boolean, required): edit-disabled flag (propagated to children)
+ *   - isArchived (boolean, required): when true, forces title and description into read-only mode
+ *     and hides the description-versions UI
+ *   - isSubmitting (TNameDescriptionLoader, required): "submitting" | "submitted" | "saved" lifecycle
+ *     flag used to drive the reload-confirmation alert and reset-to-"saved" transition
+ *   - setIsSubmitting ((value: TNameDescriptionLoader) => void, required): callback to mutate
+ *     the indicator state in the parent
+ *
+ * MobX stores read:
+ *   - `useUser()` — `data` aliased as `currentUser`; the reaction row is hidden when no user is logged in
+ *   - `useIssueDetail()` — `issue.getIssueById(issueId)` resolves the rendered issue
+ *   - `useProject()` — `getProjectById(issue.project_id)` resolves the project (used to build the
+ *     `useDebouncedDuplicateIssues` query)
+ *   - `useMember()` — `getUserDetails(issue.created_by)` resolves the creator display name for the
+ *     description-versions entity-information block
+ *
+ * Side effects:
+ *   - Description save: `issueOperations.update(workspaceSlug, project_id, issue.id, { description_html, ...(isMigrationUpdate ? { skip_activity: "true" } : {}) })`
+ *     →  PATCH /api/workspaces/<slug>/projects/<projectId>/issues/<issueId>/   (with optional `skip_activity` flag during migration writes)
+ *   - Description-versions service calls via the module-scope `WorkItemVersionService` instance:
+ *       listDescriptionVersions(workspaceSlug, projectId, issueId)         → GET    /description-versions/
+ *       retrieveDescriptionVersion(workspaceSlug, projectId, issueId, id)  → GET    /description-versions/<id>/
+ *   - Reload confirmation: `setShowAlert(true)` while `isSubmitting === "submitting"` so users get
+ *     a browser beforeunload warning if they close the tab mid-save.
+ *   - Duplicate-issue detection: `useDebouncedDuplicateIssues(...)` performs a debounced SWR fetch
+ *     keyed on `(workspaceSlug, workspaceId, projectId, name, description_html, issueId)`; emits
+ *     duplicates that drive the popover render condition.
+ *   - On `isSubmitting === "submitted"`, a 2000ms `setTimeout` resets the indicator back to `"saved"`
+ *     so the UI shows a brief confirmation before clearing.
+ *
+ * Imperative DOM / derived state notes:
+ *   - `issueDescription` defaults to `"<p></p>"` when the persisted HTML is empty so the TipTap editor
+ *     receives a non-empty root paragraph (TipTap rejects empty strings).
+ *   - The duplicate-detection popover renders only when `duplicateIssues?.length > 0`.
+ *   - `editorRef.current?.setEditorValue(descriptionHTML, true)` is used to imperatively restore a
+ *     historical description version into the TipTap editor.
+ *   - `WorkItemVersionService` is instantiated at module scope (line 37) — preserved verbatim per the
+ *     system boundary "No refactoring, renaming, or restructuring of any kind".
+ *
+ * Consumers:
+ *   - `apps/web/core/components/issues/peek-overview/view.tsx` (both layout branches)
+ *
+ * Architectural notes:
+ *   - MobX exclusively — stores via React context.
+ *   - Wrapped in `observer(...)` so the body re-renders when the resolved issue snapshot mutates.
+ *   - Migration update path (`skip_activity: "true"`): used during HTML→binary description backfills
+ *     to suppress activity log entries during one-time storage migrations.
+ */
 import { useEffect } from "react";
 import { observer } from "mobx-react";
 // plane imports
