@@ -4,6 +4,36 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Project filter row inside the issue layout header filters Popover.
+ *
+ * Rendered purpose: renders a searchable, paginated, selectable list of the user's joined projects
+ * as `FilterOption` rows; each row shows the project's `Logo` (emoji/icon/image) and clicking a
+ * row toggles that project's id in / out of the active project filter set. The header shows the
+ * active count as `Project (N)` and the section can be collapsed via `FilterHeader`'s preview
+ * toggle. Used on workspace-level views (e.g. workspace draft, profile views) where issues can
+ * span multiple projects.
+ *
+ * Props (`Props`):
+ *   - `appliedFilters` (`string[] | null`, required): currently-selected project ids for the
+ *     `project` filter slot.
+ *   - `handleUpdate` (`(val: string) => void`, required): invoked with the clicked project id;
+ *     the parent route root flips it into / out of `appliedFilters` and persists via
+ *     `issuesFilter.updateFilters(workspaceSlug, projectId, EIssueFilterType.FILTERS,
+ *     { project: <next-array> })`.
+ *   - `searchQuery` (`string`, required): substring filter applied case-insensitively to each
+ *     project's `name` before sorting.
+ *
+ * MobX stores read:
+ *   - `useProject()` -> `joinedProjectIds` for the candidate roster (the workspaces' joined
+ *     projects for the current user), and `getProjectById` to resolve each project entity for
+ *     rendering (name + `logo_props`).
+ *
+ * Side effects: none directly. Row click invokes `handleUpdate`; pagination ("View all" / "View
+ * less") only mutates the local `itemsToRender` state. No API calls, no router navigation, no
+ * direct store writes.
+ */
+
 import React, { useMemo, useState } from "react";
 import { sortBy } from "lodash-es";
 import { observer } from "mobx-react";
@@ -23,6 +53,11 @@ type Props = {
 
 export const FilterProjects = observer(function FilterProjects(props: Props) {
   const { appliedFilters, handleUpdate, searchQuery } = props;
+  /**
+   * Paginated render: only the first `itemsToRender` rows are mounted at a time so that large
+   * rosters (e.g. workspaces with hundreds of members or labels) do not stall the dropdown's first
+   * paint. The user clicks "Load More" to grow the slice.
+   */
   // states
   const [itemsToRender, setItemsToRender] = useState(5);
   const [previewEnabled, setPreviewEnabled] = useState(true);
