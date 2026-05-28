@@ -4,6 +4,34 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Toolbar of widget trigger buttons rendered above the collapsible widget stack
+ * on the issue detail page. Each button delegates its open-modal / open-popover
+ * behavior to a specialized child action component which reads the corresponding
+ * issue-detail MobX store slice.
+ *
+ * Rendered purpose:
+ *   Render the horizontal row of "Add sub-work-item", "Add relation", "Add link",
+ *   "Attach" buttons plus the plane-web `WorkItemAdditionalWidgetActionButtons`
+ *   extension row. Each trigger is suppressed if its key appears in `hideWidgets`.
+ *
+ * MobX stores read:
+ *   None directly. Children (`SubIssuesActionButton`, `RelationActionButton`,
+ *   `IssueLinksActionButton`, `IssueAttachmentActionButton`) each consume the
+ *   appropriate slice of the issue-detail store via `useIssueDetail`.
+ *
+ * Side effects:
+ *   None at this level. The shared `IssueDetailWidgetButton` is passed as
+ *   `customButton` to each child; the child wires the click handler to a store
+ *   toggle action (e.g. `toggleIssueLinkModal`, `toggleSubIssuesModal`).
+ *
+ * Translation keys consumed (via `@plane/i18n` `useTranslation()`):
+ *   - `issue.add.sub_issue`
+ *   - `issue.add.relation`
+ *   - `issue.add.link`
+ *   - `common.attach`
+ */
+
 import React from "react";
 import { Paperclip } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
@@ -28,6 +56,18 @@ type Props = {
   hideWidgets?: TWorkItemWidgets[];
 };
 
+/**
+ * Render the widget trigger toolbar for an issue. Each visible trigger forwards
+ * issue context to its specialized action child, which owns the modal/popover
+ * open lifecycle for that widget kind.
+ *
+ * @param props.workspaceSlug - Workspace slug from the route.
+ * @param props.projectId - UUID of the project that owns the issue.
+ * @param props.issueId - UUID of the work item whose widgets are being triggered.
+ * @param props.disabled - When true, every trigger renders in disabled state (interactions are blocked).
+ * @param props.issueServiceType - Discriminator for the issue service variant; each child passes this through to its store accessor.
+ * @param props.hideWidgets - Optional list of widget keys (`"sub-work-items" | "relations" | "links" | "attachments"`); when a key is present the matching trigger is not rendered.
+ */
 export function IssueDetailWidgetActionButtons(props: Props) {
   const { workspaceSlug, projectId, issueId, disabled, issueServiceType, hideWidgets } = props;
   // translation
