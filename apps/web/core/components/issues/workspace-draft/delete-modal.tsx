@@ -5,33 +5,41 @@
  */
 
 /**
- * Confirmation modal for deleting a workspace-level draft work item.
+ * Confirmation dialog for deleting a workspace draft issue.
  *
- * Rendered purpose: a destructive-action `AlertModalCore` that confirms deletion of a
- * draft issue stored on the workspace (not yet promoted to a project). The actual delete
- * mutation is performed by the parent via the `onSubmit` callback — this modal only
- * gates the action behind a permission check and renders success/failure toasts.
+ * Resolves the target issue from either the provided `data` prop or by
+ * looking up `dataId` in `issueMap`, enforces creator-or-project-admin
+ * authorization client-side, and delegates the actual delete to the
+ * parent-supplied `onSubmit` callback (typically
+ * `deleteIssue(workspaceSlug, issueId)` on the workspace draft store).
  *
  * Props:
- *   - isOpen (boolean, required): modal open state
- *   - handleClose (() => void, required): close-modal callback invoked on cancel/dismiss
- *   - dataId (string | null | undefined, optional): draft id resolved via `issueMap` when `data` is absent
- *   - data (TWorkspaceDraftIssue, optional): hydrated draft record; takes precedence over `dataId`
- *   - onSubmit (() => Promise<void>, optional): parent-supplied delete mutation (typically wraps `WorkspaceDraftService.deleteIssue`)
+ *   - isOpen (boolean, required): modal visibility.
+ *   - handleClose (() => void, required): close handler.
+ *   - dataId? (string | null | undefined): issue id used to look up the
+ *     issue via `issueMap` when `data` is not pre-resolved.
+ *   - data? (TWorkspaceDraftIssue): pre-resolved issue snapshot; takes
+ *     precedence over `dataId`.
+ *   - onSubmit? (() => Promise<void>): actual delete operation; the parent
+ *     performs persistence (no network call is made from this component).
  *
- * MobX stores read:
- *   - `useIssues()` — reads `issueMap` to resolve the draft when only `dataId` is passed
- *   - `useUser()` — reads the current user id for creator-vs-admin authorization
- *   - `useUserPermissions()` — `allowPermissions([ADMIN], PROJECT)` gate to authorize deletion
+ * MobX stores read (via React context):
+ *   - useIssues — issueMap (only used when falling back from `dataId`).
+ *   - useUserPermissions — allowPermissions (project-admin gate).
+ *   - useUser — currentUser (drives the `isIssueCreator` check).
+ *   - useTranslation — translator for localized title, body, and toasts.
  *
  * Side effects:
- *   - Invokes the parent-supplied `onSubmit` async callback (the actual delete is owned by the consumer/store)
- *   - Emits `setToast` success/error notifications based on the mutation outcome
- *   - Renders an explicit permission-denied toast when the viewer is neither creator nor project admin
+ *   - Unauthorized actors (neither creator nor project admin) get a
+ *     permission-error toast and the modal closes without invoking
+ *     `onSubmit` — this prevents unnecessary 4xx requests.
+ *   - On submit success emits `workspace_draft_issues.toasts.deleted.success`.
+ *   - On submit error inspects `errors?.error` for the server-side
+ *     permission-error signature and selects the appropriate toast message
+ *     (permissionError vs. issueDeleteError).
+ *   - Modal is always closed in `finally` to avoid sticky open state.
  *
- * Consumers:
- *   - `WorkspaceDraftIssueQuickActions` callers in `apps/web/core/components/issues/workspace-draft/`
- *   - `DraftIssueBlock` / workspace-draft list rows that surface the inline delete affordance
+ * Renders via `AlertModalCore` from `@plane/ui` — no custom layout.
  */
 
 import { useEffect, useState } from "react";
