@@ -4,6 +4,32 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Header for the project Archived Issues page.
+ *
+ * Rendered purpose: a `Header` (`EHeaderVariant.SECONDARY`) that puts the archive tab list on the left
+ * and the archived-store filter toggle + display-filters dropdown on the right. Returns `null` when
+ * `workspaceSlug` or `projectId` cannot be resolved from the router.
+ *
+ * Props: none — this is a route-aware header that reads router params directly.
+ *
+ * MobX stores read:
+ *   - `useProject()` — `currentProjectDetails` for `cycle_view` / `module_view` gating
+ *   - `useIssues(EIssuesStoreType.ARCHIVED)` — `issuesFilter.issueFilters` and `issuesFilter.updateFilters`
+ *
+ * Side effects:
+ *   - Mutations: `updateFilters(workspaceSlug, projectId, EIssueFilterType.DISPLAY_FILTERS | DISPLAY_PROPERTIES, …)`
+ *     on the archived issues filter store.
+ *   - No navigations or service calls; persistence is handled inside the filter store.
+ *
+ * Derived state notes:
+ *   - For the archived view, layout is hard-coded to `"list"` (only supported layout for archived issues).
+ *   - `ISSUE_DISPLAY_FILTERS_BY_PAGE.archived_issues.layoutOptions[activeLayout]` resolves which display-filter
+ *     fields are visible.
+ *   - Filter mutations re-merge with the existing `issueFilters?.displayFilters` so a partial update does not
+ *     drop other display-filter fields.
+ */
+
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 // plane imports
