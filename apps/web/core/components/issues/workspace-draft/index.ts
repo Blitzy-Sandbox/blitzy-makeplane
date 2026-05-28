@@ -5,17 +5,11 @@
  */
 
 /**
- * Barrel re-export for the workspace-level draft work-item components.
+ * Barrel module for the workspace draft issues feature surface.
  *
- * Public re-exports: `WorkspaceDraftIssuesRoot` from `./root` — re-exported via star.
- * Sibling modules (`delete-modal`, `draft-issue-block`, `draft-issue-properties`,
- * `empty-state`, `loader`, `quick-action`) are intentionally NOT re-exported from this
- * barrel because they are private to the `workspace-draft/` subtree; importers should
- * deep-import them by relative path when composing the workspace draft list internally.
- *
- * Consumers:
- *   - `apps/web/app/[workspaceSlug]/(projects)/drafts/` (workspace draft page route)
- *   - `apps/web/core/components/workspace/` surfaces that render the draft list
+ * Re-exports `WorkspaceDraftIssuesRoot` (and any other public exports) from
+ * `./root` so that consumers import via the stable folder path
+ * `@/components/issues/workspace-draft`. The primary consumer is the workspace
+ * drafts page at `apps/web/app/(all)/[workspaceSlug]/(projects)/drafts/page.tsx`.
  */
-
 export * from "./root";
