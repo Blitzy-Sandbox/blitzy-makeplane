@@ -4,6 +4,26 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Group-by selector inside the Display Filters dropdown.
+ *
+ * Rendered purpose: renders a radio-style `FilterOption` row per group-by key in the
+ * `GROUP_BY_OPTIONS` catalog from `@plane/constants`; selecting a row sets `displayFilters.group_by`.
+ *
+ * Props (`Props`):
+ *   - `selectedGroupBy` (`TIssueGroupByOptions`, required): the currently-active group-by key
+ *   - `handleUpdate` (`(val: TIssueGroupByOptions) => void`, required): selection callback. Parent
+ *     persists via `EIssueFilterType.DISPLAY_FILTERS`.
+ *   - `ignoreGroupedFilters` (`TIssueGroupByOptions[]`, optional): keys to hide (e.g. when the page
+ *     already filters by that key).
+ *   - `cycleViewDisabled` (`boolean`, optional): hide the "cycle" group-by row.
+ *   - `moduleViewDisabled` (`boolean`, optional): hide the "module" group-by row.
+ *
+ * MobX stores read: none.
+ *
+ * Side effects: none. Row click invokes `handleUpdate(val)`.
+ */
+
 import React, { useState } from "react";
 import { observer } from "mobx-react";
 import { useTranslation } from "@plane/i18n";
