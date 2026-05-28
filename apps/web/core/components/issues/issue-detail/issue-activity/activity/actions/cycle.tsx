@@ -4,6 +4,28 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders a cycle add, change, or remove event in the issue activity timeline.
+ *
+ * Props:
+ *   - activityId (string, required): identifier of the activity record to render.
+ *   - ends ("top" | "bottom" | undefined, required): timeline-stack position marker.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — reads `activity.getActivityById(activityId)`. Cycle
+ *     metadata (name, identifier, project, workspace slug) is read directly off
+ *     the activity payload; no `useCycle` lookup is performed.
+ *
+ * Side effects: none. Read-only / presentational; the rendered `<a>` to the
+ * cycle page is a static external anchor — no router mutation, no fetch, no
+ * store mutation occurs at render time.
+ *
+ * Branching:
+ *   - `activity.verb === "created"` → "added this work item to the cycle <name>"
+ *   - `activity.verb === "updated"` → "set the cycle to <name>"
+ *   - otherwise (delete)            → "removed the work item from the cycle <name>"
+ */
+
 import { observer } from "mobx-react";
 // hooks
 import { CycleIcon } from "@plane/propel/icons";
