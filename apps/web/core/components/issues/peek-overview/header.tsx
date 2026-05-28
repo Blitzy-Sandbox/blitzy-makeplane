@@ -4,6 +4,80 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Top toolbar for the work item peek-overview panel.
+ *
+ * Rendered purpose: hosts the close button, an open-in-full-screen link, the peek-mode switcher
+ * (`side-peek` / `modal` / `full-screen`), the save-status indicator, the subscription pill,
+ * a copy-link icon button, and the work-item quick-action dropdown (edit / duplicate /
+ * archive / delete / restore). Adapts tooltip behavior for mobile via `usePlatformOS`.
+ *
+ * Props (PeekOverviewHeaderProps):
+ *   - peekMode (TPeekModes, required): "side-peek" | "modal" | "full-screen" — current peek layout
+ *   - setPeekMode ((value: TPeekModes) => void, required): callback that mutates `peekMode` in the parent
+ *   - removeRoutePeekId (() => void, required): close-peek callback supplied by the parent view shell
+ *   - workspaceSlug (string, required): scopes mutations and the canonical link
+ *   - projectId (string, required): scopes mutations
+ *   - issueId (string, required): identifies the work item rendered in the peek
+ *   - isArchived (boolean, required): when true, the subscription pill is hidden and the delete path
+ *     routes through the archived-issues store
+ *   - disabled (boolean, required): edit-disabled flag (propagated to `WorkItemDetailQuickActions.readOnly`)
+ *   - embedIssue (boolean, required, default=false): when true, hides the peek-mode switcher (the
+ *     embedded surface owns its own layout)
+ *   - toggleDeleteIssueModal ((value: boolean) => void, required): opens/closes the delete confirm modal
+ *   - toggleArchiveIssueModal ((value: boolean) => void, required): opens/closes the archive confirm modal
+ *   - toggleDuplicateIssueModal ((value: boolean) => void, required): opens/closes the duplicate modal
+ *   - toggleEditIssueModal ((value: boolean) => void, required): opens/closes the edit modal
+ *   - handleRestoreIssue (() => Promise<void>, required): archive-restore handler from `root.tsx`
+ *   - isSubmitting (TNameDescriptionLoader, required): "submitting" | "submitted" | "saved" — rendered
+ *     via `<NameDescriptionUpdateStatus />`
+ *
+ * Exports:
+ *   - TPeekModes (type): the peek layout discriminator
+ *   - PeekOverviewHeaderProps (type): the public prop contract
+ *   - IssuePeekOverviewHeader (observer component): the rendered header
+ *
+ * MobX stores read:
+ *   - `useUser()` — `data` aliased as `currentUser`, used to gate the subscription pill
+ *   - `useIssueDetail()` — `issue.getIssueById(issueId)`, `setPeekIssue`, `removeIssue`,
+ *     `archiveIssue`, `getIsIssuePeeked`
+ *   - `useIssues(EIssuesStoreType.ARCHIVED)` — `issues.removeIssue` aliased as `removeArchivedIssue`
+ *     (used when `issueDetails?.archived_at` is truthy)
+ *   - `useProject()` — `getProjectIdentifierById(issueDetails?.project_id)` for canonical-link composition
+ *   - `usePlatformOS()` — `isMobile` for tooltip behavior
+ *
+ * Side effects:
+ *   - Clipboard write via `copyUrlToClipboard(workItemLink)` from `@plane/utils`; followed by a
+ *     success toast (`common.link_copied` / `common.link_copied_to_clipboard`).
+ *   - API mutations (routed through the MobX issue store, which fans out to `IssueService` /
+ *     `IssueArchiveService`):
+ *       handleDeleteIssue   → `removeIssue` or `removeArchivedIssue` (DELETE) + `setPeekIssue(undefined)`
+ *       handleArchiveIssue  → `archiveIssue` (POST) + conditional `removeRoutePeekId()` when peeked
+ *       handleRestoreIssue  → parent-supplied restore handler from `root.tsx`
+ *   - Toast emissions via `setToast` on copy-link success and on delete failure
+ *     (`toast.error` / `entity.delete.failed`).
+ *   - Navigation: `<Link href={workItemLink}>` opens the canonical work-item page after firing
+ *     `removeRoutePeekId()` so the peek closes before navigation completes.
+ *
+ * Imperative DOM / derived state notes:
+ *   - `parentRef` is a stable `useRef<HTMLDivElement>` forwarded to `WorkItemDetailQuickActions`
+ *     so its dropdown menu can position relative to the header.
+ *   - `currentMode = PEEK_OPTIONS.find((m) => m.key === peekMode)` resolves the active layout's
+ *     icon + i18n title; the layout switcher is hidden entirely when `embedIssue === true`.
+ *   - `workItemLink` is built via `generateWorkItemLink` from `@plane/utils` using the project
+ *     identifier and sequence id; the `isArchived` flag selects the archived-route variant.
+ *   - The full-screen mode adds a bottom border to the toolbar (`border-b border-subtle`).
+ *
+ * Consumers:
+ *   - `apps/web/core/components/issues/peek-overview/view.tsx`
+ *
+ * Architectural notes:
+ *   - MobX exclusively — stores via React context.
+ *   - Routing: `Link` is imported from `next/link` (legacy import); preserved verbatim per the system
+ *     boundary "No refactoring, renaming, or restructuring of any kind".
+ *   - i18n: `useTranslation` from `@plane/i18n`; every visible string is an i18n key.
+ *   - Layout switcher options are module-scope `PEEK_OPTIONS` and map keys to icons + i18n titles.
+ */
 import { useRef } from "react";
 import { observer } from "mobx-react";
 import Link from "next/link";
