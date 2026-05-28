@@ -4,6 +4,26 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * `SubIssuesCollapsible` — outer collapsible container for the sub-work-items section of an issue detail page; persists open/close state in the
+ * `issue-detail` MobX store under the widget key `"sub-work-items"` and renders the title row and content body as the collapsible's title and body slots.
+ *
+ * Props (Props):
+ *   - workspaceSlug (string, required): Active workspace slug used for nested data fetches in the content body.
+ *   - projectId (string, required): Active project id forwarded to title actions and content list.
+ *   - issueId (string, required): Parent issue id whose sub-work-items are rendered; used as the `parentIssueId` for the title and content.
+ *   - disabled (boolean, optional, default `false`): When true, suppresses quick-action and edit affordances in the title and child rows.
+ *   - issueServiceType (TIssueServiceType, required): Selects which `issue-detail` store slice to read (e.g. `ISSUES` vs `EPICS`).
+ *
+ * MobX stores read (via `useIssueDetail(issueServiceType)`):
+ *   - `openWidgets`: string[] — set of currently open detail-widget keys; membership of `"sub-work-items"` drives the collapsible's open state.
+ *   - `toggleOpenWidget(widgetKey)`: action — invoked on chevron click to flip persistence of the widget key in `openWidgets`.
+ *
+ * Side effects:
+ *   - Pure renderer at this level; no service calls, no toasts, no navigation.
+ *   - Open/close interaction mutates the shared `issue-detail` store (`toggleOpenWidget`), persisting expansion state across re-mounts within the same issue session.
+ */
+
 import React from "react";
 import { observer } from "mobx-react";
 // plane imports
