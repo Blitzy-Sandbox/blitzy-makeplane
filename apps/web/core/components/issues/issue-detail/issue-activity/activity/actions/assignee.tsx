@@ -4,6 +4,24 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders an assignee add or remove event in the issue activity timeline.
+ *
+ * Props:
+ *   - activityId (string, required): identifier of the activity record to render.
+ *   - ends ("top" | "bottom" | undefined, required): timeline-stack position marker.
+ *   - showIssue (boolean, optional, default `true`): when true, appends an
+ *     `IssueLink` after the actor name with " to " (add) or " from " (remove).
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — reads `activity.getActivityById(activityId)` to resolve
+ *     the underlying activity record.
+ *
+ * Side effects: none. The component is read-only / presentational; the rendered
+ * `<a target="_blank">` to the actor profile is a static anchor — no router
+ * mutation, no fetch, no store mutation occurs at render time.
+ */
+
 import { observer } from "mobx-react";
 // icons
 import { MembersPropertyIcon } from "@plane/propel/icons";
