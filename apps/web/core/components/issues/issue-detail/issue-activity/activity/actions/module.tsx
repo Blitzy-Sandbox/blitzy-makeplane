@@ -4,6 +4,28 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders a module add, change, or remove event in the issue activity timeline.
+ *
+ * Props:
+ *   - activityId (string, required): identifier of the activity record to render.
+ *   - ends ("top" | "bottom" | undefined, required): timeline-stack position marker.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — reads `activity.getActivityById(activityId)`. Module
+ *     metadata (name, identifier, project, workspace slug) is read directly off
+ *     the activity payload; no `useModule` lookup is performed.
+ *
+ * Side effects: none. Read-only / presentational; the rendered `<a>` to the
+ * module page is a static external anchor — no router mutation, no fetch, no
+ * store mutation occurs at render time.
+ *
+ * Branching:
+ *   - `activity.verb === "created"` → "added this work item to the module <name>"
+ *   - `activity.verb === "updated"` → "set the module to <name>"
+ *   - otherwise (delete)            → "removed the work item from the module <name>"
+ */
+
 import { observer } from "mobx-react";
 // hooks
 import { ModuleIcon } from "@plane/propel/icons";
