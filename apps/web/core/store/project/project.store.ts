@@ -135,7 +135,8 @@
  *   - Issue layouts that scope by project under
  *     apps/web/core/components/issues/issue-layouts/filters/header/filters/project.tsx,
  *     apps/web/core/components/issues/issue-layouts/filters/applied-filters/project.tsx,
- *     apps/web/core/components/issues/issue-layouts/{list,kanban,spreadsheet}/block.tsx,
+ *     apps/web/core/components/issues/issue-layouts/{list,kanban}/block.tsx,
+ *     apps/web/core/components/issues/issue-layouts/spreadsheet/issue-row.tsx,
  *     and peek/modal flows reading currentProjectDetails.
  *   - Project overview / detail pages reading openCollapsibleSection,
  *     currentProjectDetails, currentProjectNextSequenceId.

@@ -65,7 +65,9 @@
  *   - Sidebar components (`WorkspaceSidebar`, `ProjectSidebar`, and similar) —
  *     read `sidebarCollapsed` to drive the responsive collapsed/expanded layout.
  *   - Sticky-header components — read `isScrolled` to apply elevation/shadow.
- *   - Settings page: `apps/web/core/components/account/preferences/**`.
+ *   - Canonical consumer hook: `apps/web/core/hooks/store/user/user-user-settings.ts`
+ *     (`useUserSettings`) — resolves this store from React `StoreContext` and is
+ *     the recommended access surface for all component-level reads.
  *   - Cross-store: `UserStore.fetchCurrentUser` calls
  *     `this.userSettings.fetchCurrentUserSettings()` during the auth bootstrap.
  *   - Cross-store: `ProfileStore.finishUserOnboarding` calls
