@@ -4,6 +4,75 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Recursive issue-row engine for the spreadsheet layout.
+ *
+ * Rendered purpose: renders one issue as a row of the spreadsheet table — comprising the leading
+ * sticky cell (with identifier, selection checkbox, sub-issue chevron, title, and quick-action menu)
+ * plus one `<IssueColumn>` per visible property. When the row is expanded, recursively renders its
+ * sub-issues at incremented nesting depth (capped at 3 levels — beyond that, expansion opens the
+ * issue's peek-overview instead of nesting further).
+ *
+ * Exports:
+ *   - `SpreadsheetIssueRow` — virtualisation-aware wrapper around `IssueRowDetails`; uses
+ *     `<RenderIfVisible>` so off-screen rows render only placeholder `<td>`s, recovers full markup
+ *     when scrolled into view, and recursively descends into sub-issues when expanded.
+ *
+ * Props for `SpreadsheetIssueRow` (Props):
+ *   - displayProperties (IIssueDisplayProperties, required): which property columns to render in
+ *     each cell
+ *   - isEstimateEnabled (boolean, required): forwarded into per-cell rendering
+ *   - quickActions (TRenderQuickActions, required): render-prop returning the per-row quick-action menu
+ *   - canEditProperties ((projectId) => boolean, required): per-project edit gate
+ *   - updateIssue (mutator, required): inline-edit mutator for cells
+ *   - portalElement (MutableRefObject<HTMLDivElement | null>, required): shared portal container for
+ *     cell dropdowns
+ *   - nestingLevel (number, required): zero for top-level rows, incremented by 1 per sub-issue
+ *     depth; visually expressed as `spacingLeft` indentation
+ *   - issueId (string, required): the issue id this row represents
+ *   - isScrolled (MutableRefObject<boolean>, required): ref tracking horizontal scroll state for
+ *     leading-column shadow
+ *   - containerRef (MutableRefObject<HTMLTableElement | null>, required): table container ref
+ *     forwarded to `<RenderIfVisible>` for intersection observation
+ *   - spreadsheetColumnsList ((keyof IIssueDisplayProperties)[], required): the columns to render
+ *   - spacingLeft (number, optional, default=6): pixel indentation prepended to nested rows
+ *   - selectionHelpers (TSelectionHelper, required): bulk-selection helpers
+ *   - shouldRenderByDefault (boolean, optional): force-render bypass for `<RenderIfVisible>`; used
+ *     to keep newly-expanded sub-issues visible without waiting for the intersection observer
+ *   - isEpic (boolean, optional, default=false): epic-mode flag
+ *
+ * MobX stores read:
+ *   - `useIssueDetail(serviceType)` exposes `subIssues` (subIssuesByIssueId, fetchSubIssues) and
+ *     (in `IssueRowDetails`) `getIsIssuePeeked`, `peekIssue`, `issue.getIssueById`
+ *   - `useIssues()` exposes `issueMap` for the cheap initial selection / active check
+ *   - `useProject()` exposes `getProjectIdentifierById(projectId)`
+ *
+ * Side effects:
+ *   - When the user clicks the sub-issues chevron AND the row is not already expanded AND the
+ *     workspace/project ids are known, `subIssuesStore.fetchSubIssues(workspaceSlug, projectId, issueId)`
+ *     is called (issues a GET against `/api/workspaces/<slug>/projects/<id>/issues/<id>/sub-issues/`)
+ *     and updates the local expansion state.
+ *   - When nesting level reaches 3, clicking the chevron calls `handleRedirection(...)` from
+ *     `useIssuePeekOverviewRedirection(isEpic)` which navigates to the issue peek overview.
+ *   - The leading cell wraps the row title in a `<ControlLink>` that opens the issue peek overview
+ *     via `handleIssuePeekOverview` (route navigation, no API call).
+ *   - `quickActions(...)` may invoke remove/update/archive/restore mutators (driven by the parent
+ *     `<BaseSpreadsheetRoot>`).
+ *
+ * Imperative DOM interactions (the WHY for non-obvious patterns):
+ *   - `<RenderIfVisible>` with a 100px `verticalOffset` is used to keep off-screen rows as cheap
+ *     placeholder `<td colSpan={100}>` elements (each ~ row-height tall) so the table maintains
+ *     scrollable height without paying the render cost for off-screen issues.
+ *   - `useOutsideClickDetector(menuActionRef, () => setIsMenuActive(false))` closes the row's
+ *     dropdown menu when the user clicks anywhere outside the menu trigger.
+ *   - `shouldRenderByDefault={shouldRenderByDefault || isIssueNew(issue)}` ensures newly-created
+ *     issues are visible immediately (otherwise they could land off-screen and fail to render).
+ *
+ * Consumers:
+ *   - `./spreadsheet-table.tsx` (top-level rows)
+ *   - `./issue-row.tsx` itself (recursive sub-issue rows)
+ */
+
 import type { Dispatch, MouseEvent, MutableRefObject, SetStateAction } from "react";
 import { useRef, useState } from "react";
 import { observer } from "mobx-react";
@@ -38,6 +107,7 @@ import type { TRenderQuickActions } from "../list/list-view-types";
 import { isIssueNew } from "../utils";
 import { IssueColumn } from "./issue-column";
 
+/** Props for `SpreadsheetIssueRow`. */
 interface Props {
   displayProperties: IIssueDisplayProperties;
   isEstimateEnabled: boolean;
@@ -56,6 +126,7 @@ interface Props {
   isEpic?: boolean;
 }
 
+/** Virtualisation-aware spreadsheet row with recursive sub-issue rendering; see the module-level JSDoc for full semantics. */
 export const SpreadsheetIssueRow = observer(function SpreadsheetIssueRow(props: Props) {
   const {
     displayProperties,
@@ -153,6 +224,8 @@ export const SpreadsheetIssueRow = observer(function SpreadsheetIssueRow(props: 
   );
 });
 
+/** Props for the internal `IssueRowDetails` row body. Mostly identical to `Props` but adds the
+ *  expansion state (isExpanded / setExpanded) from the wrapping `<RenderIfVisible>`. */
 interface IssueRowDetailsProps {
   displayProperties: IIssueDisplayProperties;
   isEstimateEnabled: boolean;
@@ -171,6 +244,18 @@ interface IssueRowDetailsProps {
   isEpic?: boolean;
 }
 
+/**
+ * Actual row markup for a single issue (the inner body of `<SpreadsheetIssueRow>` after the
+ * `<RenderIfVisible>` virtualisation gate).
+ *
+ * Renders the sticky leading cell (identifier + selection toggle + sub-issue chevron + title +
+ * quick-action menu) followed by one `<IssueColumn>` per property in `spreadsheetColumnsList`.
+ * Handles the click-to-peek `<ControlLink>`, chevron-toggle expansion, and the customAction menu
+ * outside-click dismissal. Reads `isMobile` from `usePlatformOS()` to switch the peek-overview
+ * navigation strategy.
+ *
+ * Returns `null` if the issue is not yet resolved by `getIssueById`.
+ */
 const IssueRowDetails = observer(function IssueRowDetails(props: IssueRowDetailsProps) {
   const {
     displayProperties,
