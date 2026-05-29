@@ -4,6 +4,40 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Route-aware layout orchestrator for a project view (a saved view inside a project): resolves
+ * workspaceSlug/projectId/viewId from the route, hydrates view-scoped filters, and dispatches to
+ * one of the project-view layout variants (list / kanban / calendar / gantt / spreadsheet).
+ *
+ * Props: none — driven by route params (workspaceSlug, projectId, viewId via useParams()).
+ *
+ * MobX stores read (injected via React context, not Redux):
+ *   - useIssues(EIssuesStoreType.PROJECT_VIEW): issuesFilter for getIssueFilters/fetchFilters/updateFilterExpression/resetFilters.
+ *   - useProjectView(): getViewById for the persisted project view (rich_filters seed).
+ *
+ * Derived state:
+ *   - initialWorkItemFilters spreads local displayFilters/displayProperties/kanbanFilters but overrides
+ *     richFilters with projectView.rich_filters so a freshly-opened view loads its persisted filter
+ *     expression; undefined while the project view is unresolved.
+ *
+ * Side effects:
+ *   - SWR key `PROJECT_VIEW_ISSUES_${workspaceSlug}_${projectId}_${viewId}` → issuesFilter.fetchFilters(workspaceSlug, projectId, viewId)
+ *     (revalidation options are intentionally not set on this call, unlike sibling roots in this folder).
+ *   - useEffect cleanup → issuesFilter.resetFilters(workspaceSlug, viewId) on unmount or when
+ *     [issuesFilter, workspaceSlug, viewId] changes; this is the only root in this folder that tears
+ *     down the filter store on exit, preventing the next view from inheriting transient filter mutations.
+ *   - Provides IssuesStoreContext (EIssuesStoreType.PROJECT_VIEW) to descendants.
+ *   - Forwards issuesFilter.updateFilterExpression.bind(issuesFilter, workspaceSlug, projectId, viewId)
+ *     to ProjectLevelWorkItemFiltersHOC as updateFilters.
+ *   - Wires PROJECT_VIEW_TRACKER_ELEMENTS.HEADER_SAVE_VIEW_BUTTON into WorkItemFiltersRow analytics.
+ *   - Filters HOC opts into both enableSaveView (creates a new view) and enableUpdateView (in-place view-definition update).
+ *
+ * Conditional rendering: returns an empty fragment until all of workspaceSlug, projectId, viewId,
+ * and workItemFilters resolve.
+ *
+ * Layout coverage: list / kanban / calendar / gantt (passes viewId) / spreadsheet.
+ */
+
 import React, { useEffect } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
@@ -25,6 +59,7 @@ import { ProjectViewKanBanLayout } from "../kanban/roots/project-view-root";
 import { ProjectViewListLayout } from "../list/roots/project-view-root";
 import { ProjectViewSpreadsheetLayout } from "../spreadsheet/roots/project-view-root";
 
+/** Dispatches to the project view's list/kanban/calendar/gantt/spreadsheet layout based on activeLayout; forwards viewId to BaseGanttRoot. */
 function ProjectViewIssueLayout(props: { activeLayout: EIssueLayoutTypes | undefined; viewId: string }) {
   switch (props.activeLayout) {
     case EIssueLayoutTypes.LIST:
