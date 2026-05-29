@@ -4,6 +4,68 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Single grouped section renderer for the list layout (header + drag-target + rows + load-more + quick-add).
+ *
+ * Rendered purpose: owns the rendering of one column in the grouped list view. Renders the group
+ * header (`HeaderGroupByCard`), registers itself as a pragmatic-DnD drop target for cross-group
+ * issue moves, displays the drag overlay, mounts the per-group `IssueBlocksList`, paginates via an
+ * intersection observer + manual "Load more" affordance, and renders the sticky quick-add form
+ * when issue creation is permitted.
+ *
+ * Props (Props):
+ *   - groupIssueIds (string[] | undefined, required): the issue ids in this group
+ *   - group (IGroupByColumn, required): the column descriptor (id, name, icon, payload, isDropDisabled,
+ *     dropErrorMessage) computed by `getGroupByColumns` in the parent
+ *   - issuesMap (TIssueMap, required): forwarded into blocks for issue lookup
+ *   - group_by (TIssueGroupByOptions | null, required): the active group key — also used to pre-populate
+ *     quick-add form data
+ *   - orderBy (TIssueOrderByOptions | undefined, required): the active sort key
+ *   - getGroupIndex ((groupId) => number, required): resolves column positions for left/right drag-overlay alignment
+ *   - updateIssue (optional callback): issue update fn used by inline editors
+ *   - quickActions (TRenderQuickActions, required): scope-specific quick-action renderer forwarded to blocks
+ *   - displayProperties (IIssueDisplayProperties | undefined): column visibility flags
+ *   - enableIssueQuickAdd (boolean, required): toggle for the sticky quick-add form
+ *   - canEditProperties ((projectId) => boolean, required): per-project edit predicate
+ *   - containerRef (RefObject, required): the scroll container ref used by `useIntersectionObserver`
+ *   - quickAddCallback (optional): the store action invoked when the quick-add form submits
+ *   - handleOnDrop ((source, destination) => Promise<void>, required): the cross-group drop handler
+ *   - disableIssueCreation (boolean, optional): hard-disables quick-add and add-existing
+ *   - addIssuesToView (optional): forwarded into the header to enable add-existing
+ *   - isCompletedCycle (boolean, optional): suppresses creation flows for completed cycles
+ *   - showEmptyGroup (boolean, optional): when true, empty groups still render their header
+ *   - loadMoreIssues ((groupId?) => void, required): paginates the next page for this group
+ *   - selectionHelpers (TSelectionHelper, required): multi-select context propagated from `MultipleSelectGroup`
+ *   - handleCollapsedGroups ((value) => void, required): toggles this group's collapsed state
+ *   - collapsedGroups (TIssueKanbanFilters, required): the currently collapsed group ids
+ *   - isEpic (boolean, optional, default=false): swaps work-item terminology for epic terminology
+ *
+ * MobX stores read:
+ *   - `useProjectState()` provides `projectStates` used to seed `state_id` in `prePopulateQuickAddData`
+ *   - `useIssuesStore()` exposes `issues.getGroupIssueCount`, `issues.getPaginationData`,
+ *     `issues.getIssueLoader` for the active store type
+ *   - `useWorkFlowFDragNDrop(group_by)` (plane-web) exposes `workflowDisabledSource`,
+ *     `isWorkflowDropDisabled`, `handleWorkFlowState`, `getIsWorkflowWorkItemCreationDisabled` for the
+ *     workflow gating overlay
+ *
+ * Side effects:
+ *   - `useEffect` registers a `dropTargetForElements` on `groupRef.current` that:
+ *       1. Tracks `isDraggingOverColumn` state via `onDragEnter`/`onDragLeave`/`onDragStart`
+ *       2. Computes left/right drag-overlay orientation by comparing source vs. current column index
+ *       3. On drop, extracts source + destination from the payload via `getSourceFromDropPayload`/
+ *          `getDestinationFromDropPayload`, blocks dropping into workflow-disabled or group-disabled
+ *          columns (emits a WARNING toast if a drop-error message is present), invokes `handleOnDrop`,
+ *          flashes a highlight via `highlightIssueOnDrop(getIssueBlockId(...))`, and auto-expands the
+ *          group if the drop happened while collapsed.
+ *   - `useIntersectionObserver(containerRef, intersectionElement, loadMoreIssues, "100% 0% 100% 0%")`
+ *     triggers `loadMoreIssues(group.id)` when the loader sentinel intersects the scroll container
+ *     (only when not paginating)
+ *   - `handleWorkFlowState(sourceGroupId, currentGroupId)` is called on every drag tick to update the
+ *     workflow disabled visualization in real time
+ *
+ * Consumers: `default.tsx` (the list viewport — renders one `ListGroup` per column).
+ */
+
 import type { MutableRefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
@@ -48,6 +110,7 @@ import { IssueBlocksList } from "./blocks-list";
 import { HeaderGroupByCard } from "./headers/group-by-card";
 import type { TRenderQuickActions } from "./list-view-types";
 
+/** Props for `ListGroup`. See the module-level JSDoc for full semantics. */
 interface Props {
   groupIssueIds: string[] | undefined;
   group: IGroupByColumn;
@@ -74,6 +137,7 @@ interface Props {
   isEpic?: boolean;
 }
 
+/** Single grouped section renderer; see the module-level JSDoc for full semantics. */
 export const ListGroup = observer(function ListGroup(props: Props) {
   const {
     groupIssueIds = [],
@@ -142,11 +206,27 @@ export const ListGroup = observer(function ListGroup(props: Props) {
     </div>
   );
 
+  /**
+   * Returns true when the group should still render even with zero issues.
+   *
+   * WHY: when `showEmptyGroup` is off (the default), we intentionally hide empty groups so the page is
+   * not cluttered with disabled headers. When `showEmptyGroup` is on (from filter store), all groups
+   * render regardless of count.
+   */
   const validateEmptyIssueGroups = (issueCount: number = 0) => {
     if (!showEmptyGroup && issueCount <= 0) return false;
     return true;
   };
 
+  /**
+   * Computes the partial issue payload that pre-fills the quick-add form for this group.
+   *
+   * WHY: when a user clicks "+ Add issue" inside a grouped column, the new issue must inherit the
+   * group's value (e.g. dropping into the "In Progress" state column pre-sets `state_id`). For array
+   * fields (labels, modules, assignees) the group value seeds a single-item array; the `"None"` sentinel
+   * is treated as an absence and skipped. `state` defaults to the project's default state when no
+   * specific state group is selected.
+   */
   const prePopulateQuickAddData = (groupByKey: string | null, value: any) => {
     const defaultState = projectState.projectStates?.find((state) => state.default);
     let preloadedData: object = { state_id: defaultState?.id };
@@ -251,6 +331,8 @@ export const ListGroup = observer(function ListGroup(props: Props) {
   const isDropDisabled = isWorkflowDropDisabled || !!group.isDropDisabled;
 
   const isGroupByCreatedBy = group_by === "created_by";
+  // shouldExpand: a group is treated as expanded for rendering when (a) it has issues and is not
+  // user-collapsed, or (b) no grouping is active at all (flat-list mode — there is no header to collapse).
   const shouldExpand = (!!groupIssueCount && isExpanded) || !group_by;
 
   return validateEmptyIssueGroups(groupIssueCount) ? (
