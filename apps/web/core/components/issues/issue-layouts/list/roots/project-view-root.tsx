@@ -18,8 +18,10 @@
  * container reads the project-view issue store keyed by `viewId`.
  *
  * Side effects:
- *   - Reads `viewId` from `useParams()` (Next.js navigation hook). The
- *     view identifier is forwarded to `BaseListRoot` via the `viewId` prop.
+ *   - Reads `viewId` from `useParams()` — imported from `next/navigation`, which Vite aliases to
+ *     the in-repo React Router compatibility shim at `apps/web/app/compat/next/navigation.ts`;
+ *     this resolves to React Router's `useParams`. The view identifier is forwarded to
+ *     `BaseListRoot` via the `viewId` prop.
  *
  * Quick actions: `ProjectIssueQuickActions` (full project-scope menu —
  * create / duplicate / delete / move between cycles & modules).

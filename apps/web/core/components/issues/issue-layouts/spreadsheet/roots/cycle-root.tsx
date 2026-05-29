@@ -15,7 +15,9 @@
  * Props: none — fully driven by route context and MobX stores.
  *
  * MobX stores read:
- *   - `useParams()` (Next.js navigation) exposes the `cycleId` route param
+ *   - `useParams()` exposes the `cycleId` route param. The hook is imported from `next/navigation`,
+ *     which Vite aliases to the in-repo React Router compatibility shim at
+ *     `apps/web/app/compat/next/navigation.ts`; this resolves to React Router's `useParams`.
  *   - `useCycle()` exposes `currentProjectCompletedCycleIds` — the list of cycle ids that have
  *     reached the COMPLETED status for the current project; checked to decide whether the cycle is
  *     read-only

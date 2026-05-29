@@ -19,8 +19,9 @@
  *     issue store) for the `addIssuesToModule` mutation.
  *
  * Side effects:
- *   - Reads `workspaceSlug`, `projectId`, and `moduleId` from `useParams()`
- *     (Next.js navigation hook).
+ *   - Reads `workspaceSlug`, `projectId`, and `moduleId` from `useParams()` — imported from
+ *     `next/navigation`, which Vite aliases to the in-repo React Router compatibility shim at
+ *     `apps/web/app/compat/next/navigation.ts`; this resolves to React Router's `useParams`.
  *   - `addIssuesToView(issueIds)` calls
  *     `issues.addIssuesToModule(workspaceSlug, projectId, moduleId, issueIds)`
  *     — which fires an API call to `apps/api` to persist the membership.

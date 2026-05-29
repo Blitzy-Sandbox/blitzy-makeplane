@@ -37,8 +37,10 @@
  *   - showActionItemsOnUpdate (boolean, optional, default=false in base): when true, the update-success toast
  *     surfaces `CreateIssueToastActionItems` (view link + copy link)
  *
- * MobX stores read: none directly. Router params come from `useParams()` (Next.js navigation hook); all
- * MobX store access happens inside `CreateUpdateIssueModalBase` and `IssueModalProvider`.
+ * MobX stores read: none directly. Router params come from `useParams()` — imported from
+ * `next/navigation`, which Vite aliases to the in-repo React Router compatibility shim at
+ * `apps/web/app/compat/next/navigation.ts`; this resolves to React Router's `useParams`. All MobX
+ * store access happens inside `CreateUpdateIssueModalBase` and `IssueModalProvider`.
  *
  * Side effects:
  *   - Constructs the `dataForPreload` snapshot that pre-populates `cycle_id` / `module_ids` from the active

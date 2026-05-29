@@ -66,8 +66,9 @@
  *   - Move flow: `moveIssue(workspaceSlug, data.id, payload)` via `useWorkspaceDraftIssues()` on
  *     "Move to project"; surrounding `handleCreateUpdatePropertyValues({ ..., isDraft: true })` to persist
  *     custom property values during the move.
- *   - Duplicate-issue probing: `useDebouncedDuplicateIssues(...)` (debounced SWR hook from `@/plane-web/hooks`)
- *     to surface a duplicate-issue UI when the typed title + description match existing work items.
+ *   - Duplicate-issue probing: `useDebouncedDuplicateIssues(...)` from `@/plane-web/hooks` — in this CE
+ *     codebase the hook is a stub that returns `{ duplicateIssues: [] }` with no SWR / API call, so the
+ *     duplicate-issue UI never surfaces here; the EE build is expected to swap in an active implementation.
  *   - Toasts: `setToast({ type: TOAST_TYPE.ERROR, ... })` for editor-not-ready-to-discard and move-failed cases.
  *   - Submit: invokes the prop-supplied `onSubmit(submitData, is_draft_issue)` and on resolve, resets the
  *     form / re-applies the template (when `isCreateMoreToggleEnabled` and a template is set) or resets to a
@@ -98,7 +99,7 @@
  *   - Editor: `EditorRefApi` from `@plane/editor` (internal TipTap wrapper); `editorRef` is the imperative
  *     handle into the rich-text editor.
  *   - Service layer: no direct service-class invocations in this file — all persistence goes through MobX
- *     store actions surfaced by the hooks above (which in turn call `IssueService`, `WorkspaceDraftIssueService`,
+ *     store actions surfaced by the hooks above (which in turn call `IssueService`, `WorkspaceDraftService`,
  *     etc.). The base orchestrator handles `FileService` calls.
  */
 

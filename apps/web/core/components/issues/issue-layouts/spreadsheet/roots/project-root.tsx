@@ -15,8 +15,10 @@
  * Props: none — fully driven by route context and MobX stores.
  *
  * MobX stores read:
- *   - `useParams()` (Next.js navigation) exposes the `workspaceSlug` route param; `projectId` is
- *     resolved later by `<BaseSpreadsheetRoot>` through the issue-store-type hook
+ *   - `useParams()` exposes the `workspaceSlug` route param; `projectId` is resolved later by
+ *     `<BaseSpreadsheetRoot>` through the issue-store-type hook. The `useParams` hook is imported
+ *     from `next/navigation`, which Vite aliases to the in-repo React Router compatibility shim at
+ *     `apps/web/app/compat/next/navigation.ts`; this resolves to React Router's `useParams`.
  *   - `useUserPermissions()` exposes `allowPermissions(roles, level, workspaceSlug, projectId)` —
  *     used by `canEditPropertiesBasedOnProject` to gate inline issue-property editing per project
  *

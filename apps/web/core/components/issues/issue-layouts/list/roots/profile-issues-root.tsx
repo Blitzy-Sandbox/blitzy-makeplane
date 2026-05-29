@@ -19,8 +19,9 @@
  *     authorization predicate.
  *
  * Side effects:
- *   - Reads `workspaceSlug` and `profileViewId` from `useParams()`
- *     (Next.js navigation hook).
+ *   - Reads `workspaceSlug` and `profileViewId` from `useParams()` — imported from `next/navigation`,
+ *     which Vite aliases to the in-repo React Router compatibility shim at
+ *     `apps/web/app/compat/next/navigation.ts`; this resolves to React Router's `useParams`.
  *   - `profileViewId?.toString()` is forwarded to `BaseListRoot` via the
  *     `viewId` prop so the shell can key its issue selection on the
  *     profile-view id.

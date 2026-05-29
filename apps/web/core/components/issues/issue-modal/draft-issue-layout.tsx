@@ -28,8 +28,8 @@
  *     isDraft: true })` fired after a successful draft create.
  *   - Toasts: `setToast({ type: TOAST_TYPE.SUCCESS | ERROR, ... })` with i18n strings
  *     `workspace_draft_issues.toasts.created.success` / `.error`.
- *   - No direct service calls — persistence flows through MobX store actions which in turn invoke
- *     `WorkspaceDraftIssueService` (or similar) under the hood.
+ *   - No direct service calls — persistence flows through the `useWorkspaceDraftIssues()` store hook,
+ *     which delegates to `WorkspaceDraftService` (defined in `apps/web/core/services/issue/workspace_draft.service.ts`).
  *   - No navigations — `onClose` is invoked instead.
  *
  * Derived state / imperative notes:

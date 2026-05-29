@@ -19,10 +19,12 @@
  *     authorization predicate.
  *
  * Side effects:
- *   - Reads `workspaceSlug` from `useParams()` (Next.js navigation hook).
+ *   - Reads `workspaceSlug` from `useParams()` — imported from `next/navigation`, which Vite
+ *     aliases to the in-repo React Router compatibility shim at
+ *     `apps/web/app/compat/next/navigation.ts`; this resolves to React Router's `useParams`.
  *   - Returns `null` when `workspaceSlug` is missing — guards against
  *     rendering the project list against undefined route context during
- *     Next.js navigation transitions.
+ *     React Router navigation transitions.
  *
  * Permission predicate: `canEditPropertiesBasedOnProject(projectId)` calls
  * `allowPermissions([ADMIN, MEMBER], PROJECT, workspaceSlug, projectId)` —

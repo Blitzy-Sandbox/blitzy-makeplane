@@ -25,8 +25,9 @@
  *     ADMIN/MEMBER authorization at `EUserPermissionsLevel.PROJECT`.
  *
  * Side effects:
- *   - Reads `workspaceSlug`, `projectId`, and `cycleId` from `useParams()`
- *     (Next.js navigation hook).
+ *   - Reads `workspaceSlug`, `projectId`, and `cycleId` from `useParams()` — imported from
+ *     `next/navigation`, which Vite aliases to the in-repo React Router compatibility shim at
+ *     `apps/web/app/compat/next/navigation.ts`; this resolves to React Router's `useParams`.
  *   - `addIssuesToView(issueIds)` (memoized via `useCallback`) calls
  *     `issues.addIssueToCycle(workspaceSlug, projectId, cycleId, issueIds)`
  *     — fires an API call to `apps/api` to persist the membership.

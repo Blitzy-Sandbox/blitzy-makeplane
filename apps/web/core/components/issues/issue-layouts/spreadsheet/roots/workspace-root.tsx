@@ -15,7 +15,7 @@
  * `projectId` — `BaseSpreadsheetRoot` (used by project / cycle / module / project-view roots) is not
  * compatible with that orchestration path.
  *
- * Props (Props — declared at lines 26-38):
+ * Props (`Props` — see the local type alias below):
  *   - isDefaultView (boolean, required): whether the current global view is the workspace's default
  *     view; preserved on the shared layout-prop contract though not consumed in this body
  *   - isLoading (boolean, optional, default=false): outer loading flag passed by the calling route;
@@ -67,7 +67,7 @@
  *   - `issueFilters = globalViewId ? filters?.[globalViewId.toString()] : undefined` — the workspace
  *     issues-filter store keys filter state by `globalViewId` (not `projectId`) because a workspace
  *     issue view aggregates across projects but persists per global-view.
- *   - The loader gate at line 106 combines THREE conditions: the outer `isLoading && issuesLoading`
+ *   - The early-return loader gate combines THREE conditions: the outer `isLoading && issuesLoading`
  *     flags AND the store's `getIssueLoader() === "init-loader"` state OR a missing `globalViewId`
  *     OR missing `groupedIssueIds`. This compound check ensures the loader stays mounted until the
  *     route, the store, and the data are all simultaneously ready.

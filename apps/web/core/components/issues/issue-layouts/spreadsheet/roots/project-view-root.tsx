@@ -14,8 +14,10 @@
  * Props: none — fully driven by route context.
  *
  * MobX stores read:
- *   - `useParams()` (Next.js navigation) exposes the `viewId` route param. No direct store reads
- *     in this file — store wiring happens inside `<BaseSpreadsheetRoot>`.
+ *   - `useParams()` exposes the `viewId` route param. The hook is imported from `next/navigation`,
+ *     which Vite aliases to the in-repo React Router compatibility shim at
+ *     `apps/web/app/compat/next/navigation.ts`; this resolves to React Router's `useParams`. No
+ *     direct store reads in this file — store wiring happens inside `<BaseSpreadsheetRoot>`.
  *
  * Side effects:
  *   - Forwards `<ProjectIssueQuickActions>` (project-specific quick-action menu) into
