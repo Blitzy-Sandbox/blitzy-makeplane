@@ -4,6 +4,34 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Per-day issue list container. Renders one CalendarIssueBlockRoot per issue,
+ * a pagination skeleton while loading, the quick-add action surface (when
+ * permitted), and a "Load more" affordance when more issues exist for this date.
+ *
+ * Props (Props type, L19):
+ *   - date (required), issueIdList (required) — day key + ids for this cell.
+ *   - loadMoreIssues — paginates the day's issue list on demand.
+ *   - getPaginationData, getGroupIssueCount — passed in but unused in render;
+ *     the component reads pagination/count from useIssuesStore() directly.
+ *   - quickActions, quickAddCallback, addIssuesToView, enableQuickIssueCreate,
+ *     disableIssueCreation — quick-add gating + actions.
+ *   - isDragDisabled, isMobileView, readOnly, canEditProperties, isEpic — cell
+ *     behavior knobs forwarded to CalendarIssueBlockRoot.
+ *
+ * Stores read:
+ *   - useIssuesStore().issues.getGroupIssueCount / getPaginationData /
+ *     getIssueLoader — pagination + load state for this date group.
+ *   - useTranslation() for "Load more" label.
+ *
+ * Side effects: NONE directly — invocation of loadMoreIssues is the only
+ * callback emitted; quick-add and drag effects are owned by child components.
+ *
+ * Consumers:
+ *   - ./calendar.tsx (CalendarChart) — mobile body.
+ *   - ./day-tile.tsx (CalendarDayTile) — desktop day body.
+ */
+
 import { observer } from "mobx-react";
 import { useTranslation } from "@plane/i18n";
 import type { TIssue, TPaginationData } from "@plane/types";
@@ -34,6 +62,7 @@ type Props = {
   isEpic?: boolean;
 };
 
+/** Per-day issue list with pagination, quick-add gating, and load-more affordance. */
 export const CalendarIssueBlocks = observer(function CalendarIssueBlocks(props: Props) {
   const {
     date,
