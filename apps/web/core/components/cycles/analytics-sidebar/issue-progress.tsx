@@ -4,6 +4,42 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * CycleAnalyticsProgress — collapsible progress panel inside the cycle sidebar.
+ *
+ * Rendered purpose:
+ *   Shows the burndown/burnup chart and the assignee/label/state-group breakdowns
+ *   for the selected cycle, gated on valid cycle start/end dates. Renders a
+ *   "no data yet" notice when dates are missing or invalid.
+ *
+ * Props (TCycleAnalyticsProgress):
+ *   - workspaceSlug: string (required) — forwarded to SidebarChartRoot.
+ *   - projectId: string (required) — forwarded to SidebarChartRoot.
+ *   - cycleId: string (required) — keys distribution + filter lookups.
+ *
+ * MobX stores read:
+ *   - `useCycle` — `getPlotTypeByCycleId`, `getEstimateTypeByCycleId`, `getCycleById`.
+ *   - `useWorkItemFilters` — `getFilter`, `updateFilterValueFromSidebar` for CYCLE store type.
+ *   - `useTranslation` (`@plane/i18n`) — localized labels.
+ *
+ * Side effects:
+ *   - Filter mutations: `CycleProgressStats` invokes `updateFilterValueFromSidebar` (bound
+ *     via `Function.prototype.bind` to the CYCLE store + cycleId) when state-group / assignee
+ *     / label rows are clicked.
+ *   - Reads `peekCycle` query param via `useSearchParams` to decide whether filter editing
+ *     is allowed (chart is read-only inside peek view).
+ *
+ * Named exports (in addition to the component):
+ *   - `cycleEstimateOptions`: static `{value, label}[]` choices for "Work items" vs. "Estimates".
+ *   - `cycleChartOptions`: static `{value, label}[]` choices for "Burn-down" vs. "Burn-up".
+ *   - `validateCycleSnapshot(cycleDetails)`: flattens `progress_snapshot` keys onto the
+ *     cycle record so completed-cycle counts override live counts.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/cycles/analytics-sidebar/root.tsx` (renders this directly
+ *     when `workspaceSlug && projectId && cycleDetails?.id` are all present).
+ */
+
 import { useMemo } from "react";
 import { isEmpty } from "lodash-es";
 import { observer } from "mobx-react";
