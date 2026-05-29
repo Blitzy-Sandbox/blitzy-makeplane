@@ -9,6 +9,33 @@
 # DO NOT remove or modify this notice.
 # NOTICE: Proprietary and confidential. Unauthorized use or distribution is prohibited.
 
+"""HTML-to-plain-text conversion for email bodies.
+
+Provides :func:`generate_plain_text_from_html` to populate the ``text/plain``
+alternative of multi-part HTML emails so recipients on text-only mail clients
+still receive a readable body. The conversion removes ``<style>`` blocks via
+regex, strips remaining markup through Django's
+:func:`django.utils.html.strip_tags`, and collapses runs of blank lines so the
+output stays compact.
+
+Consumers (Celery tasks that send HTML email):
+  - :mod:`plane.bgtasks.email_notification_task`
+  - :mod:`plane.bgtasks.magic_link_code_task`
+  - :mod:`plane.bgtasks.forgot_password_task`
+  - :mod:`plane.bgtasks.user_activation_email_task`
+  - :mod:`plane.bgtasks.user_deactivation_email_task`
+  - :mod:`plane.bgtasks.user_email_update_task`
+  - :mod:`plane.bgtasks.project_invitation_task`
+  - :mod:`plane.bgtasks.project_add_user_email_task`
+  - :mod:`plane.bgtasks.workspace_invitation_task`
+  - :mod:`plane.bgtasks.analytic_plot_export`
+  - :mod:`plane.bgtasks.webhook_task`
+
+These callers are enqueued to Celery and consumed by Celery workers brokered
+by RabbitMQ (per AAP §0.2.2 — Celery via RabbitMQ; Redis is caching/session
+only). This helper itself is synchronous and runs inside the worker process.
+"""
+
 # Python imports
 import re
 
@@ -17,15 +44,21 @@ from django.utils.html import strip_tags
 
 
 def generate_plain_text_from_html(html_content):
-    """
-    Generate clean plain text from HTML email template.
-    Removes all HTML tags, CSS styles, and excessive whitespace.
+    """Convert an HTML email body to a plain-text alternative.
+
+    Used to populate the ``text/plain`` part of multi-part email messages so
+    recipients with text-only clients receive a readable body. The conversion
+    drops ``<style>`` blocks (and their contents) via regex, strips all
+    remaining HTML markup through Django's :func:`django.utils.html.strip_tags`,
+    collapses runs of blank lines, and normalizes leading and trailing
+    whitespace so the output is compact.
 
     Args:
-        html_content (str): The HTML content to convert to plain text
+        html_content (str): The HTML content to convert to plain text.
 
     Returns:
-        str: Clean plain text without HTML tags, styles, or excessive whitespace
+        str: Clean plain text without HTML tags, ``<style>`` blocks, or
+        excessive blank lines.
     """
     # Remove style tags and their content
     html_content = re.sub(r"<style[^>]*>.*?</style>", "", html_content, flags=re.DOTALL | re.IGNORECASE)
