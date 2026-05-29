@@ -4,6 +4,76 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Sticky column header for a primary `group_by` Kanban column.
+ *
+ * Rendered purpose: renders the title, count, optional icon, collapse/expand affordance, the
+ * inline workflow group tree, and the create-or-attach affordances for issue creation at the head
+ * of one Kanban lane.
+ *
+ * Props (`IHeaderGroupByCard`):
+ *   - column_id (string, required): the group's canonical id (state id, label id, priority enum,
+ *     assignee id, etc.) used by collapse-state lookups and the workflow tree.
+ *   - title (string, required): the human-readable group label rendered in the header.
+ *   - count (number, required): the issue count to display next to the title; falls back to 0 if
+ *     falsy at render time.
+ *   - icon (React.ReactNode, optional): custom icon for this group; when absent falls back to
+ *     `Circle` from `lucide-react`.
+ *   - group_by (TIssueGroupByOptions | undefined, required): the active primary grouping mode.
+ *   - sub_group_by (TIssueGroupByOptions | undefined, required): the active sub-grouping mode;
+ *     when truthy the header switches to a compact vertical layout and the collapse button is
+ *     hidden (collapse only applies to the flat-board variant).
+ *   - collapsedGroups (TIssueKanbanFilters, required): the collapsed-group state slice from the
+ *     kanban filters, consulted to determine chevron/collapse direction.
+ *   - handleCollapsedGroups ((toggle, value) => void, required): collapse toggle callback wired up
+ *     by `base-kanban-root.tsx` which persists the toggle via `updateFilters`.
+ *   - issuePayload (Partial<TIssue>, required): pre-populated issue defaults passed into
+ *     `CreateUpdateIssueModal` / `CreateUpdateEpicModal` so a new issue lands inside this column.
+ *   - disableIssueCreation (boolean, optional): when true, hides the "+" affordance entirely (used
+ *     for read-only contexts such as completed cycles or unprivileged users).
+ *   - addIssuesToView ((issueIds: string[]) => Promise<TIssue>, optional): mutation invoked when
+ *     existing issues are attached to the current scope from the header; only meaningful for
+ *     cycle/module/view routes.
+ *   - isEpic (boolean, optional, default=false): swaps the create modal from
+ *     `CreateUpdateIssueModal` to `CreateUpdateEpicModal` so epic-specific fields are presented.
+ *
+ * MobX stores read (via React-context hooks):
+ *   - `useIssueStoreType()` exposes the active `EIssuesStoreType` which is forwarded to the
+ *     issue-creation modal so the new issue is registered with the correct store slice.
+ *   - `useParams()` from `next/navigation` is the route-param reader (not a MobX store) used to
+ *     derive `workspaceSlug`, `projectId`, `moduleId`, and `cycleId`; these determine whether the
+ *     "Add an existing work item" affordance is available.
+ *
+ * Side effects:
+ *   - Clicking the "+" button (or the `CustomMenu` "Create work item" item) opens
+ *     `CreateUpdateEpicModal` when `isEpic` is true OR `CreateUpdateIssueModal` otherwise, both
+ *     hydrated with `issuePayload`.
+ *   - When the route exposes `moduleId` OR `cycleId`, the `CustomMenu` also exposes "Add an
+ *     existing work item" which opens `ExistingIssuesListModal`.
+ *   - On existing-issue submission, calls `addIssuesToView(selectedIds)` and emits a
+ *     `TOAST_TYPE.SUCCESS` toast via `setToast` on resolve, or a `TOAST_TYPE.ERROR` toast on reject.
+ *   - Clicking the collapse button (visible only when `sub_group_by === null`) invokes
+ *     `handleCollapsedGroups("group_by", column_id)` which is ultimately persisted via
+ *     `updateFilters(EIssueFilterType.KANBAN_FILTERS, …)` upstream.
+ *
+ * Conditional rendering details (the WHY):
+ *   - `verticalAlignPosition` is true only when `sub_group_by` is falsy AND the column id is in
+ *     `collapsedGroups.group_by`; the column then renders as a 44px-wide vertical strip with
+ *     vertical-lr text orientation so collapsed columns still show a readable label.
+ *   - The collapse button is rendered only when `sub_group_by === null` because collapsing primary
+ *     columns has no visual meaning inside the swimlane variant (the sub-group rows govern
+ *     vertical collapse there instead).
+ *   - The "+" affordance branches: when `renderExistingIssueModal` is truthy (cycle/module
+ *     context), it expands into a `CustomMenu` with both "Create" and "Add existing" items;
+ *     otherwise it is a single plain button that directly opens the create modal.
+ *
+ * Consumers:
+ *   - `../default.tsx` (`KanBan`) — instantiates one `HeaderGroupByCard` per primary group column
+ *     in the flat-board path.
+ *   - `../swimlanes.tsx` (`SubGroupSwimlaneHeader`) — instantiates one `HeaderGroupByCard` per
+ *     primary group column in the swimlane header strip.
+ */
+
 import React from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
@@ -24,6 +94,12 @@ import { CreateUpdateEpicModal } from "@/plane-web/components/epics/epic-modal";
 // Plane-web
 import { WorkFlowGroupTree } from "@/plane-web/components/workflow";
 
+/**
+ * Props for `HeaderGroupByCard`.
+ *
+ * The `issuePayload`, `addIssuesToView`, and `disableIssueCreation` fields collectively govern the
+ * header's issue-creation affordances; the remaining fields drive presentation and collapse state.
+ */
 interface IHeaderGroupByCard {
   sub_group_by: TIssueGroupByOptions | undefined;
   group_by: TIssueGroupByOptions | undefined;
@@ -39,6 +115,7 @@ interface IHeaderGroupByCard {
   isEpic?: boolean;
 }
 
+/** Sticky column header for a primary `group_by` Kanban column; see the module-level JSDoc for full semantics. */
 export const HeaderGroupByCard = observer(function HeaderGroupByCard(props: IHeaderGroupByCard) {
   const {
     group_by,
