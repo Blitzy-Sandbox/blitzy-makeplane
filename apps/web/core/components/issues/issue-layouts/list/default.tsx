@@ -4,6 +4,50 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Scrollable list-view viewport that renders all grouped columns + bulk selection wrapper.
+ *
+ * Rendered purpose: receives the fully prepared grouped issue model from `BaseListRoot`, computes the
+ * grouping column descriptors via `getGroupByColumns`, mounts a `MultipleSelectGroup` selection
+ * coordinator over the scroll container, and renders one `<ListGroup>` per group plus
+ * `<IssueBulkOperationsRoot>`.
+ *
+ * Props (IList):
+ *   - groupedIssueIds (TGroupedIssues, required): issue ids partitioned by group; the canonical "ALL_ISSUES"
+ *     key holds the flat list when grouping is disabled
+ *   - issuesMap (TIssueMap, required): global issue-id → TIssue lookup map; passed-through to each ListGroup
+ *   - group_by (TIssueGroupByOptions | null, required): the active group key; `null` means flat-list rendering
+ *   - orderBy (TIssueOrderByOptions | undefined, required): the active sort key
+ *   - updateIssue (callback, optional): per-issue update fn used by inline editors and quick actions
+ *   - quickActions (TRenderQuickActions, required): the scope-specific quick-actions render function
+ *   - displayProperties (IIssueDisplayProperties | undefined, required): visibility flags for columns
+ *   - enableIssueQuickAdd (boolean, required): toggle for the sticky quick-add row at the bottom of a group
+ *   - showEmptyGroup (boolean, optional): whether empty groups should still render their header
+ *   - canEditProperties ((projectId) => boolean, required): per-project edit-permission predicate
+ *   - quickAddCallback (optional): the store action invoked by the quick-add form when a user submits
+ *   - disableIssueCreation (boolean, optional): hard-disables the quick-add affordance
+ *   - handleOnDrop ((source, destination) => Promise<void>, required): the drag-end handler from
+ *     `useGroupIssuesDragNDrop`
+ *   - addIssuesToView (optional): callback for adding existing issues to the view (cycle/module scope)
+ *   - isCompletedCycle (boolean, optional, default=false): when true, creates/edits are disabled
+ *   - loadMoreIssues ((groupId?) => void, required): paginates the next page of issues for a group
+ *   - handleCollapsedGroups ((groupId) => void, required): toggles a group's collapsed state in the
+ *     kanban-filters slice
+ *   - collapsedGroups (TIssueKanbanFilters, required): the currently collapsed group ids
+ *   - isEpic (boolean, optional, default=false): switches identifiers/links to epic semantics
+ *
+ * MobX stores read:
+ *   - `useIssueStoreType()` resolves the active store type for column scope computation
+ *   - `useBulkOperationStatus()` (plane-web hook) gates the multi-select group on enterprise builds
+ *
+ * Side effects:
+ *   - `useEffect` registers `autoScrollForElements({ element: containerRef.current })` from
+ *     `@atlaskit/pragmatic-drag-and-drop-auto-scroll/element` so the scroll viewport auto-scrolls during
+ *     drag operations; the cleanup unregisters the auto-scroll handler
+ *
+ * Consumers: `BaseListRoot` (this folder's parent shell).
+ */
+
 import { useEffect, useRef } from "react";
 import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
 import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-scroll/element";
@@ -36,6 +80,7 @@ import { getGroupByColumns, isWorkspaceLevel, isSubGrouped } from "../utils";
 import { ListGroup } from "./list-group";
 import type { TRenderQuickActions } from "./list-view-types";
 
+/** Props for `List`. See the module-level JSDoc for full semantics. */
 export interface IList {
   groupedIssueIds: TGroupedIssues;
   issuesMap: TIssueMap;
@@ -58,6 +103,7 @@ export interface IList {
   isEpic?: boolean;
 }
 
+/** Scrollable list-view viewport; see the module-level JSDoc for full semantics. */
 export const List = observer(function List(props: IList) {
   const {
     groupedIssueIds,
@@ -121,6 +167,9 @@ export const List = observer(function List(props: IList) {
   });
   let entities: Record<string, string[]> = {};
 
+  // entities map for MultipleSelectGroup: list mode collapses to a single bucket keyed by the synthetic
+  // group id; sub-grouped layouts intentionally fall through to an empty per-group map (bulk-select is
+  // disabled across sub-groups); otherwise we use the grouped index as-is.
   if (is_list) {
     entities = Object.assign(orderedGroups, { [groupIds[0]]: groupedIssueIds[ALL_ISSUES] ?? [] });
   } else if (!isSubGrouped(groupedIssueIds)) {
