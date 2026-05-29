@@ -4,6 +4,62 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Visual + interactive issue row presented inside a `ListGroup`.
+ *
+ * Rendered purpose: resolves the issue record from `issuesMap`, registers the row as a pragmatic-DnD
+ * `draggable` source, renders the multi-select checkbox + issue identifier + title + properties +
+ * quick actions inside a `ControlLink` that opens the peek overview on click. Adapts layout for
+ * responsive breakpoints (md/lg) based on sidebar-collapsed state and switches to epic semantics when
+ * `isEpic` is set.
+ *
+ * Props (IssueBlockProps):
+ *   - issueId (string, required): id of the issue to render
+ *   - issuesMap (TIssueMap, required): global issue lookup map
+ *   - groupId (string, required): the parent group id; used in `getInitialData` of the draggable for
+ *     cross-group drop semantics
+ *   - updateIssue (optional callback): forwarded to `IssueProperties` for inline edits
+ *   - quickActions (TRenderQuickActions, required): scope-specific quick-action renderer
+ *   - displayProperties (IIssueDisplayProperties | undefined): controls which properties + the
+ *     key/identifier column visibility
+ *   - canEditProperties ((projectId) => boolean, required): per-project edit predicate; combined with
+ *     `canDrag` to derive whether dragging is allowed
+ *   - nestingLevel (number, required): zero for top-level rows; used to gate behavior (peek-overview
+ *     vs. expand) when nestingLevel >= 3 (deep sub-issue trees switch to peek to avoid runaway depth)
+ *   - spacingLeft (number, optional, default=14): left indent in pixels applied to the inner row when
+ *     `nestingLevel > 0`
+ *   - isExpanded (boolean, required): current expansion state from the parent block-root
+ *   - setExpanded (Dispatch<SetStateAction<boolean>>, required): toggles expansion; on expand it
+ *     triggers `subIssuesStore.fetchSubIssues(workspaceSlug, projectId, issueId)` to lazy-load children
+ *   - selectionHelpers (TSelectionHelper, required): multi-select context
+ *   - isCurrentBlockDragging (boolean, required): true when this row OR its parent is being dragged
+ *   - setIsCurrentBlockDragging (setter, required): set on draggable `onDragStart`/`onDrop`
+ *   - canDrag (boolean, required): forwarded from the parent block-root (top-level only)
+ *   - isEpic (boolean, optional, default=false): selects the EPICS issue-detail service instead of ISSUES
+ *
+ * MobX stores read:
+ *   - `useAppTheme()` exposes `sidebarCollapsed` to choose md vs. lg responsive flex layout
+ *   - `useProject()` exposes `getProjectIdentifierById` (project key for the identifier column) and
+ *     `currentProjectNextSequenceId` for the dynamic min-width calculation of the identifier column
+ *   - `useIssueDetail(isEpic ? EPICS : ISSUES)` exposes `getIsIssuePeeked`, `peekIssue`, `setPeekIssue`,
+ *     `subIssues` for sub-issue lazy loading and peek-overview lifecycle
+ *   - `usePlatformOS()` exposes `isMobile` for behavior gating (not currently consumed in this file
+ *     beyond the hook call but reserved for tooltip/touch-specific behavior in the inner components)
+ *
+ * Side effects:
+ *   - `useEffect` registers `draggable({ element: issueRef.current, canDrag: () => isDraggingAllowed,
+ *     getInitialData: () => ({ id: issueId, type: "ISSUE", groupId }), onDragStart, onDrop })`. The
+ *     `getInitialData` payload is what `getSourceFromDropPayload` reads on drop.
+ *   - `setPeekIssue(...)` is called by `handleIssuePeekOverview` on row click and on deep-sub-issue
+ *     `setExpanded` (when `nestingLevel >= 3`); this opens the peek-overview panel for the issue.
+ *   - `setExpanded` is called with a function that, when expanding, also calls
+ *     `subIssuesStore.fetchSubIssues(workspaceSlug, project_id, issue_id)` — lazy load on demand.
+ *   - `onDragStart` on `<Row>` emits a WARNING toast (`setToast`) when the row is NOT draggable, to
+ *     surface to the user why their drag is being ignored.
+ *
+ * Consumers: `block-root.tsx` (wraps this in `RenderIfVisible` + recursive sub-issue rendering).
+ */
+
 import type { Dispatch, MouseEvent, SetStateAction } from "react";
 import { useEffect, useRef } from "react";
 import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
@@ -37,6 +93,7 @@ import { WithDisplayPropertiesHOC } from "../properties/with-display-properties-
 import { calculateIdentifierWidth } from "../utils";
 import type { TRenderQuickActions } from "./list-view-types";
 
+/** Props for `IssueBlock`. See the module-level JSDoc for full semantics. */
 interface IssueBlockProps {
   issueId: string;
   issuesMap: TIssueMap;
@@ -56,6 +113,7 @@ interface IssueBlockProps {
   isEpic?: boolean;
 }
 
+/** Visual + interactive issue row; see the module-level JSDoc for full semantics. */
 export const IssueBlock = observer(function IssueBlock(props: IssueBlockProps) {
   const {
     issuesMap,
@@ -143,6 +201,9 @@ export const IssueBlock = observer(function IssueBlock(props: IssueBlockProps) {
 
   const marginLeft = `${spacingLeft}px`;
 
+  // At nesting depth >= 3 we switch from inline expansion to peek-overview navigation: the tree gets
+  // visually noisy beyond three levels, and the peek panel offers a more focused exploration surface.
+  // Below depth 3, the expand action lazy-loads sub-issues via the issue-detail store.
   const handleToggleExpand = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     e.preventDefault();
