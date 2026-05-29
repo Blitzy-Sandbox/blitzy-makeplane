@@ -4,6 +4,55 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * CycleProgressStats — tabbed breakdown of cycle progress by state group, assignee, and label.
+ *
+ * Rendered purpose:
+ *   Renders three accessibility-aware tabs (state groups, assignees, labels) using
+ *   `@headlessui/react` `Tab.Group`. Each panel displays a distribution row component
+ *   (StateGroupStatComponent, AssigneeStatComponent, LabelStatComponent) with optional
+ *   filter-edit affordances when `isEditable` is true.
+ *
+ * Props (TCycleProgressStats):
+ *   - cycleId: string (required) — keys the persisted tab choice in localStorage.
+ *   - distribution: TCycleDistribution | TCycleEstimateDistribution | undefined (required) —
+ *     normalized cycle distribution; the `plotType` decides which shape is read.
+ *   - groupedIssues: Record<string, number> (required) — aggregate counts by state group.
+ *   - handleFiltersUpdate: (condition: TWorkItemFilterCondition) => void (required) —
+ *     callback delegated from the parent to commit filter changes (e.g., toggle an
+ *     assignee/label/state-group filter in the work-item filter store).
+ *   - isEditable?: boolean (optional, default false) — gates clickability of rows; when
+ *     false, rows render as read-only.
+ *   - noBackground?: boolean (optional, default false) — strips the `bg-layer-2` tab list bg.
+ *   - plotType: TCyclePlotType (required) — "burndown" or "burnup"; chooses between issue
+ *     counts and estimate-point counts in the distribution mapping.
+ *   - roundedTab?: boolean (optional, default false) — switches tab pill radius styling.
+ *   - selectedFilters: TSelectedFilterProgressStats (required) — currently active
+ *     assignee / label / state-group filter conditions for highlighting selected rows.
+ *   - size?: "xs" | "sm" (optional, default "sm") — text-size variant.
+ *   - totalIssuesCount: number (required) — denominator for the state-group progress bars.
+ *
+ * MobX stores read:
+ *   - `useTranslation` (`@plane/i18n`) — localized tab titles via `stat.i18n_title`.
+ *   - No direct cycle / work-item store reads — all data is passed in via props from
+ *     the parent `CycleAnalyticsProgress`.
+ *
+ * Hooks:
+ *   - `useLocalStorage(`cycle-analytics-tab-${cycleId}`, "stat-assignees")` — persists
+ *     the active tab per-cycle across sessions.
+ *
+ * Side effects:
+ *   - Persists `currentTab` to localStorage via `setCycleTab` when a tab is clicked.
+ *   - Filter mutations: `createFilterUpdateHandler("assignee_id" | "label_id" | "state_group",
+ *     currentSelection, handleFiltersUpdate)` builds bound handlers that the child stat
+ *     components invoke on row clicks; the parent's `handleFiltersUpdate` then writes to
+ *     the work-item filter store.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/cycles/analytics-sidebar/issue-progress.tsx` (renders this
+ *     inside the `CycleAnalyticsProgress` disclosure panel when distribution data exists).
+ */
+
 import { observer } from "mobx-react";
 import { Tab } from "@headlessui/react";
 // plane imports
