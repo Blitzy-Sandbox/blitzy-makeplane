@@ -4,6 +4,98 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Core orchestration engine for the create/update work item modal.
+ *
+ * Rendered purpose: resolves the active issues store from props/route, loads issue details when editing,
+ * manages local modal state (changes-made tracker, create-more toggle, active project, description, uploaded
+ * asset ids, duplicate modal open state), and coordinates create / update mutations, cycle and module
+ * synchronization, additional-property persistence, sub-work-item creation, uploaded-asset status updates, and
+ * success/error toasts. Renders the modal shell (`ModalCore`) with either `DraftIssueLayout` or
+ * `IssueFormRoot` inside, depending on `withDraftIssueWrapper`.
+ *
+ * Props (`IssuesModalProps`, imported from `./modal`):
+ *   - data (Partial<TIssue>, optional): pre-existing work item payload for edit flows; also carries the
+ *     synthetic `sourceIssueId` field used by the duplicate-work-item flow
+ *   - isOpen (boolean, required): gates the entire modal subtree
+ *   - onClose (() => void, required): close-modal callback; invoked locally after a successful submit unless
+ *     `createMore` is true
+ *   - beforeFormSubmit (() => Promise<void>, optional): caller-supplied hook awaited before create/update
+ *   - onSubmit ((res: TIssue) => Promise<void>, optional): caller-supplied post-submit callback awaited inside
+ *     the `finally` block
+ *   - withDraftIssueWrapper (boolean, optional, default=true): when true, wraps the form in `DraftIssueLayout`
+ *     to surface the discard-confirmation flow
+ *   - storeType (EIssuesStoreType, optional): explicit issues-store binding; if omitted, falls back to
+ *     `useIssueStoreType()`. When `EIssuesStoreType.EPIC` is supplied, it is downgraded to
+ *     `EIssuesStoreType.PROJECT` (epics reuse the project issues store inside the modal)
+ *   - isDraft (boolean, optional, default=false): when true, create/update flow through the workspace draft store
+ *   - fetchIssueDetails (boolean, optional, default=true): controls whether `useIssueDetail().fetchIssue(...)`
+ *     is invoked to backfill the description; when false, uses `data.description_html` directly
+ *   - moveToIssue (boolean, optional, default=false): forwarded to `IssueFormRoot` to enable the
+ *     draft-to-project move action
+ *   - modalTitle (string, optional): forwarded title override
+ *   - primaryButtonText ({ default, loading }, optional): forwarded button-copy override
+ *   - isProjectSelectionDisabled (boolean, optional, default=false): forwarded; locks the project select
+ *   - showActionItemsOnUpdate (boolean, optional, default=false): when true, the update-success toast surfaces
+ *     `CreateIssueToastActionItems`
+ *
+ * MobX stores read (via hooks):
+ *   - `useIssueModal()` — `allowedProjectIds`, `handleCreateUpdatePropertyValues`, `handleCreateSubWorkItem`
+ *   - `useCycle()` — `fetchCycleDetails`
+ *   - `useModule()` — `fetchModuleDetails`
+ *   - `useIssues(storeType)` — issues actions for the resolved store (`createIssue`, `updateIssue`,
+ *     `addIssueToCycle`, `changeModulesInIssue`, `removeIssueFromCycle`)
+ *   - `useIssues(EIssuesStoreType.PROJECT)` — project issues store (used when payload cycle/module conflicts with
+ *     the URL-derived `storeType`)
+ *   - `useIssues(EIssuesStoreType.WORKSPACE_DRAFT)` — draft issues store (`draftIssues.createIssue`,
+ *     `draftIssues.updateIssue`)
+ *   - `useIssueDetail()` — `fetchIssue` for description backfill
+ *   - `useProject()` — `getProjectByIdentifier` for resolving `routerProjectIdentifier`
+ *   - `useIssueStoreType()` — fallback store type when none supplied
+ *   - `useIssuesActions(storeType)` — `createIssue` / `updateIssue` for the resolved store
+ *
+ * Side effects:
+ *   - API: `FileService.updateBulkProjectAssetsUploadStatus(...)` (module-scoped `fileService` instance) when
+ *     `uploadedAssetIds.length > 0` after a successful create
+ *   - Cycle sync: `issues.addIssueToCycle(...)`, `issues.removeIssueFromCycle(...)` + `fetchCycleDetails(...)`
+ *   - Module sync: `issues.changeModulesInIssue(...)` + `fetchModuleDetails(...)` per module id
+ *   - Property persistence: `handleCreateUpdatePropertyValues({ issueId, issueTypeId, projectId, workspaceSlug,
+ *     isDraft })`
+ *   - Sub-work-item create: `handleCreateSubWorkItem({ workspaceSlug, projectId, parentId })`
+ *   - Toast emissions: `setToast({ type: TOAST_TYPE.SUCCESS | ERROR, ... })` from `@plane/propel/toast`. Success
+ *     toasts may include `<CreateIssueToastActionItems>` action items when the project context is resolved.
+ *   - Focus management: `issueTitleRef?.current?.focus()` after a successful create when `createMore` is true.
+ *   - No direct navigations — `onClose` is invoked instead and the caller handles routing.
+ *
+ * Imperative / derived state notes:
+ *   - `routerProjectIdentifier = workItem?.toString().split("-")[0]` extracts the alphabetic prefix from the
+ *     URL slug (e.g., "PROJ-123" → "PROJ"); `getProjectByIdentifier(...)` then resolves the project id.
+ *   - `projectId` resolution priority: `data.project_id` → `routerProjectId` → `projectIdFromRouter` (identifier
+ *     lookup).
+ *   - `EIssuesStoreType.EPIC` is intentionally downgraded to `PROJECT` (epics share the project issues store
+ *     for create flows).
+ *   - The `useEffect` keyed on `[data?.project_id, data?.id, data?.sourceIssueId, projectId, isOpen,
+ *     activeProjectId]` orchestrates description fetch + active-project initialization + reset on close. The
+ *     existing `// eslint-disable-next-line react-hooks/exhaustive-deps` comment is intentional — preserve it.
+ *   - `handleCreateIssue`'s store-selection branch picks `draftIssues` (if `is_draft_issue`), else
+ *     `projectIssues` (if payload cycle/module conflicts with URL context), else the active store's
+ *     `createIssue`. This is the canonical safeguard against creating issues in the wrong store when the user
+ *     selects a different cycle/module than the active page.
+ *   - `addIssueToCycle` and `addIssueToModule` are skipped when the payload cycle/module already matches the
+ *     URL-derived context (and the store type is the matching CYCLE / MODULE store) — preventing duplicate writes.
+ *   - `handleClose(saveAsDraft?)` calls `handleCreateIssue(changesMade, true)` for an unsaved draft when
+ *     `saveAsDraft` is true; otherwise it just resets local state and propagates `onClose`.
+ *   - Returns `null` until `allowedProjectIds` is populated AND `activeProjectId` is resolved — prevents the
+ *     form from rendering with an inconsistent project context.
+ *
+ * Architectural notes (per AAP §0.2.2):
+ *   - MobX exclusively — every external state interaction goes through a store hook listed above.
+ *   - Service layer — file-asset status updates flow through the module-scoped `fileService = new FileService()`
+ *     instance.
+ *   - Router — `useParams()` reads `workspaceSlug`, `projectId`, `cycleId`, `moduleId`, `workItem` from the URL.
+ *   - The component is wrapped in `observer(...)` so the rendered tree reacts to MobX-bound state from the
+ *     hooks above (notably `allowedProjectIds` from `useIssueModal`).
+ */
 import { useEffect, useRef, useState } from "react";
 import { isEqual, xor } from "lodash-es";
 import { observer } from "mobx-react";
