@@ -4,6 +4,39 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX-observed modal that lets a user move all work items out of a completed cycle
+ * into a chosen incomplete cycle within the same project, with type-ahead search over
+ * eligible destination cycles and a post-transfer refresh of both cycles' progress.
+ *
+ * Props:
+ *   - isOpen (boolean, required): controls ModalCore visibility.
+ *   - handleClose (() => void, required): called on close button click and after a
+ *     successful transfer.
+ *   - cycleId (string, required): ID of the SOURCE cycle whose work items are being
+ *     transferred out of (typically a completed cycle).
+ *
+ * MobX stores read:
+ *   - useCycle (cycle store): currentProjectIncompleteCycleIds (the list of valid
+ *     transfer destinations), getCycleById to render destination metadata, and
+ *     fetchActiveCycleProgress to refresh both source and destination progress.
+ *   - useIssues(EIssuesStoreType.CYCLE).issues: transferIssuesFromCycle action on the
+ *     cycle-scoped issues store.
+ *
+ * Side effects:
+ *   - API calls (via store actions wired to IssueService / CycleService):
+ *       - transferIssuesFromCycle(workspaceSlug, projectId, cycleId, { new_cycle_id })
+ *         on a destination selection.
+ *       - fetchActiveCycleProgress for BOTH the source cycle and the destination
+ *         cycle, in parallel via Promise.all, to refresh the progress UI on both.
+ *   - Toasts: SUCCESS toast on transfer success; ERROR toasts on transfer failure or
+ *     progress-refresh failure.
+ *   - Navigation: useParams from next/navigation to read workspaceSlug + projectId
+ *     from the current route — no router push from this component.
+ *
+ * Consumers: mounted from the active-cycle / cycle peek experiences when the cycle
+ * is completed and the user is permitted to transfer work items.
+ */
 import { useState } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
