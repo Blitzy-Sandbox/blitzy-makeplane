@@ -4,6 +4,62 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX-observed tabbed-statistics panel for the active cycle screen with three tabs —
+ * Priority issues (paginated, infinite-scroll list of urgent/high-priority work items),
+ * Assignees (per-assignee completion progress), and Labels (per-label completion progress).
+ * Persists the selected tab in localStorage so it survives reloads, and converts row clicks
+ * into either a work-item peek panel open or a filter application via `handleFiltersUpdate`.
+ *
+ * Props (ActiveCycleStatsProps):
+ *   - workspaceSlug (string, required): workspace slug used for the peek-issue payload and
+ *     paginated issue fetches.
+ *   - projectId (string, required): project ID used for the peek-issue payload, paginated
+ *     issue fetches, and the StateDropdown / IssueIdentifier project context.
+ *   - cycle (ICycle | null, required): active cycle whose distribution.assignees and
+ *     distribution.labels populate the Assignees and Labels tabs.
+ *   - cycleId (string | null, optional): when null/undefined the entire panel renders a
+ *     full-card Loader skeleton; when present, the tabs render.
+ *   - handleFiltersUpdate ((conditions: TWorkItemFilterCondition[]) => void, required):
+ *     callback used to push filter changes (priority / assignee_id / label_id) into the
+ *     cycle-scoped issue filter store; typically supplied by `useCyclesDetails`.
+ *   - cycleIssueDetails (ActiveCycleIssueDetails | { nextPageResults: boolean }, optional):
+ *     paginated priority-issue payload from the cycle issues store; the union allows a safe
+ *     fallback when no cycle id is available.
+ *
+ * MobX stores read:
+ *   - useIssues(EIssuesStoreType.CYCLE): destructures `issues.fetchNextActiveCycleIssues`
+ *     used by the infinite-scroll loader for the Priority-Issues tab.
+ *   - useIssueDetail: destructures `issue.getIssueById` to resolve each priority-issue row
+ *     and `setPeekIssue` to open the work-item peek panel on row click.
+ *
+ * Side effects:
+ *   - API calls (via store actions wired to IssueService):
+ *       - fetchNextActiveCycleIssues(workspaceSlug, projectId, cycleId) when the
+ *         intersection observer scrolls the loader sentinel into view.
+ *   - Mutations:
+ *       - handleFiltersUpdate([{ property: "priority", operator: "in", value: ["urgent","high"] }])
+ *         on a priority-issue row click (alongside the peek open).
+ *       - handleFiltersUpdate([{ property: "assignee_id", operator: "in", value: [assignee_id] }])
+ *         on an assignee progress row click (only when the row has an assignee_id; unassigned
+ *         rows are not clickable).
+ *       - handleFiltersUpdate([{ property: "label_id", operator: "in", value: [label_id] }])
+ *         on a label progress row click (only when the row has a label_id).
+ *       - setPeekIssue({ workspaceSlug, projectId, issueId, isArchived }) opens the cycle's
+ *         issue peek panel for the clicked priority issue.
+ *   - DOM / imperative interactions:
+ *       - useLocalStorage("activeCycleTab", "Assignees") persists the active tab name
+ *         across reloads; the stored string is mapped to a numeric Tab.Group defaultIndex
+ *         via `currentValue`.
+ *       - useIntersectionObserver(issuesContainerRef, issuesLoaderElement, loadMoreIssues,
+ *         "0% 0% 100% 0%") drives infinite-scroll pagination on the Priority-Issues tab.
+ *   - Theme: useTheme().resolvedTheme selects the light/dark empty-state webp for each tab.
+ *   - No direct navigation calls — the peek panel is mounted by the parent route.
+ *
+ * Consumers: the active cycle detail experience under apps/web/app/[workspaceSlug]/projects/
+ * [projectId]/cycles/(detail)/[cycleId]/active-cycle.
+ */
+
 import { Fragment, useCallback, useRef, useState } from "react";
 import { isEmpty } from "lodash-es";
 import { observer } from "mobx-react";
