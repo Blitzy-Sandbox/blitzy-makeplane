@@ -4,6 +4,49 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Sticky `<thead>` row for the spreadsheet issue layout.
+ *
+ * Rendered purpose: renders the table's frozen header row containing (a) a single leading sticky
+ * column that combines the bulk-select group action with the "Work items" / "Epics" label, and
+ * (b) one `<SpreadsheetHeaderColumn>` per property in `spreadsheetColumnsList` (which provides
+ * sort controls and the property's icon + name).
+ *
+ * Props (Props):
+ *   - displayProperties (IIssueDisplayProperties, required): which property columns are visible;
+ *     forwarded to each per-property header column
+ *   - displayFilters (IIssueDisplayFilterOptions, required): the active sort state — header
+ *     columns render the sort-direction indicator from this
+ *   - handleDisplayFilterUpdate ((data) => void, required): callback to persist sort changes from
+ *     the per-column header menus
+ *   - canEditProperties ((projectId) => boolean, required): combined with `selectionHelpers.isSelectionDisabled`
+ *     to determine whether the bulk-select group action should appear
+ *   - isEstimateEnabled (boolean, required): forwarded into the per-property header columns
+ *   - spreadsheetColumnsList ((keyof IIssueDisplayProperties)[], required): the columns to render
+ *     after the leading sticky column
+ *   - selectionHelpers (TSelectionHelper, required): exposes `isGroupSelected(groupId)` and
+ *     `isSelectionDisabled`; the leading column hosts a `<MultipleSelectGroupAction>` that toggles
+ *     the entire SPREADSHEET_SELECT_GROUP
+ *   - isEpic (boolean, optional, default=false): when true, the leading label reads "Epics"
+ *     instead of "Work items"
+ *
+ * MobX stores read: none directly — uses `useParams()` (route param) and reads selection state via
+ * the `selectionHelpers` prop.
+ *
+ * Side effects: none — render-only. The bulk-select toggle action invokes selection helpers from
+ * the `<MultipleSelectGroup>` higher-order component above.
+ *
+ * Derived state:
+ *   - `isGroupSelectionEmpty`: true when no rows in `SPREADSHEET_SELECT_GROUP` are selected — the
+ *     bulk-select toggle is hidden by default (opacity-0) and revealed on hover OR forced visible
+ *     when the group is not empty. This keeps the header visually clean until selection begins.
+ *   - `canSelectIssues`: combines the edit-permission gate with the selection-disabled gate from
+ *     the multiple-select group; only when both pass does the bulk-select control render.
+ *
+ * Consumers:
+ *   - `./spreadsheet-table.tsx` — the only consumer; this module is not exported via a barrel.
+ */
+
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 // constants
@@ -17,6 +60,7 @@ import { MultipleSelectGroupAction } from "@/components/core/multiple-select";
 import type { TSelectionHelper } from "@/hooks/use-multiple-select";
 import { SpreadsheetHeaderColumn } from "./spreadsheet-header-column";
 
+/** Props for `SpreadsheetHeader`. */
 interface Props {
   displayProperties: IIssueDisplayProperties;
   displayFilters: IIssueDisplayFilterOptions;
@@ -28,6 +72,7 @@ interface Props {
   isEpic?: boolean;
 }
 
+/** Sticky table header for the spreadsheet layout; see the module-level JSDoc for full semantics. */
 export const SpreadsheetHeader = observer(function SpreadsheetHeader(props: Props) {
   const {
     displayProperties,
