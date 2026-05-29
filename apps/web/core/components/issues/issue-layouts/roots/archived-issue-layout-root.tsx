@@ -4,6 +4,26 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Route-aware layout orchestrator for the archived-issues page of a project — resolves route params, hydrates archived-scoped filters via SWR, and renders ArchivedIssueListLayout inside the project-level filters HOC.
+ *
+ * Props: none — driven entirely by route params (workspaceSlug, projectId via next/navigation useParams()).
+ *
+ * MobX stores read:
+ *   - useIssues(EIssuesStoreType.ARCHIVED): destructures issuesFilter for getIssueFilters / fetchFilters / updateFilterExpression.
+ *
+ * Side effects:
+ *   - SWR key `ARCHIVED_ISSUES_${workspaceSlug}_${projectId}` → issuesFilter.fetchFilters(workspaceSlug, projectId); revalidateIfStale: false, revalidateOnFocus: false.
+ *   - Provides IssuesStoreContext (EIssuesStoreType.ARCHIVED) to descendants so they consume the archived-issues store scope.
+ *   - Forwards issuesFilter.updateFilterExpression.bind(issuesFilter, workspaceSlug, projectId) to ProjectLevelWorkItemFiltersHOC.updateFilters.
+ *
+ * Early return: yields <></> until workspaceSlug, projectId, and workItemFilters all resolve — guards the HOC against undefined filter state during initial route hydration.
+ *
+ * Layout coverage: list only — archived issues do not expose kanban/calendar/gantt/spreadsheet variants.
+ *
+ * Architectural context (AAP §0.2.2): MobX exclusively (no Redux); store consumed via React context; all API calls flow through MobX store actions (fetchFilters, updateFilterExpression).
+ */
+
 import React from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
