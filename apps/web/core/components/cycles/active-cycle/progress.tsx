@@ -4,6 +4,56 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX-observed progress card for the active cycle screen — renders a segmented linear
+ * progress indicator (backlog / unstarted / started / completed) sourced from
+ * PROGRESS_STATE_GROUPS_DETAILS, a closed-vs-total work-item summary chip, per-group
+ * clickable rows that push a `state_group` filter back to the parent, and a footer note
+ * when the cycle has cancelled work items. Falls back to a themed empty state when the
+ * cycle has no issues and to a Loader skeleton until the cycle's `started_issues` field
+ * has been populated.
+ *
+ * Props (ActiveCycleProgressProps):
+ *   - cycle (ICycle | null, required): the active cycle whose `total_issues`,
+ *     `completed_issues`, `started_issues`, `unstarted_issues`, `backlog_issues`, and
+ *     `cancelled_issues` counts drive the indicator and summary copy.
+ *   - workspaceSlug (string, required): present in the props contract but not directly
+ *     used inside this card — reserved for forward-compatibility with row-click filter
+ *     routing handled by the parent via `handleFiltersUpdate`.
+ *   - projectId (string, required): present in the props contract; same reservation as
+ *     workspaceSlug.
+ *   - handleFiltersUpdate ((conditions: TWorkItemFilterCondition[]) => void, required):
+ *     callback used to push a `state_group` filter into the cycle-scoped issue filter
+ *     store when the user clicks a non-zero state-group row; typically supplied by
+ *     `useCyclesDetails`.
+ *
+ * MobX stores read:
+ *   - None directly on a Plane store. The component is wrapped in `observer` so reads
+ *     of the observable `cycle` prop (forwarded from the cycle store upstream) trigger
+ *     re-renders.
+ *   - useTheme (next-themes): `resolvedTheme` selects the light/dark empty-state webp.
+ *   - useTranslation (@plane/i18n): `t` resolves the section heading and empty-state
+ *     title.
+ *
+ * Side effects:
+ *   - Mutations: handleFiltersUpdate([{ property: "state_group", operator: "in",
+ *     value: [group] }]) on a row click for any non-zero state group ("completed",
+ *     "started", "unstarted", "backlog"). Cancelled-issue rows are display-only.
+ *   - No direct API calls, no navigations, no toasts — this card is purely presentational
+ *     over the cycle prop and delegates filter routing to the caller.
+ *
+ * Conditional rendering:
+ *   - Renders the populated card only when `cycle` is non-null AND has its
+ *     `started_issues` field defined (i.e., the active-cycle progress fetch has resolved).
+ *   - Inside the populated card, renders the per-group rows + chart ONLY when
+ *     `cycle.total_issues > 0`; otherwise falls back to a SimpleEmptyState.
+ *   - Falls back to a Loader skeleton whenever cycle is null or `started_issues` is not
+ *     yet defined on the cycle object.
+ *
+ * Consumers: the active cycle detail experience under apps/web/app/[workspaceSlug]/projects/
+ * [projectId]/cycles/(detail)/[cycleId]/active-cycle.
+ */
+
 import { observer } from "mobx-react";
 import { useTheme } from "next-themes";
 // plane imports
