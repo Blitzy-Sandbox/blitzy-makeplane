@@ -4,6 +4,46 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Top control bar for the archived-cycles route; renders the archive tabs, a
+ * collapsible search input, and the cycle filters dropdown, mutating the
+ * cycle-filter store on every keystroke / filter toggle.
+ *
+ * Props: NONE — project context is read from `useParams()` rather than passed in.
+ * This component is rendered as a sibling of `ArchivedCycleLayoutRoot` by the
+ * archived-cycles page route.
+ *
+ * MobX stores read:
+ *   - useCycleFilter (cycle filter store): `currentProjectArchivedFilters`
+ *     (TCycleFilters) for the active filter selection on the current project,
+ *     `archivedCyclesSearchQuery` for the live search input value, plus the
+ *     `updateFilters` and `updateArchivedCyclesSearchQuery` action setters.
+ *
+ * Side effects:
+ *   - Store mutations (synchronous, MobX store-only):
+ *       - `updateFilters(projectId, { [key]: newValues }, "archived")` on each
+ *         filter toggle from `handleFilters` — toggles a value in/out of an array
+ *         per filter key, partitioned under the "archived" filter slice.
+ *       - `updateArchivedCyclesSearchQuery(string)` on every keystroke in the
+ *         search input and when the close-button or Escape clears the query.
+ *   - DOM/ref interactions:
+ *       - `useRef` on the search input element; `inputRef.current?.focus()` when
+ *         the search affordance is opened, `.blur()` on Escape when the query is
+ *         already empty.
+ *       - `useOutsideClickDetector` collapses the expanded search input when the
+ *         user clicks outside it AND the query is empty (a non-empty query keeps
+ *         the input expanded so the user does not lose their typed text).
+ *   - Keyboard:
+ *       - Escape clears the search query first (if non-empty) and only on a
+ *         second Escape press collapses the input and blurs the focus.
+ *   - No direct API calls — all data flow is store-mediated; the SWR fetch for
+ *     archived cycles lives in `ArchivedCycleLayoutRoot`, not here.
+ *
+ * Consumers: rendered from the archived-cycles route page at
+ * `apps/web/app/(all)/[workspaceSlug]/(projects)/projects/(detail)/[projectId]/archives/cycles/page.tsx`
+ * as a sibling of `ArchivedCycleLayoutRoot`.
+ */
+
 import { useCallback, useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
