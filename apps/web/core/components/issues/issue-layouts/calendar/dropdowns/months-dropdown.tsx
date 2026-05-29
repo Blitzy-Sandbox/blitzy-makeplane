@@ -4,6 +4,39 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Month/year selection popover for the calendar header trigger, also showing
+ * the active week range when the calendar layout is `week`.
+ *
+ * Props:
+ *   - issuesFilterStore (required): IProjectIssuesFilter | IModuleIssuesFilter |
+ *     ICycleIssuesFilter | IProjectViewIssuesFilter — supplies
+ *     `displayFilters.calendar.layout` to determine the trigger label rule.
+ *
+ * MobX stores read (via React context, MobX-exclusive):
+ *   - useCalendarView() → issueCalendarView.calendarFilters.activeMonthDate,
+ *     issueCalendarView.allDaysOfActiveWeek, and the
+ *     issueCalendarView.updateCalendarFilters action.
+ *
+ * Side effects:
+ *   - Calls issueCalendarView.updateCalendarFilters({ activeMonthDate }) on
+ *     month-button, previous-year, and next-year clicks. No API calls and no
+ *     navigations are triggered by this component — month/week navigation is
+ *     a local MobX mutation distinct from the layout/weekend persistence flow
+ *     handled by CalendarOptionsDropdown.
+ *
+ * Trigger label rule:
+ *   - layout === "month": "<MONTHS_LIST[m].title> <year>".
+ *   - layout === "week":  cross-boundary week-range string from
+ *     getWeekLayoutHeader() (same-month, cross-month-same-year, or cross-year);
+ *     the trigger button is disabled in week layout because there is no
+ *     month-grid interaction to expose.
+ *
+ * Popover stack:
+ *   - Headless UI `Popover` + `Transition`, positioned via `usePopper` with
+ *     `placement: "auto"` and a 12px `preventOverflow` padding modifier.
+ */
+
 import React, { useState } from "react";
 import { observer } from "mobx-react";
 import { usePopper } from "react-popper";
@@ -24,6 +57,8 @@ import type { IProjectViewIssuesFilter } from "@/store/issue/project-views";
 interface Props {
   issuesFilterStore: IProjectIssuesFilter | IModuleIssuesFilter | ICycleIssuesFilter | IProjectViewIssuesFilter;
 }
+
+/** Calendar header dropdown for selecting the active month or displaying the active week range. */
 export const CalendarMonthsDropdown = observer(function CalendarMonthsDropdown(props: Props) {
   const { issuesFilterStore } = props;
 
