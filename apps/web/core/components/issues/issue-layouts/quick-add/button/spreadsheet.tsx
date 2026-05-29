@@ -19,8 +19,11 @@
  *     the label from issue-creation copy (`t("issue.add.label")`) to
  *     epic-creation copy (`t("epic.add.label")`).
  *
- * MobX stores read: none directly. Wrapped in `observer` from `mobx-react`
- * to future-proof for any reactive values consumed during render.
+ * MobX stores read: none directly. The component is wrapped in `observer`
+ * from `mobx-react` in the existing implementation; the observer-wrapper
+ * rationale is not inferable from this file.
+ * // INTENT UNCLEAR: observer wrapper is present despite no direct
+ * // observable reads in this component.
  *
  * Side effects:
  *   - Invokes the supplied `onClick` callback exactly once per click.

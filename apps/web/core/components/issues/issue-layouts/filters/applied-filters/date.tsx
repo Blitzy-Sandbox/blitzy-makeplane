@@ -8,15 +8,16 @@
  * Applied date filter chips.
  *
  * Rendered purpose: renders one removable chip per currently-applied date filter token in the issue
- * layout's applied-filters bar. Date tokens are either named presets (e.g. "1_weeks") or composite
- * `"YYYY-MM-DD;<before|after>"` tuples for custom date ranges.
+ * layout's applied-filters bar. Date tokens are either named presets (e.g. `"1_weeks;after;fromnow"`)
+ * or composite `"YYYY-MM-DD;<before|after>"` tuples for custom date ranges.
  *
  * Props (`Props`):
  *   - `handleRemove` (`(val: string) => void`, required): invoked with the date token that should be
  *     removed from the active filter. The parent aggregator is responsible for invoking
  *     `issuesFilter.updateFilters(workspaceSlug, projectId, EIssueFilterType.FILTERS, { ...dateKey: <next> })`.
  *   - `values` (`string[]`, required): currently-applied date tokens (either preset values such as
- *     `"1_weeks"` from `DATE_AFTER_FILTER_OPTIONS` or `"<ISO-date>;<after|before>"` composites).
+ *     `"1_weeks;after;fromnow"` from `DATE_AFTER_FILTER_OPTIONS` or `"<ISO-date>;<after|before>"`
+ *     composites).
  *
  * NOTE: unlike most chips in this folder, `AppliedDateFilters` has NO `editable` prop — the close
  * button is always rendered. (Date filter chips do not appear in read-only contexts.)

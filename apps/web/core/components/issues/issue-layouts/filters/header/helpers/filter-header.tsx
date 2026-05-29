@@ -24,8 +24,7 @@
  *
  * Accessibility considerations: the clickable toggle is a native `<button>` (focusable + keyboard
  * activatable by default) but does NOT declare `aria-expanded`. See the inline `INTENT UNCLEAR`
- * flag above the button for the observed a11y gap; do not change the runtime behavior to fix it
- * (system boundary forbids logic changes).
+ * flag above the button for the observed a11y gap.
  */
 
 // plane imports
@@ -41,8 +40,7 @@ export function FilterHeader({ title, isPreviewEnabled, handleIsPreviewEnabled }
   return (
     <div className="sticky top-0 flex items-center justify-between gap-2 bg-surface-1">
       <div className="flex-grow truncate text-caption-sm-medium text-placeholder">{title}</div>
-      {/* INTENT UNCLEAR: clickable header element does not declare aria-expanded; screen readers */}
-      {/* cannot announce collapsed/expanded state. */}
+      {/* INTENT UNCLEAR: the toggle button does not expose aria-expanded for the collapsed state. */}
       <button
         type="button"
         className="grid h-5 w-5 flex-shrink-0 place-items-center rounded-sm hover:bg-layer-transparent-hover"

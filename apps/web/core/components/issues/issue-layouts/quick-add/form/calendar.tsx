@@ -38,10 +38,10 @@
  *   - The wrapper `<div>` uses `opacity-0 + scale-95 + pointer-events-none` instead of conditional
  *     unmounting because animating opacity/scale on a persistent node is smoother and prevents calendar
  *     cell layout from collapsing/expanding when the form toggles.
- *   - // INTENT UNCLEAR: hard-coded English copy ("Epic Title" / "Work item Title" / "${...} title is
- *     required.") in this variant; other variants (`list.tsx`, `kanban.tsx`, `gantt.tsx`,
- *     `spreadsheet.tsx`) use `@plane/i18n` keys via `useTranslation()`. The discrepancy is preserved
- *     verbatim — adding `@plane/i18n` here is forbidden by the AAP system boundary "no new dependencies".
+ *   - // INTENT UNCLEAR: this calendar variant uses hard-coded English strings ("Epic Title" /
+ *     "Work item Title" / "${...} title is required.") while sibling quick-add variants
+ *     (`list.tsx`, `kanban.tsx`, `gantt.tsx`, `spreadsheet.tsx`) call `useTranslation()` from
+ *     `@plane/i18n`.
  *
  * Consumers: imported via the `./form/index.ts` barrel by the calendar layout container in
  * `apps/web/core/components/issues/issue-layouts/calendar/` through the parent `QuickAddIssueRoot`.

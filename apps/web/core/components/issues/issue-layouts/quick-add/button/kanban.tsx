@@ -19,8 +19,11 @@
  *     the label from issue-creation copy (`t("issue.new")`) to epic-creation
  *     copy (`t("epic.new")`).
  *
- * MobX stores read: none directly. Wrapped in `observer` from `mobx-react`
- * to future-proof for any reactive values consumed during render.
+ * MobX stores read: none directly. The component is wrapped in `observer`
+ * from `mobx-react` in the existing implementation; the observer-wrapper
+ * rationale is not inferable from this file.
+ * // INTENT UNCLEAR: observer wrapper is present despite no direct
+ * // observable reads in this component.
  *
  * Side effects:
  *   - Invokes the supplied `onClick` callback exactly once per click.
@@ -33,12 +36,13 @@
  * uses `epic.add.label` / `issue.add.label`).
  *
  * Visual / accessibility:
- *   - Renders a clickable `<div>` with `cursor-pointer` — keyboard activation
- *     is NOT natively supported on a `<div>`; the kanban column hosting this
- *     button is expected to surface its own keyboard affordance if required.
- *     // INTENT UNCLEAR: kanban variant uses `<div>` instead of a native
- *     // `<button>` (which list and gantt variants combine with `Row`).
- *     // Observed behavior: click works, keyboard does not.
+ *   - Renders a clickable `<div>` with `cursor-pointer` and an `onClick`
+ *     handler; the element has no `role`, `tabIndex`, or `onKeyDown`
+ *     declaration. Keyboard activation is NOT natively supported on a
+ *     `<div>`.
+ *     // INTENT UNCLEAR: kanban variant uses a clickable `<div>` with no
+ *     // keyboard handler in this component (list and gantt variants use
+ *     // a native `<button>` paired with `Row`).
  *   - `PlusIcon` from `@plane/propel/icons` provides the visual add cue.
  *   - Compact rounded pill styling (`rounded-lg`) matches the kanban
  *     column's add-card visual idiom.
