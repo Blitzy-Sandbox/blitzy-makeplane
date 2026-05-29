@@ -4,6 +4,32 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Route-aware layout orchestrator for the module-scoped issues page: resolves workspaceSlug, projectId, and moduleId
+ * from the route, hydrates module-scoped filters via SWR, and dispatches to one of the module layout variants
+ * (list / kanban / calendar / gantt / spreadsheet) wrapped in a scrollable Row container.
+ *
+ * Props: none — driven entirely by route params (workspaceSlug, projectId, moduleId via next/navigation useParams()).
+ *
+ * MobX stores read:
+ *   - useIssues(EIssuesStoreType.MODULE): destructures `issuesFilter` for getIssueFilters / fetchFilters / updateFilterExpression.
+ *
+ * Side effects:
+ *   - SWR key `MODULE_ISSUES_${workspaceSlug}_${projectId}_${moduleId}` → issuesFilter.fetchFilters(workspaceSlug, projectId, moduleId);
+ *     SWR options { revalidateIfStale: false, revalidateOnFocus: false }.
+ *   - Provides IssuesStoreContext.Provider value={EIssuesStoreType.MODULE} to descendants.
+ *   - Forwards `issuesFilter.updateFilterExpression.bind(issuesFilter, workspaceSlug, projectId, moduleId)` to
+ *     ProjectLevelWorkItemFiltersHOC as its `updateFilters` callback.
+ *
+ * Conditional rendering:
+ *   - Returns an empty fragment when any of workspaceSlug, projectId, moduleId, or workItemFilters is unresolved.
+ *
+ * Layout coverage: list / kanban / calendar / gantt (passes viewId=moduleId to BaseGanttRoot) / spreadsheet.
+ *
+ * Architecture: MobX exclusively (no Redux); store consumed via React context. All API calls flow through MobX
+ * store actions (fetchFilters, updateFilterExpression).
+ */
+
 import React from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
@@ -25,6 +51,7 @@ import { ModuleKanBanLayout } from "../kanban/roots/module-root";
 import { ModuleListLayout } from "../list/roots/module-root";
 import { ModuleSpreadsheetLayout } from "../spreadsheet/roots/module-root";
 
+/** Dispatches to the module's list/kanban/calendar/gantt/spreadsheet layout based on activeLayout; forwards moduleId to BaseGanttRoot as viewId. */
 function ModuleIssueLayout(props: { activeLayout: EIssueLayoutTypes | undefined; moduleId: string }) {
   switch (props.activeLayout) {
     case EIssueLayoutTypes.LIST:
