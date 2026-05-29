@@ -2,7 +2,110 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""Global Settings"""
+"""Shared base settings imported by every Plane API deployment overlay.
+
+This module establishes the baseline Django configuration that
+:mod:`plane.settings.local`, :mod:`plane.settings.test`, and
+:mod:`plane.settings.production` extend via ``from .common import *``.
+Every value is read from environment variables at import time; this
+module must not import models or query the database because settings
+are evaluated BEFORE the ``migrator`` container runs Django migrations
+(architectural contract per AAP §0.2.2).
+
+Async infrastructure boundaries (AAP §0.2.2):
+    - ``CELERY_BROKER_URL`` points at **RabbitMQ via AMQP**. Built from
+      the ``AMQP_URL`` env var when set, otherwise composed from
+      ``RABBITMQ_HOST``, ``RABBITMQ_PORT``, ``RABBITMQ_USER``,
+      ``RABBITMQ_PASSWORD``, and ``RABBITMQ_VHOST``. Celery workers
+      consume tasks via this broker — see :mod:`plane.celery`.
+    - ``CACHES["default"]`` is ``django_redis.cache.RedisCache`` against
+      ``REDIS_URL``. **Redis is the Django cache backend ONLY**; it is
+      NOT a Celery broker. When ``REDIS_URL`` uses the ``rediss://``
+      scheme, ``REDIS_SSL`` is set and the cache client is configured
+      with permissive certificate handling for managed Redis services.
+    - ``SESSION_ENGINE`` is the custom ``plane.db.models.session``
+      backend (a subclass of ``django.contrib.sessions.backends.db``).
+      Sessions are persisted in PostgreSQL, **not** Redis, despite the
+      AAP's general "cache + session" phrasing.
+
+Composition:
+    - ``INSTALLED_APPS`` = Django defaults (auth, contenttypes, sessions,
+      staticfiles) + Plane app namespaces (``plane.analytics``,
+      ``plane.app``, ``plane.space``, ``plane.bgtasks``, ``plane.db``,
+      ``plane.utils``, ``plane.web``, ``plane.middleware``,
+      ``plane.license``, ``plane.api``, ``plane.authentication``) +
+      third-party (``rest_framework``, ``corsheaders``,
+      ``django_celery_beat``).
+    - ``MIDDLEWARE`` order is significant: CORS first, security and
+      whitenoise before session/auth, request-scoped logging middlewares
+      (``RequestBodySizeLimitMiddleware``, ``APITokenLogMiddleware``,
+      ``RequestLoggerMiddleware``) last.
+    - ``REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]``: ``anon`` is
+      ``30/minute`` (global anonymous throttle); ``asset_id`` is
+      ``5/minute`` (presigned-asset endpoint scope).
+
+Database configuration:
+    - ``DATABASES["default"]`` is parsed from ``DATABASE_URL`` when set,
+      otherwise composed from ``POSTGRES_DB``, ``POSTGRES_USER``,
+      ``POSTGRES_PASSWORD``, ``POSTGRES_HOST``, ``POSTGRES_PORT``.
+    - The custom user model is ``db.User``.
+    - Session storage uses the ``sessions`` table via
+      ``plane.db.models.session.Session``.
+
+Conditional, import-time side effects:
+    - ``ENABLE_READ_REPLICA=1`` adds a ``replica`` DB alias (parsed from
+      ``DATABASE_READ_REPLICA_URL`` or composed from
+      ``POSTGRES_READ_REPLICA_*`` env vars), registers
+      :class:`plane.utils.core.dbrouters.ReadReplicaRouter`, and APPENDS
+      :class:`plane.middleware.db_routing.ReadReplicaRoutingMiddleware`
+      to the ``MIDDLEWARE`` list.
+    - ``ENABLE_DRF_SPECTACULAR=1`` sets the DRF
+      ``DEFAULT_SCHEMA_CLASS``, APPENDS ``drf_spectacular`` to
+      ``INSTALLED_APPS``, and imports :mod:`plane.settings.openapi`.
+    - ``USE_MINIO=1`` rewrites ``AWS_S3_CUSTOM_DOMAIN`` to a MinIO
+      reverse-proxy host derived from ``WEB_URL``.
+    - ``WEBHOOK_ALLOWED_IPS`` is parsed as a comma-separated list of
+      CIDR ranges; invalid entries are logged via the ``plane`` logger
+      and skipped.
+
+CORS / CSRF security:
+    - ``CORS_ALLOWED_ORIGINS`` is sourced from the
+      ``CORS_ALLOWED_ORIGINS`` env var (comma-separated). When unset
+      ``CORS_ALLOW_ALL_ORIGINS`` is enabled. ``secure_origins`` is
+      derived from the scheme of the configured origins and drives
+      ``SESSION_COOKIE_SECURE`` and ``CSRF_COOKIE_SECURE``.
+    - ``CSRF_TRUSTED_ORIGINS`` mirrors ``CORS_ALLOWED_ORIGINS``.
+
+Object storage:
+    - ``STORAGES["default"]`` is :class:`plane.settings.storage.S3Storage`.
+    - Credentials are sourced from ``AWS_ACCESS_KEY_ID``,
+      ``AWS_SECRET_ACCESS_KEY``, ``AWS_S3_BUCKET_NAME``, ``AWS_REGION``,
+      and either ``AWS_S3_ENDPOINT_URL`` or ``MINIO_ENDPOINT_URL``.
+
+Email transport: ``EMAIL_BACKEND`` defaults to SMTP; overlays
+(``local.py``, ``test.py``) override this to console/locmem for
+development and tests.
+
+Attachment policy: ``ATTACHMENT_MIME_TYPES`` enumerates the allowed
+upload MIME types (images, documents, audio, video, archives, 3D
+models, fonts, code/data formats). ``FILE_SIZE_LIMIT`` (also bound to
+``DATA_UPLOAD_MAX_MEMORY_SIZE``) defaults to 5 MB.
+
+Base URLs / paths:
+    - ``ADMIN_BASE_URL`` / ``ADMIN_BASE_PATH`` (``/god-mode/`` default).
+    - ``SPACE_BASE_URL`` / ``SPACE_BASE_PATH`` (``/spaces/`` default).
+    - ``APP_BASE_URL`` / ``APP_BASE_PATH`` (``/`` default).
+    - ``LIVE_BASE_URL`` / ``LIVE_BASE_PATH`` (``/live/`` default);
+      ``LIVE_URL`` is the joined URL or ``None`` if no base URL.
+    - ``WEB_URL`` is the public origin.
+    - URL strings are validated via :func:`plane.utils.url.is_valid_url`
+      and reset to ``None`` if malformed.
+
+MongoDB integration: ``MONGO_DB_URL`` and ``MONGO_DB_DATABASE`` are
+read; the actual connection is created lazily in
+:mod:`plane.settings.mongo.MongoConnection`. MongoDB is optional and
+the API boots fine without it (see that module's docstring).
+"""
 
 # Python imports
 import ipaddress
