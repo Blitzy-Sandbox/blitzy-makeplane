@@ -4,6 +4,50 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Cycle filters selection orchestrator.
+ *
+ * Top-level container for the cycles filter dropdown that composes the three
+ * sub-sections (status, start date, end date) with a controlled search input
+ * whose query is forwarded to each section for substring matching. Wrapped
+ * in MobX `observer` so any observable read transitively reached through the
+ * child sub-sections re-renders the dropdown.
+ *
+ * Props:
+ *   - `filters: TCycleFilters` (required) — current filter snapshot owned by
+ *     the caller (typically wired to a cycle-filter MobX store).
+ *   - `handleFiltersUpdate: (key: keyof TCycleFilters, value: string | string[]) => void`
+ *     (required) — callback that propagates a sub-section's selection back to
+ *     the parent. The parent owns the actual store mutation — this component
+ *     is fully prop-driven and never writes to a MobX store directly.
+ *   - `isArchived?: boolean` (optional, default `false`) — when `true` the
+ *     status sub-section is suppressed because archived cycles have no live
+ *     status to filter against.
+ *
+ * MobX stores read:
+ *   - None directly. The component is prop-driven; the parent (e.g. the
+ *     cycles list / archived-cycles header) is responsible for reading and
+ *     mutating the cycle filter store.
+ *
+ * Hooks consumed:
+ *   - `usePlatformOS` — gates `autoFocus` on the search input so focus is
+ *     auto-engaged on desktop only (skipped on mobile to avoid the soft
+ *     keyboard popping up when the dropdown opens).
+ *
+ * Local state:
+ *   - `filtersSearchQuery: string` — controlled search input value;
+ *     forwarded to each sub-section's `searchQuery` prop and cleared by the
+ *     in-input close button.
+ *
+ * Side effects:
+ *   - Invokes `handleFiltersUpdate(key, value)` when a sub-section reports
+ *     a selection change.
+ *   - No direct store writes, no API calls, no navigations.
+ *
+ * Consumers: `cycles-view-header.tsx` (cycles list page header) and the
+ * archived-cycles header, via the `dropdowns/filters` barrel.
+ */
+
 import { useState } from "react";
 import { observer } from "mobx-react";
 import { SearchIcon, CloseIcon } from "@plane/propel/icons";
