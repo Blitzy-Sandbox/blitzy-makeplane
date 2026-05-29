@@ -4,6 +4,36 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Cycle list page header that renders an inline expandable search input plus a filters
+ * dropdown trigger, mutating the cycle-filter store on every keystroke / filter toggle.
+ *
+ * Props:
+ *   - projectId (string, required): project ID used as the partition key for filter
+ *     mutations (updateFilters is keyed by project, so the right project's filter slice
+ *     is updated).
+ *
+ * MobX stores read:
+ *   - useCycleFilter (cycle filter store): currentProjectFilters (TCycleFilters) for the
+ *     active filter selection, searchQuery for the live search input value, plus the
+ *     updateFilters and updateSearchQuery action setters.
+ *
+ * Side effects:
+ *   - Mutations (synchronous, MobX store-only):
+ *       - updateFilters(projectId, { [key]: newValues }) on each filter toggle in
+ *         handleFilters — toggles a value in/out of an array per filter key.
+ *       - updateSearchQuery(string) on every keystroke in the search input.
+ *   - DOM/ref interactions:
+ *       - useRef on the input element; inputRef.current?.focus() when opening the search,
+ *         .blur() on Escape when the query is already empty.
+ *       - useOutsideClickDetector to collapse the search affordance when the user clicks
+ *         away with an empty query.
+ *   - Keyboard: Escape clears the query first, then collapses the input on a second press.
+ *   - No direct API calls — all data flow is store-mediated.
+ *
+ * Consumers: rendered from the cycles list route header alongside view-level controls.
+ */
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { ListFilter } from "lucide-react";
