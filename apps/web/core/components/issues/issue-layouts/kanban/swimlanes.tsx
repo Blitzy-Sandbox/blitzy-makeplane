@@ -4,6 +4,40 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Swimlane variant of the Kanban issue layout.
+ *
+ * Rendered purpose: composes a two-dimensional grouped board when BOTH `group_by` and `sub_group_by`
+ * display filters are active. Renders a sticky header row showing the primary `group_by` columns
+ * (e.g. states), then renders a `SubGroupSwimlane` per `sub_group_by` value (e.g. priorities) where
+ * each subgroup contains a nested `KanBan` instance from `./default`.
+ *
+ * Module exports:
+ *   - `KanBanSwimLanes` (default export shape used by `base-kanban-root.tsx` via the
+ *     `KanBanView = sub_group_by ? KanBanSwimLanes : KanBan` switch)
+ *   - `IKanBanSwimLanes` interface — the full prop contract forwarded down to nested boards
+ *
+ * Composition:
+ *   - `KanBanSwimLanes` resolves the column lists via `getGroupByColumns` for both `group_by` and
+ *     `sub_group_by`, then renders:
+ *       1. `SubGroupSwimlaneHeader` — the horizontally-scrolling primary group header row
+ *       2. `SubGroupSwimlane` — one row per subgroup, each containing a full nested `KanBan` board
+ *          scoped to that subgroup id.
+ *
+ * MobX stores read:
+ *   - `useIssueStoreType()` resolves the active `EIssuesStoreType` from the URL; used to determine
+ *     workspace-scoped vs. project-scoped column construction via `isWorkspaceLevel(storeType)`.
+ *   - `useWorkFlowFDragNDrop(group_by, sub_group_by)` (from plane-web) exposes
+ *     `getIsWorkflowWorkItemCreationDisabled` for workflow-aware quick-add gating.
+ *
+ * Side effects: none directly — all mutations (`updateIssue`, `quickAddCallback`, `handleOnDrop`,
+ * `addIssuesToView`, `handleCollapsedGroups`, `loadMoreIssues`) are forwarded into the nested
+ * `KanBan` instances which register the actual Pragmatic DnD drop targets and call store mutators.
+ *
+ * Consumers:
+ *   - `./base-kanban-root.tsx` — selects this variant whenever `sub_group_by` is truthy.
+ */
+
 import type { MutableRefObject } from "react";
 import { observer } from "mobx-react";
 // plane imports
@@ -32,6 +66,12 @@ import { KanBan } from "./default";
 import { HeaderGroupByCard } from "./headers/group-by-card";
 import { HeaderSubGroupByCard } from "./headers/sub-group-by-card";
 
+/**
+ * Props for the internal `SubGroupSwimlaneHeader` component.
+ *
+ * Encapsulates the inputs needed to render the sticky top header strip of primary `group_by`
+ * columns above the swimlane rows.
+ */
 interface ISubGroupSwimlaneHeader {
   collapsedGroups: TIssueKanbanFilters;
   group_by: TIssueGroupByOptions | undefined;
@@ -47,6 +87,12 @@ interface ISubGroupSwimlaneHeader {
   sub_group_by: TIssueGroupByOptions | undefined;
 }
 
+/**
+ * Determines whether a primary-group column header should render in the swimlane header strip.
+ *
+ * Returns false ONLY when `showEmptyGroup` is false AND the column has zero issues — otherwise
+ * always returns true so the header remains visible even when toggled to "show empty groups".
+ */
 const visibilitySubGroupByGroupCount = (subGroupIssueCount: number, showEmptyGroup: boolean): boolean => {
   let subGroupHeaderVisibility = true;
 
@@ -59,6 +105,12 @@ const visibilitySubGroupByGroupCount = (subGroupIssueCount: number, showEmptyGro
   return subGroupHeaderVisibility;
 };
 
+/**
+ * Renders the sticky primary `group_by` header strip at the top of the swimlane board.
+ *
+ * Side effects: none — purely presentational. Collapse toggles are delegated to the parent via
+ * `handleCollapsedGroups`.
+ */
 const SubGroupSwimlaneHeader = observer(function SubGroupSwimlaneHeader({
   collapsedGroups,
   getGroupIssueCount,
@@ -104,6 +156,12 @@ const SubGroupSwimlaneHeader = observer(function SubGroupSwimlaneHeader({
   );
 });
 
+/**
+ * Props for the internal `SubGroupSwimlane` component.
+ *
+ * Extends `ISubGroupSwimlaneHeader` with the full set of board controls forwarded to each nested
+ * `KanBan` instance (one per `sub_group_by` value).
+ */
 interface ISubGroupSwimlane extends ISubGroupSwimlaneHeader {
   addIssuesToView?: (issueIds: string[]) => Promise<TIssue>;
   canEditProperties: (projectId: string | undefined) => boolean;
@@ -130,6 +188,17 @@ interface ISubGroupSwimlane extends ISubGroupSwimlaneHeader {
   updateIssue: ((projectId: string | null, issueId: string, data: Partial<TIssue>) => Promise<void>) | undefined;
 }
 
+/**
+ * Renders one swimlane row per `sub_group_by` value, each containing a sticky subgroup header
+ * (`HeaderSubGroupByCard`) and a nested `KanBan` board scoped to that subgroup id.
+ *
+ * Visibility logic (`visibilitySubGroupBy`):
+ *   - When `showEmptyGroup` is true, the subgroup row always renders.
+ *   - When `showEmptyGroup` is false, the row renders only if the cumulative issue count for that
+ *     subgroup is > 0.
+ *   - Issue rendering is suppressed (the nested `KanBan` is hidden) when the subgroup is collapsed
+ *     via `collapsedGroups.sub_group_by`.
+ */
 const SubGroupSwimlane = observer(function SubGroupSwimlane(props: ISubGroupSwimlane) {
   const {
     addIssuesToView,
@@ -235,6 +304,7 @@ const SubGroupSwimlane = observer(function SubGroupSwimlane(props: ISubGroupSwim
   );
 });
 
+/** Props for `KanBanSwimLanes`; full set of board controls forwarded from `BaseKanBanRoot`. */
 export interface IKanBanSwimLanes {
   addIssuesToView?: (issueIds: string[]) => Promise<TIssue>;
   canEditProperties: (projectId: string | undefined) => boolean;
@@ -263,6 +333,7 @@ export interface IKanBanSwimLanes {
   updateIssue: ((projectId: string | null, issueId: string, data: Partial<TIssue>) => Promise<void>) | undefined;
 }
 
+/** Swimlane variant of the Kanban layout; see the module-level JSDoc for full semantics. */
 export const KanBanSwimLanes = observer(function KanBanSwimLanes(props: IKanBanSwimLanes) {
   const {
     issuesMap,
