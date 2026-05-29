@@ -4,6 +4,64 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * `<table>` shell for the spreadsheet issue layout.
+ *
+ * Rendered purpose: builds the actual HTML table shell combining `<SpreadsheetHeader>`, one
+ * `<SpreadsheetIssueRow>` per issue id, and an optional `<tfoot>` infinite-scroll loader. It also
+ * (a) applies a scroll-shadow style to the leading sticky column when the table is horizontally
+ * scrolled, (b) handles spreadsheet keyboard navigation, and (c) wires the intersection observer
+ * that triggers pagination as the user scrolls.
+ *
+ * Props (Props):
+ *   - displayProperties (IIssueDisplayProperties, required): which columns to render in this table
+ *   - displayFilters (IIssueDisplayFilterOptions, required): active sort / filter state passed to
+ *     header for sort-indicator rendering
+ *   - handleDisplayFilterUpdate ((data) => void, required): callback to persist display-filter
+ *     changes from header sort menu
+ *   - issueIds (string[], required): the flat list of issue ids; each becomes a top-level
+ *     `<SpreadsheetIssueRow>`
+ *   - isEstimateEnabled (boolean, required): when false, the estimate column is excluded from
+ *     `displayPropertiesCount` (the loader skeleton width adjusts accordingly)
+ *   - quickActions (TRenderQuickActions, required): per-row quick-action render-prop
+ *   - updateIssue (mutator, required): inline-cell-edit mutator passed to every row
+ *   - canEditProperties ((projectId) => boolean, required): per-project edit gate
+ *   - portalElement (MutableRefObject<HTMLDivElement | null>, required): shared portal container
+ *     for cell dropdowns
+ *   - containerRef (MutableRefObject<HTMLTableElement | null>, required): the scrollable container
+ *     element used by both the intersection observer and the scroll-shadow handler
+ *   - canLoadMoreIssues (boolean, required): when true, render the `<tfoot>` skeleton + observer
+ *   - loadMoreIssues (() => void, required): paginator callback invoked when the `<tfoot>`
+ *     intersection target enters the viewport
+ *   - spreadsheetColumnsList ((keyof IIssueDisplayProperties)[], required): the actual columns to
+ *     render (already feature-flag-filtered by `SpreadsheetView`)
+ *   - selectionHelpers (TSelectionHelper, required): bulk-selection helpers from `<MultipleSelectGroup>`
+ *   - isEpic (boolean, optional, default=false): epic-mode flag forwarded into header + rows
+ *
+ * MobX stores read:
+ *   - `useIssuesStore()` exposes `issues.getIssueLoader()` — checked to suspend the intersection
+ *     observer while a paginate-next call is already in flight (prevents duplicate fetches).
+ *
+ * Side effects (imperative DOM operations — required by Directive 2):
+ *   - `handleScroll` listener (attached on mount, removed on unmount) reads `containerRef.current.scrollLeft`
+ *     and mutates the `boxShadow` style of every leading sticky `<th>` / `<td>` to produce a shadow
+ *     when the user has scrolled horizontally. Direct DOM mutation is used INSTEAD OF re-rendering
+ *     to keep large issue tables performant (re-rendering every row on each scroll event would be
+ *     prohibitively expensive — preserved per the existing inline comment at line 77).
+ *   - `useIntersectionObserver(containerRef, ... , loadMoreIssues, ...)` wires infinite scroll;
+ *     suspended when `isPaginating` is true.
+ *   - `useTableKeyboardNavigation()` returns a `onKeyDown` handler that implements arrow-key
+ *     navigation across spreadsheet cells (focus-management is delegated to the hook).
+ *
+ * Derived state:
+ *   - `displayPropertiesCount = getDisplayPropertiesCount(displayProperties, ignoreFieldsForCounting)`
+ *     where `ignoreFieldsForCounting` always excludes `"key"` and additionally excludes `"estimate"`
+ *     when the project has no estimate scale. This count is used solely to size the `<tfoot>` skeleton.
+ *
+ * Consumers:
+ *   - `./spreadsheet-view.tsx` — the only consumer; this module is not exported via a barrel.
+ */
+
 import type { MutableRefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { observer } from "mobx-react";
@@ -22,6 +80,7 @@ import { getDisplayPropertiesCount } from "../utils";
 import { SpreadsheetIssueRow } from "./issue-row";
 import { SpreadsheetHeader } from "./spreadsheet-header";
 
+/** Props for `SpreadsheetTable`. */
 type Props = {
   displayProperties: IIssueDisplayProperties;
   displayFilters: IIssueDisplayFilterOptions;
@@ -40,6 +99,7 @@ type Props = {
   isEpic?: boolean;
 };
 
+/** Table shell for the spreadsheet layout; see the module-level JSDoc for full semantics. */
 export const SpreadsheetTable = observer(function SpreadsheetTable(props: Props) {
   const {
     displayProperties,
