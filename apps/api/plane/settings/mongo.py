@@ -2,6 +2,30 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Singleton accessor for an optional MongoDB connection.
+
+MongoDB is a graceful, opt-in integration used by background tasks for
+analytics-style and audit-style storage. It is **NOT** required for the
+Plane API to boot: when ``MONGO_DB_URL`` or ``MONGO_DB_DATABASE`` are
+unset (or unreachable), :class:`MongoConnection` logs a warning and
+exposes ``None`` from its accessor methods so callers can short-circuit
+on :meth:`MongoConnection.is_configured` rather than handling exceptions.
+
+Documented consumers (from a repository scan of ``MongoConnection``):
+    - :mod:`plane.bgtasks.logger_task` — async log shipping to a
+      ``logs`` collection.
+    - :mod:`plane.bgtasks.cleanup_task` — retention sweep for stored
+      records.
+    - :mod:`plane.bgtasks.webhook_task` — webhook delivery audit trail.
+
+The connection credentials are read lazily on first instantiation from
+``django.conf.settings`` (which sources them from the ``MONGO_DB_URL``
+and ``MONGO_DB_DATABASE`` env vars wired in :mod:`plane.settings.common`)
+so the import-time contract with the migrator startup sequence is
+preserved: this module does NOT establish a connection or read schema
+state at import time.
+"""
+
 # Django imports
 from django.conf import settings
 import logging
@@ -38,10 +62,10 @@ class MongoConnection:
 
     def __new__(cls: Type[T]) -> T:
         """
-        Creates a new instance of MongoConnection if one doesn't exist.
+        Create a new instance of MongoConnection if one does not exist.
 
         Returns:
-            MongoConnection: The singleton instance
+            MongoConnection: The singleton instance.
         """
         if cls._instance is None:
             cls._instance = super(MongoConnection, cls).__new__(cls)
@@ -70,10 +94,10 @@ class MongoConnection:
     @classmethod
     def get_client(cls) -> Optional[MongoClient]:
         """
-        Returns the MongoDB client instance.
+        Return the MongoDB client instance.
 
         Returns:
-            Optional[MongoClient]: The MongoDB client instance or None if not configured
+            Optional[MongoClient]: The MongoDB client instance or None if not configured.
         """
         if cls._client is None:
             cls._instance = cls()
@@ -82,10 +106,10 @@ class MongoConnection:
     @classmethod
     def get_db(cls) -> Optional[Database]:
         """
-        Returns the MongoDB database instance.
+        Return the MongoDB database instance.
 
         Returns:
-            Optional[Database]: The MongoDB database instance or None if not configured
+            Optional[Database]: The MongoDB database instance or None if not configured.
         """
         if cls._db is None:
             cls._instance = cls()
@@ -94,13 +118,13 @@ class MongoConnection:
     @classmethod
     def get_collection(cls, collection_name: str) -> Optional[Collection]:
         """
-        Returns a MongoDB collection by name.
+        Return a MongoDB collection by name.
 
         Args:
-            collection_name (str): The name of the collection to retrieve
+            collection_name (str): The name of the collection to retrieve.
 
         Returns:
-            Optional[Collection]: The MongoDB collection instance or None if not configured
+            Optional[Collection]: The MongoDB collection instance or None if not configured.
         """
         try:
             db = cls.get_db()
