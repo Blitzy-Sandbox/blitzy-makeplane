@@ -4,6 +4,39 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Main cycles screen body that selects between three views — loading skeleton,
+ * search/filter empty state, or the populated CyclesList — based on cycle store
+ * data and the user's current filter selection.
+ *
+ * Props (ICyclesView):
+ *   - workspaceSlug (string, required): workspace slug used for store lookups and
+ *     pass-through to CyclesList.
+ *   - projectId (string, required): project ID used to compute filtered cycle IDs
+ *     and as the partition key for CyclesList.
+ *
+ * MobX stores read:
+ *   - useCycle (cycle store): getFilteredCycleIds(projectId, false) for non-completed
+ *     cycles, getFilteredCompletedCycleIds(projectId) for completed cycles, the
+ *     boolean `loader` flag, and `currentProjectActiveCycleId` used to subtract the
+ *     active cycle from the upcoming subset.
+ *   - useCycleFilter (cycle filter store): searchQuery used to pick the empty-state
+ *     copy and artwork variant.
+ *
+ * Side effects:
+ *   - None directly — no service calls, no navigations, no mutations. This component
+ *     is a pure selector over store-derived data; downstream data fetching is owned
+ *     by parent route components.
+ *
+ * Conditional rendering:
+ *   - When `loader` is truthy or `filteredCycleIds` is undefined → CycleModuleListLayoutLoader.
+ *   - When BOTH active+upcoming AND completed result sets are empty → empty state with
+ *     either AllFiltersImage (no search query) or NameFilterImage (search query set).
+ *   - Otherwise → CyclesList with completed / upcoming / overall cycle ID partitions.
+ *
+ * Consumers: cycle index route (apps/web/app/[workspaceSlug]/projects/[projectId]/cycles).
+ */
+
 import { observer } from "mobx-react";
 // components
 import { useTranslation } from "@plane/i18n";
