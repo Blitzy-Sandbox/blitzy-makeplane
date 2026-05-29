@@ -4,6 +4,43 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Calendar issue card UI: a clickable work-item block with a state-colored
+ * strip, identifier badge, hover preview popover, quick-action menu, and
+ * peek-overview redirection on click.
+ *
+ * Props (Props type, L32):
+ *   - issue (required) — full TIssue record; project_id, state_id, sequence_id
+ *     and tempId are consumed for color, identifier, link, and optimistic UI.
+ *   - quickActions (required) — render-prop returning the quick-action menu.
+ *   - isDragging (optional) — toggles the dragging visual treatment.
+ *   - isEpic (optional) — switches identifier rendering + redirection to epic mode.
+ *   - ref (forwarded HTMLAnchorElement) — anchor on which ./issue-block-root
+ *     attaches draggable behavior; the observer(forwardRef(...)) wrapper is
+ *     required because Atlaskit registers `draggable` on the forwarded anchor.
+ *
+ * Stores read:
+ *   - useProjectState().getProjectStates — state color resolution.
+ *   - useIssueDetail().getIsIssuePeeked — peek selection styling.
+ *   - useProject().getProjectIdentifierById — identifier prefix.
+ *   - useIssues(storeType).issuesFilter — displayProperties for IssueIdentifier
+ *     (storeType resolved via useIssueStoreType() as CalendarStoreType).
+ *   - useIssuePeekOverviewRedirection(isEpic) — peek/navigation handler.
+ *   - usePlatformOS().isMobile — disables ControlLink, routes through peek instead.
+ *
+ * Side effects:
+ *   - On click: handleRedirection(workspaceSlug, issue, isMobile) — opens peek
+ *     or navigates depending on platform.
+ *   - useOutsideClickDetector closes the quick-action menu.
+ *   - generateWorkItemLink (@plane/utils) builds the ControlLink href.
+ *   - Quick-action placement flips between "bottom-end" and "top-end" based on
+ *     viewport position of the trigger to avoid clipping near the bottom edge.
+ *
+ * Consumers:
+ *   - ./issue-block-root.tsx (CalendarIssueBlockRoot) — supplies the forwardRef
+ *     anchor used as the Atlaskit draggable element.
+ */
+
 import { useState, useRef, forwardRef } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
@@ -36,6 +73,7 @@ type Props = {
   isEpic?: boolean;
 };
 
+/** Single calendar issue card with hover preview, quick-actions, identifier badge, and peek redirection. */
 export const CalendarIssueBlock = observer(
   forwardRef(function CalendarIssueBlock(props: Props, ref: React.ForwardedRef<HTMLAnchorElement>) {
     const { issue, quickActions, isDragging = false, isEpic = false } = props;
