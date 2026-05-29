@@ -4,6 +4,58 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Single Kanban lane (column) with full drag-and-drop, pagination, and quick-add wiring.
+ *
+ * Rendered purpose: renders the contents of one group-by column — the drag overlay, the issue
+ * blocks list, the load-more / pagination skeleton, and the optional quick-add form. Registers the
+ * column as a Pragmatic DnD drop target so issues can be moved into it.
+ *
+ * Module exports:
+ *   - `KanbanGroup` — used by `./default.tsx` (and indirectly by `./swimlanes.tsx`) to render each
+ *     column inside a `RenderIfVisible` lazy mount.
+ *
+ * MobX stores read:
+ *   - `useProjectState()` exposes `projectStates`, used to resolve the default state for new
+ *     issues created via the in-column quick-add form.
+ *   - `useIssuesStore()` exposes `issues.getGroupIssueCount`, `issues.getPaginationData`, and
+ *     `issues.getIssueLoader` (loader state, pagination cursor, total count for this column).
+ *   - `useWorkFlowFDragNDrop(group_by, sub_group_by)` (plane-web) exposes
+ *     `workflowDisabledSource`, `isWorkflowDropDisabled`, `handleWorkFlowState`, and
+ *     `getIsWorkflowWorkItemCreationDisabled` — workflow-aware drop blocking + creation gating.
+ *
+ * Side effects (registered via `useEffect`):
+ *   1. Registers the column DOM node as a Pragmatic DnD `dropTargetForElements` with payload
+ *      `{ groupId, subGroupId, columnId: '<groupId>__<subGroupId>', type: 'COLUMN' }`.
+ *      On `onDragEnter`/`onDragStart` it calls `handleWorkFlowState` (workflow context update),
+ *      and on `onDrop` it either emits a warning toast (when workflow- or column-disabled) or
+ *      invokes `handleOnDrop(source, destination)` and then `highlightIssueOnDrop(...)` to flash
+ *      the moved card after persistence.
+ *   2. Registers `autoScrollForElements` on the column so vertical scroll auto-engages near edges
+ *      during a drag.
+ *   3. Subscribes to `useIntersectionObserver(containerRef, intersectionElement, loadMoreIssues, ...)`
+ *      so reaching the bottom skeleton card triggers pagination (`loadMoreIssues(groupId, subGroupId)`)
+ *      UNLESS the loader is already in a pagination state.
+ *
+ * Quick-add prepopulation (`prePopulateQuickAddData`):
+ *   - Maps the current `group_by` and `sub_group_by` values to issue-creation defaults so a new
+ *     issue created from this lane lands inside it. Handles state, priority, cycle, module, labels,
+ *     assignees, and created_by, plus arbitrary scalar group keys.
+ *   - The `created_by` branch intentionally falls through to just the default state because the
+ *     creator id is set server-side from the auth context.
+ *
+ * Drop-overlay logic (the WHY):
+ *   - `canOverlayBeVisible = isWorkflowDropDisabled || orderBy !== "sort_order" || isDropDisabled` —
+ *     the overlay only appears when the drop would either be rejected (workflow / column-level) or
+ *     would change the sort order in a non-manual sort context (drops in non-`sort_order` views
+ *     would not be persistable as ordering moves).
+ *   - `canDragIssuesInCurrentGrouping` checks `DRAG_ALLOWED_GROUPS` for both `group_by` and
+ *     `sub_group_by` — only specific group keys (e.g. state, priority) support drag-to-move.
+ *
+ * Consumers:
+ *   - `./default.tsx` — instantiates one `KanbanGroup` per column (wrapped in `RenderIfVisible`).
+ */
+
 import type { MutableRefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
@@ -47,6 +99,13 @@ import type { TRenderQuickActions } from "../list/list-view-types";
 import { KanbanQuickAddIssueButton, QuickAddIssueRoot } from "../quick-add";
 import { KanbanIssueBlocksList } from "./blocks-list";
 
+/**
+ * Props for `KanbanGroup`.
+ *
+ * The `isDragDisabled` / `isDropDisabled` flags are caller-computed (in `./default.tsx`) and
+ * forwarded here so this component can render the appropriate overlay state without re-reading
+ * the kanban-view store directly.
+ */
 interface IKanbanGroup {
   groupId: string;
   issuesMap: IIssueMap;
@@ -72,6 +131,7 @@ interface IKanbanGroup {
   isEpic?: boolean;
 }
 
+/** Single Kanban lane with DnD, pagination, and quick-add wiring; see the module-level JSDoc. */
 export const KanbanGroup = observer(function KanbanGroup(props: IKanbanGroup) {
   const {
     groupId,
@@ -195,6 +255,14 @@ export const KanbanGroup = observer(function KanbanGroup(props: IKanbanGroup) {
     handleOnDrop,
   ]);
 
+  /**
+   * Builds the seed payload for the in-column quick-add form so a newly created issue lands inside
+   * this lane (or sub-lane) automatically.
+   *
+   * Returns a merged object containing the default state plus any group/subgroup field assignments;
+   * sentinel values of "None" for labels/assignees are filtered out because the backend expects an
+   * absent field, not a "None"-labelled record.
+   */
   const prePopulateQuickAddData = (
     groupByKey: string | undefined,
     subGroupByKey: string | undefined | null,
