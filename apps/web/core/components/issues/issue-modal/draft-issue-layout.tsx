@@ -4,6 +4,54 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Draft-aware wrapper around the shared issue form that adds discard-confirmation and "save to drafts" behavior.
+ *
+ * Rendered purpose: composes `IssueFormRoot` and `ConfirmIssueDiscard` to detect unsaved changes on close,
+ * sanitize ephemeral / empty fields, and prompt the user to discard or save the in-progress work item as a draft.
+ *
+ * Props (`DraftIssueProps extends IssueFormProps`):
+ *   - changesMade (Partial<TIssue> | null, required): the dirty form snapshot tracked by `CreateUpdateIssueModalBase`
+ *   - onChange ((formData: Partial<TIssue> | null) => void, required): callback used to clear or update the
+ *     parent's `changesMade` state (typically `setChangesMade(null)`)
+ *   - …all `IssueFormProps` fields (forwarded to `IssueFormRoot`) — see `./form` for the full prop list
+ *
+ * MobX stores read:
+ *   - `useIssueModal()` — `handleCreateUpdatePropertyValues` (additional-property persistence after a draft is created)
+ *   - `useWorkspaceDraftIssues()` — `createIssue` (persists the work item to the workspace draft store)
+ *
+ * Side effects:
+ *   - Draft persistence: `createIssue(workspaceSlug, payload)` from the workspace draft store. The payload is
+ *     the sanitized `changesMade` snapshot, merging `name → trim() || "Untitled"` and `project_id` from the
+ *     form prop.
+ *   - Property persistence: `handleCreateUpdatePropertyValues({ issueId, issueTypeId, projectId, workspaceSlug,
+ *     isDraft: true })` fired after a successful draft create.
+ *   - Toasts: `setToast({ type: TOAST_TYPE.SUCCESS | ERROR, ... })` with i18n strings
+ *     `workspace_draft_issues.toasts.created.success` / `.error`.
+ *   - No direct service calls — persistence flows through MobX store actions which in turn invoke
+ *     `WorkspaceDraftIssueService` (or similar) under the hood.
+ *   - No navigations — `onClose` is invoked instead.
+ *
+ * Derived state / imperative notes:
+ *   - `sanitizeChanges()` strips: null/undefined/empty-string values, empty objects/arrays, `project_id`
+ *     (irrelevant for the draft payload key), `priority === "none"`, and `description_html` that is "empty HTML"
+ *     by `isEmptyHtmlString(html, ["img"])` (images alone do not count as content).
+ *   - `handleClose()` decision tree:
+ *       1. If `data?.id` is truthy → user is editing an existing work item → close immediately (no discard prompt).
+ *       2. Else if `changesMade` is non-null AND sanitized changes are non-empty → open the discard modal.
+ *       3. Else → close immediately.
+ *   - `handleDraftAndClose()` (passed to `IssueFormRoot` as `handleDraftAndClose`) creates a draft when there
+ *     are sanitized changes and `data.id` is absent, then closes. Wired into the form-level "save to drafts"
+ *     button flow.
+ *   - The local `issueDiscardModal` boolean controls `ConfirmIssueDiscard.isOpen`.
+ *
+ * Architectural notes (per AAP §0.2.2):
+ *   - MobX exclusively — workspace draft issues live in `apps/web/core/store/workspace-draft/` and are exposed
+ *     via the `useWorkspaceDraftIssues` hook.
+ *   - i18n via `@plane/i18n` `useTranslation()`; all user-facing strings are i18n keys.
+ *   - Router context (`workspaceSlug`) sourced from `useParams()`.
+ */
+
 import { useState } from "react";
 import { isEmpty } from "lodash-es";
 import { observer } from "mobx-react";
