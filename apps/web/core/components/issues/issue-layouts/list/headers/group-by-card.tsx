@@ -4,6 +4,56 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Interactive group-header card rendered above each grouped section in the list layout.
+ *
+ * Rendered purpose: shows the group icon + title + count, exposes a multi-select group action,
+ * toggles the group's collapsed state on click, and conditionally renders a "+" affordance to either
+ * (a) open the create-issue / create-epic modal pre-populated with the group's payload, or (b) (for
+ * module / cycle scopes) open the existing-issues picker to attach existing issues to the current view.
+ *
+ * Props (IHeaderGroupByCard):
+ *   - groupID (string, required): the group identifier (used for selection, collapse, and existing-issues attach)
+ *   - groupBy (TIssueGroupByOptions, required): the active group key — forwarded into `WorkFlowGroupTree`
+ *   - icon (React.ReactNode, optional): custom group icon; falls back to a dashed circle when absent
+ *   - title (string, required): the group's display name
+ *   - count (number, required): the group's issue count (rendered next to the title; "0" when undefined)
+ *   - issuePayload (Partial<TIssue>, required): the partial issue used to pre-fill the create modal
+ *   - canEditProperties ((projectId) => boolean, required): permission predicate combined with
+ *     `selectionHelpers.isSelectionDisabled` to gate multi-select visibility
+ *   - disableIssueCreation (boolean, optional): hides the "+" affordance and all create flows
+ *   - addIssuesToView ((issueIds: string[]) => Promise<TIssue>, optional): the attach-existing callback
+ *     forwarded into the existing-issues picker submit handler; only invoked for module/cycle scopes
+ *   - selectionHelpers (TSelectionHelper, required): multi-select context (group selection state + actions)
+ *   - handleCollapsedGroups ((value: string) => void, required): toggles this group's collapsed state
+ *     in the kanban-filters slice of the filter store
+ *   - isEpic (boolean, optional, default=false): swaps the create modal between issue and epic variants
+ *
+ * MobX stores read:
+ *   - `useIssueStoreType()` resolves the active store type from React context; forwarded as `storeType`
+ *     into the create-issue modal so it knows which store action to dispatch
+ *
+ * Side effects:
+ *   - `handleAddIssuesToView(data)` extracts issue ids from `ISearchIssueResponse[]`, validates that
+ *     `workspaceSlug` and `projectId` are present, calls `addIssuesToView?.(issueIds)`, and emits a
+ *     SUCCESS or ERROR toast via `setToast(...)` from `@plane/propel/toast`.
+ *   - Opens `CreateUpdateIssueModal` or `CreateUpdateEpicModal` (per `isEpic`) with the group's
+ *     pre-populated payload — the modal performs the create API call via its own store action.
+ *   - Opens `ExistingIssuesListModal` (module/cycle only) to pick issues to attach.
+ *
+ * Derived state (non-obvious):
+ *   - `renderExistingIssueModal = moduleId || cycleId` — only module and cycle scopes can attach
+ *     existing issues; project / archived / profile / project-view scopes cannot
+ *   - `existingIssuesListModalPayload = moduleId ? { module: moduleId.toString() } : { cycle: true }`
+ *     — the picker's filter param differs by scope: modules need the explicit module id, cycles use
+ *     a boolean flag (the backend resolves the active cycle from the route)
+ *   - `isGroupSelectionEmpty = selectionHelpers.isGroupSelected(groupID) === "empty"` — the
+ *     `MultipleSelectGroupAction` affordance becomes always-visible when the group is partially or
+ *     fully selected, but hides on hover-only when nothing is selected
+ *
+ * Consumers: `../list-group.tsx` (renders one `HeaderGroupByCard` per group inside its sticky header row).
+ */
+
 import { useState } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
@@ -27,6 +77,7 @@ import { CreateUpdateEpicModal } from "@/plane-web/components/epics/epic-modal";
 // Plane-web
 import { WorkFlowGroupTree } from "@/plane-web/components/workflow";
 
+/** Props for `HeaderGroupByCard`. See the module-level JSDoc for full semantics. */
 interface IHeaderGroupByCard {
   groupID: string;
   groupBy: TIssueGroupByOptions;
@@ -42,6 +93,7 @@ interface IHeaderGroupByCard {
   isEpic?: boolean;
 }
 
+/** Interactive group-header card; see the module-level JSDoc for full semantics. */
 export const HeaderGroupByCard = observer(function HeaderGroupByCard(props: IHeaderGroupByCard) {
   const {
     groupID,
@@ -125,6 +177,9 @@ export const HeaderGroupByCard = observer(function HeaderGroupByCard(props: IHea
           </div>
         </div>
 
+        {/* "+" affordance: when the existing-issues modal is available (module / cycle scopes), surface a
+            CustomMenu with two options (create / attach existing); otherwise show a direct plus-icon trigger
+            that opens the create modal immediately. */}
         {!disableIssueCreation &&
           (renderExistingIssueModal ? (
             <CustomMenu
