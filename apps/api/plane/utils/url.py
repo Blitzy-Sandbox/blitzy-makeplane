@@ -2,11 +2,39 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL pattern detection and component-extraction helpers.
+
+Provides:
+  - :data:`URL_PATTERN`        — compiled regex that matches HTTP(S) URLs in
+    free text (used to reject URLs in user-controlled name/slug input and
+    to flag/extract links in comment and description bodies).
+  - :func:`contains_url`       — True if a text body contains at least one URL.
+  - :func:`is_valid_url`       — True if a URL string has a parseable scheme
+    and netloc.
+  - :func:`get_url_components` — parse a URL into its
+    ``scheme``/``netloc``/``path``/``params``/``query``/``fragment`` parts.
+  - :func:`normalize_url_path` — collapse duplicate slashes in a URL path.
+
+This module performs URL parsing and matching only; it deliberately does
+not implement any security predicate. Related modules:
+  - :mod:`plane.utils.path_validator` — open-redirect protection (validates
+    that a post-login ``next`` URL points to a permitted host/path).
+  - :mod:`plane.utils.ip_address` — SSRF protection (resolves a URL's host
+    to an IP and enforces a public-address allowlist).
+
+Consumers within :mod:`plane` include the workspace and user serializers
+(:func:`contains_url` to reject URLs embedded in display-name and slug
+fields), the settings module (:func:`is_valid_url` for boot-time validation
+of configured URLs), and the S3 copy background task
+(:func:`normalize_url_path` to canonicalize object paths).
+"""
+
 # Python imports
 import re
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
 
+# Regex matching HTTP(S) URLs in free text for auto-linking and extraction.
 # Compiled regex pattern for better performance and ReDoS protection
 # Using atomic groups and length limits to prevent excessive backtracking
 URL_PATTERN = re.compile(
@@ -55,7 +83,12 @@ def contains_url(value: str) -> bool:
 
 def is_valid_url(url: str) -> bool:
     """
-    Validates whether the given string is a well-formed URL.
+    Validate whether the given string is a well-formed URL.
+
+    Uses :func:`urllib.parse.urlparse`; a URL is considered well-formed if
+    it has both a scheme and a netloc. This is a structural check only and
+    does NOT enforce SSRF or host-allowlist policies — see
+    :mod:`plane.utils.ip_address` for those predicates.
 
     Args:
         url (str): The URL string to validate.
@@ -79,7 +112,11 @@ def is_valid_url(url: str) -> bool:
 
 def get_url_components(url: str) -> Optional[dict]:
     """
-    Parses the URL and returns its components if valid.
+    Parse the URL and return its components if valid.
+
+    Returns a dict with keys ``scheme``, ``netloc``, ``path``, ``params``,
+    ``query``, and ``fragment``. Returns ``None`` when :func:`is_valid_url`
+    rejects the input, sparing callers from handling :exc:`ValueError`.
 
     Args:
         url (str): The URL string to parse.
@@ -109,12 +146,11 @@ def get_url_components(url: str) -> Optional[dict]:
 
 def normalize_url_path(url: str) -> str:
     """
-    Normalize the path component of a URL by
-    replacing multiple consecutive slashes with a single slash.
+    Collapse duplicate slashes in the path component of a URL.
 
-    This function preserves the protocol, domain,
-    query parameters, and fragments of the URL,
-    only modifying the path portion to ensure there are no duplicate slashes.
+    Replaces runs of consecutive slashes in the URL's path with a single
+    slash while preserving the protocol, domain, query parameters, and
+    fragment unchanged.
 
     Args:
         url (str): The input URL string to normalize.
