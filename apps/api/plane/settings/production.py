@@ -2,7 +2,44 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""Production settings"""
+"""Production overlay applied via DJANGO_SETTINGS_MODULE=plane.settings.production.
+
+This is the default overlay: ``manage.py``, ``wsgi.py``, ``asgi.py``, and
+``celery.py`` each ``os.environ.setdefault`` ``DJANGO_SETTINGS_MODULE`` to
+``plane.settings.production`` so production semantics apply unless an
+operator explicitly opts in to ``local`` or ``test``.
+
+Imports the shared baseline from :mod:`plane.settings.common` and applies
+production hardening:
+    - ``DEBUG`` defaults to off and is only enabled when the ``DEBUG`` env
+      var is exactly ``"1"`` (numeric coercion).
+    - ``SECURE_PROXY_SSL_HEADER`` trusts the ``X-Forwarded-Proto`` header
+      so ``request.is_secure()`` reports correctly behind a TLS-terminating
+      reverse proxy.
+    - ``scout_apm.django`` is appended to ``INSTALLED_APPS`` for Scout APM
+      instrumentation. APM activation is controlled by ``SCOUT_MONITOR``
+      and ``SCOUT_KEY`` env vars; ``SCOUT_NAME`` is fixed to ``"Plane"``.
+
+Logging policy: JSON-formatted records are emitted to stdout for ingest by
+log-aggregation pipelines, and ``plane.exception`` records additionally
+roll to a size-rotated file at ``logs/plane-error.log`` (or
+``logs/plane-debug.log`` when ``DEBUG=1``) via
+:class:`plane.utils.logging.SizedTimedRotatingFileHandler`.
+
+Module-level side effect: ``os.makedirs(LOG_DIR)`` is invoked at import
+time when ``logs/`` does not yet exist so the rotating file handler can
+resolve its filename. Production deployments typically mount this
+directory on a persistent volume.
+
+Async infrastructure (inherited from common per AAP §0.2.2): Celery
+workers consume tasks from RabbitMQ via AMQP. Redis is the Django cache
+backend only (django_redis against ``REDIS_URL``); sessions are
+PostgreSQL-backed via the ``plane.db.models.session`` engine.
+
+Migrator startup contract: this module is evaluated before the
+``migrator`` container runs Django migrations, so nothing here may
+import models or query the database at import time.
+"""
 
 import os
 
