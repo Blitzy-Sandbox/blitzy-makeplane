@@ -4,6 +4,36 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Route-aware layout orchestrator for the project-scoped issues page (the canonical "Project Issues" view):
+ * resolves workspaceSlug/projectId from the route, hydrates project-scoped filters via SWR, and dispatches
+ * to one of the project layout variants (list / kanban / calendar / gantt / spreadsheet).
+ *
+ * Props: none — driven by route params (workspaceSlug, projectId via useParams()).
+ *
+ * MobX stores read:
+ *   - useIssues(EIssuesStoreType.PROJECT): { issues (for getIssueLoader), issuesFilter (for fetchFilters / getIssueFilters / updateFilterExpression) }.
+ *
+ * Side effects:
+ *   - SWR key `PROJECT_ISSUES_${workspaceSlug}_${projectId}` → issuesFilter.fetchFilters(workspaceSlug, projectId)
+ *     (revalidateIfStale: false, revalidateOnFocus: false).
+ *   - Provides IssuesStoreContext (EIssuesStoreType.PROJECT) to descendants.
+ *   - Forwards issuesFilter.updateFilterExpression bound to (workspaceSlug, projectId) to ProjectLevelWorkItemFiltersHOC.updateFilters.
+ *   - Wires PROJECT_VIEW_TRACKER_ELEMENTS.PROJECT_HEADER_SAVE_AS_VIEW_BUTTON into WorkItemFiltersRow.trackerElements.saveView analytics.
+ *
+ * Layout coverage: list / kanban / calendar / gantt / spreadsheet (all mounted without props; each variant
+ * resolves its data via its own context-aware hook against the PROJECT issues store).
+ *
+ * Mutation indicator: a fixed-position Spinner (top-[70px] right-[20px], z-50) is rendered when
+ * issues.getIssueLoader() === "mutation" to signal in-place updates without unmounting the active layout —
+ * this is the only project-folder root that surfaces a mutation indicator at the page-shell level.
+ *
+ * Renders an empty fragment when any of workspaceSlug, projectId, or workItemFilters is unresolved.
+ *
+ * Architectural notes: MobX exclusively (no Redux); the store is consumed via React context.
+ * All API calls flow through MobX store actions (fetchFilters, updateFilterExpression).
+ */
+
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
@@ -25,6 +55,7 @@ import { KanBanLayout } from "../kanban/roots/project-root";
 import { ListLayout } from "../list/roots/project-root";
 import { ProjectSpreadsheetLayout } from "../spreadsheet/roots/project-root";
 
+/** Dispatches to the project's list/kanban/calendar/gantt/spreadsheet layout based on activeLayout. */
 function ProjectIssueLayout(props: { activeLayout: EIssueLayoutTypes | undefined }) {
   switch (props.activeLayout) {
     case EIssueLayoutTypes.LIST:
