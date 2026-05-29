@@ -4,6 +4,42 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Reusable cycle form (project picker, name, description, start/end date range)
+ * that delegates persistence to the parent via `handleFormSubmit` — used by both
+ * the create and update modal flows.
+ *
+ * Props:
+ *   - handleFormSubmit ((values: Partial<ICycle>) => Promise<void>, required):
+ *     async submit handler invoked with the form values; the caller is responsible
+ *     for create vs. update routing, date conflict checks, and store mutations.
+ *   - handleClose (() => void, required): called when the user clicks Cancel.
+ *   - status (boolean, required): true when editing an existing cycle (hides the
+ *     project picker and swaps the heading to "Update cycle"), false when creating.
+ *   - projectId (string, required): default project ID seeded into the form.
+ *   - setActiveProject ((projectId: string) => void, required): callback used to
+ *     bubble project selection changes back to the parent modal so that subsequent
+ *     API calls target the chosen project.
+ *   - data (ICycle | null, optional): when present, prefills name/description/dates
+ *     via react-hook-form's `reset` effect.
+ *   - isMobile (boolean, optional, default=false): passed to getTabIndex so tab
+ *     order adapts to the platform.
+ *
+ * MobX stores read:
+ *   - useUser (user store): projectsWithCreatePermissions — used as the
+ *     ProjectDropdown render filter so only projects where the user can create
+ *     cycles are selectable.
+ *
+ * Side effects:
+ *   - None directly. This component is a controlled form — react-hook-form manages
+ *     local state, and persistence is the parent's responsibility via
+ *     handleFormSubmit. No service calls, no toasts, no navigation.
+ *   - Imperative form reset: a useEffect calls reset({ ...defaultValues, ...data })
+ *     whenever `data` changes so prefill stays in sync with edit-target switches.
+ *
+ * Consumers: CycleCreateUpdateModal in modal.tsx.
+ */
+
 import { useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 // plane imports
