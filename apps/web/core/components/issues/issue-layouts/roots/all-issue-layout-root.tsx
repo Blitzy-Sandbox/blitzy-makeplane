@@ -4,6 +4,48 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Route-aware layout orchestrator for the workspace-wide "All Issues" / global views page; resolves
+ * `workspaceSlug` + optional `globalViewId` from the route, hydrates filters + the first page of
+ * issues, and renders the workspace-level layout (kanban/list/spreadsheet/calendar/gantt) inside the
+ * workspace filters HOC — falling back to an `EmptyStateDetailed` redirect when the requested view
+ * is unresolved and the page is not the default view.
+ *
+ * Props:
+ *   - isDefaultView (boolean, required): when true, suppresses the missing-view empty state because
+ *     this render targets the workspace's default "All Issues" tab.
+ *   - isLoading (boolean, optional, default false): externally-controlled loading flag; participates
+ *     in the empty-state suppression check alongside the two SWR loading states.
+ *   - toggleLoading ((value: boolean) => void, required): callback the root flips around the
+ *     filters + issues fetch so the parent can render its own loading affordance.
+ *
+ * MobX stores read (consumed via React-context hooks — MobX is the single source of truth, no Redux):
+ *   - useIssues(EIssuesStoreType.GLOBAL): destructures `issuesFilter.{ filters, fetchFilters,
+ *     updateFilterExpression }` and `issues.{ clear, groupedIssueIds, fetchIssues, fetchNextIssues }`.
+ *   - useGlobalView(): destructures `fetchAllGlobalViews`, `getViewDetailsById`.
+ *   - useAppRouter(): navigation only — push to `/${workspaceSlug}/workspace-views/all-issues`.
+ *   - useWorkspaceIssueProperties(workspaceSlug): side-effect hook that hydrates workspace-scoped
+ *     issue property metadata.
+ *
+ * Side effects (all API calls flow through `*Service` classes invoked from MobX store actions):
+ *   - SWR key `WORKSPACE_GLOBAL_VIEWS_${workspaceSlug}` → fetchAllGlobalViews(workspaceSlug);
+ *     revalidateIfStale: false, revalidateOnFocus: false.
+ *   - SWR key `WORKSPACE_GLOBAL_VIEW_ISSUES_${workspaceSlug}_${globalViewId}` → clear(),
+ *     toggleLoading(true), fetchFilters(...), fetchIssues(... { canGroup: false, perPageCount: 100 }),
+ *     toggleLoading(false).
+ *   - fetchNextPages (useCallback) wires WorkspaceActiveLayout pagination to
+ *     fetchNextIssues(workspaceSlug, globalViewId).
+ *   - Empty-state "Go to All work items" action pushes to
+ *     `/${workspaceSlug}/workspace-views/all-issues` via useAppRouter.
+ *   - Provides IssuesStoreContext.Provider value={EIssuesStoreType.GLOBAL} so descendants consume
+ *     the global-issues store scope.
+ *
+ * Derived state:
+ *   - initialWorkItemFilters (useMemo over [globalViewId, viewDetails, workItemFilters]) merges the
+ *     view's `rich_filters` with locally-tracked display/kanban/displayProperties state, and returns
+ *     `undefined` when the view is neither in STATIC_VIEW_TYPES nor resolved — preventing the HOC
+ *     from rendering filter UI for an unresolved view.
+ */
 import React, { useCallback, useMemo } from "react";
 import { observer } from "mobx-react";
 import { useParams, useSearchParams } from "next/navigation";
