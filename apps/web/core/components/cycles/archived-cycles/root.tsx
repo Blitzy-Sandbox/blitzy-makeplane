@@ -4,6 +4,52 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX-observed route shell for the project archived-cycles page; reads workspace
+ * and project slugs from the route, lazily fetches archived cycles via SWR, and
+ * selects between a loader, an empty-state, or the `ArchivedCyclesView` list view
+ * with an applied-filters strip above it.
+ *
+ * Props: NONE — workspace and project context are pulled from `useParams()` rather
+ * than passed in. This component is rendered as a sibling of `ArchivedCyclesHeader`
+ * by the page route (`apps/web/app/.../archives/cycles/page.tsx`).
+ *
+ * MobX stores read:
+ *   - useCycle (cycle store): `fetchArchivedCycles` action, `currentProjectArchivedCycleIds`
+ *     observable, and the boolean `loader` flag.
+ *   - useCycleFilter (cycle filter store): `clearAllFilters` and `updateFilters`
+ *     actions plus the `currentProjectArchivedFilters` observable used to detect
+ *     whether any filters are applied for the current project.
+ *   - useTranslation (`@plane/i18n`): `t` function for the empty-state title and
+ *     description copy.
+ *
+ * Side effects:
+ *   - API call (via store action wired to CycleArchiveService): `fetchArchivedCycles(workspaceSlug, projectId)`
+ *     triggered by `useSWR` keyed on `ARCHIVED_CYCLES_${workspaceSlug}_${projectId}`.
+ *     The SWR config disables `revalidateIfStale` and `revalidateOnFocus`, so the
+ *     fetch fires once per route mount per workspace/project pair.
+ *   - Store mutations:
+ *       - `clearAllFilters(projectId, "archived")` when the user clicks "Clear all"
+ *         on the applied filters strip.
+ *       - `updateFilters(projectId, { [key]: newValues }, "archived")` from
+ *         `handleRemoveFilter` when an individual filter chip is dismissed.
+ *   - No direct navigation, no toasts — the route page owns navigation and toasting
+ *     happens in child modals.
+ *
+ * Conditional rendering:
+ *   - When `workspaceSlug` or `projectId` is missing → renders nothing (`<></>`).
+ *   - When `loader` is truthy or `currentProjectArchivedCycleIds` is undefined →
+ *     `CycleModuleListLayoutLoader`.
+ *   - When `calculateTotalFilters(currentProjectArchivedFilters)` is non-zero →
+ *     prepends the `CycleAppliedFiltersList` strip.
+ *   - When the archived list is empty (zero archived cycles for the project) →
+ *     centered `EmptyStateDetailed` with i18n title/description.
+ *   - Otherwise → `ArchivedCyclesView` inside a scrollable full-height container.
+ *
+ * Consumers: rendered from the archived-cycles route page at
+ * `apps/web/app/(all)/[workspaceSlug]/(projects)/projects/(detail)/[projectId]/archives/cycles/page.tsx`.
+ */
+
 import React from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
