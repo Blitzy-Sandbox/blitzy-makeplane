@@ -4,6 +4,54 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * List-view shell coordinator for every issue list page.
+ *
+ * Rendered purpose: resolves the active issue store from route context, fetches the initial page of
+ * grouped issues, derives permissions, wires quick-action callbacks, manages collapsed-group state, and
+ * mounts `<IssueLayoutHOC layout={LIST}>` wrapping the `<List>` viewport. This is the single shared
+ * entry point used by every scope-specific list root in `./roots/` (project, cycle, module, archived,
+ * profile, project-view).
+ *
+ * Props (IBaseListRoot):
+ *   - QuickActions (FC<IQuickActionProps>, required): the scope-specific quick-action component injected
+ *     by the parent root (e.g. `ProjectIssueQuickActions`, `CycleIssueQuickActions`)
+ *   - addIssuesToView ((issueIds: string[]) => Promise<any>, optional): callback for adding existing
+ *     issues to the current view (used by module/cycle scopes); forwarded to the `List`/header
+ *   - canEditPropertiesBasedOnProject ((projectId: string) => boolean, optional): per-project permission
+ *     predicate; combined with the workspace-level ADMIN/MEMBER check below
+ *   - viewId (string, optional): the active view identifier (cycle id, module id, project-view id,
+ *     profile id) used by the store to scope fetches
+ *   - isCompletedCycle (boolean, optional, default=false): when true, disables edits and creates
+ *   - isEpic (boolean, optional, default=false): switches the row identifier/links/peek to epic semantics
+ *
+ * MobX stores read:
+ *   - `useIssueStoreType()` resolves the current `ListStoreType` from React context (route-aware)
+ *   - `useIssues(storeType)` exposes `issuesFilter` (display filters, kanban filters used for collapsed
+ *     groups, display properties) and `issues` (groupedIssueIds, viewFlags); plus `useIssues()` (no arg)
+ *     returns the global `issueMap`
+ *   - `useIssuesActions(storeType)` exposes `fetchIssues`, `fetchNextIssues`, `quickAddIssue`,
+ *     `updateIssue`, `removeIssue`, `removeIssueFromView`, `archiveIssue`, `restoreIssue`, `updateFilters`
+ *   - `useUserPermissions()` exposes `allowPermissions(roles[], level)` for the ADMIN/MEMBER workspace
+ *     project-level edit check
+ *
+ * Side effects:
+ *   - `useEffect` calls `fetchIssues("init-loader", { canGroup: true, perPageCount: group_by ? 50 : 100 }, viewId)`
+ *     on mount and whenever `group_by`, `storeType`, or `viewId` changes (initial fetch + grouping reset)
+ *   - `useGroupIssuesDragNDrop(storeType, orderBy, group_by)` returns the drag-and-drop drop handler that
+ *     mutates issue group membership and ordering via the issue store
+ *   - `renderQuickActions` produces a memoised render function that triggers `removeIssue`,
+ *     `updateIssue`, `removeIssueFromView`, `archiveIssue`, `restoreIssue` on the issues store when
+ *     invoked by quick-action UI
+ *   - `loadMoreIssues(groupId?)` triggers `fetchNextIssues(groupId)` for pagination
+ *   - `handleCollapsedGroups(value)` patches kanban-style collapsed groups into the filter store via
+ *     `updateFilters(projectId, EIssueFilterType.KANBAN_FILTERS, ...)`
+ *
+ * Consumers (route-scope wrappers in `./roots/`):
+ *   - `archived-issue-root.tsx`, `cycle-root.tsx`, `module-root.tsx`, `profile-issues-root.tsx`,
+ *     `project-root.tsx`, `project-view-root.tsx`
+ */
+
 import type { FC } from "react";
 import { useCallback, useEffect } from "react";
 import { observer } from "mobx-react";
@@ -27,6 +75,11 @@ import { List } from "./default";
 // types
 import type { IQuickActionProps, TRenderQuickActions } from "./list-view-types";
 
+/**
+ * The set of issue store types that the list layout supports. Excludes profile-store types that are
+ * NOT exposed via the list shell (the workspace-level draft store is included because the WORKSPACE_DRAFT
+ * surface ships its own list layout that reuses this root).
+ */
 type ListStoreType =
   | EIssuesStoreType.PROJECT
   | EIssuesStoreType.MODULE
@@ -39,6 +92,7 @@ type ListStoreType =
   | EIssuesStoreType.TEAM_VIEW
   | EIssuesStoreType.EPIC;
 
+/** Props for `BaseListRoot`. See the module-level JSDoc for full semantics. */
 interface IBaseListRoot {
   QuickActions: FC<IQuickActionProps>;
   addIssuesToView?: (issueIds: string[]) => Promise<any>;
@@ -47,6 +101,7 @@ interface IBaseListRoot {
   isCompletedCycle?: boolean;
   isEpic?: boolean;
 }
+/** List-view shell coordinator; see the module-level JSDoc for full semantics. */
 export const BaseListRoot = observer(function BaseListRoot(props: IBaseListRoot) {
   const {
     QuickActions,
