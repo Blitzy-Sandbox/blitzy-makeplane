@@ -4,6 +4,40 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * CycleSidebarHeader — top section of the cycle peek-overview sidebar.
+ *
+ * Rendered purpose:
+ *   Renders the close affordance, cycle name, current-status badge, and an editable
+ *   start/end date range. Edits are disabled when the cycle is archived, completed,
+ *   or the viewer lacks ADMIN/MEMBER project permission.
+ *
+ * Props:
+ *   - workspaceSlug: string (required) — used for permission scope and CycleService calls.
+ *   - projectId: string (required) — used by `useTimeZoneConverter` and date-check service.
+ *   - cycleDetails: ICycle (required) — the cycle being edited; supplies name, status, dates, id.
+ *   - handleClose: () => void (required) — invoked when the close chevron is clicked.
+ *   - isArchived?: boolean (optional, default false) — when true, forces edits disabled.
+ *
+ * MobX stores read:
+ *   - `useUserPermissions` — `allowPermissions(...)` gates editing on ADMIN/MEMBER at PROJECT level.
+ *   - `useCycle` — `updateCycleDetails` action for persisting start/end date changes.
+ *   - `useTranslation` (`@plane/i18n`) — localized labels and toast copy.
+ *   - `useTimeZoneConverter` — formats dates in the user's timezone for the tooltip.
+ *
+ * Side effects:
+ *   - Form state: `react-hook-form` controllers for start_date / end_date; reset whenever
+ *     `cycleDetails` changes (useEffect on lines 68–73).
+ *   - API: `CycleService.cycleDateCheck` validates non-overlapping date ranges before commit.
+ *   - Store mutation: `updateCycleDetails(workspaceSlug, projectId, cycleId, payload)` —
+ *     PATCH against the cycle endpoint via the cycle store action.
+ *   - Toasts: success and error notifications via `setToast` from `@plane/propel/toast`.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/cycles/analytics-sidebar/root.tsx` (composed inside
+ *     `CycleDetailsSidebar`).
+ */
+
 import { useEffect } from "react";
 import { observer } from "mobx-react";
 import { Controller, useForm } from "react-hook-form";
