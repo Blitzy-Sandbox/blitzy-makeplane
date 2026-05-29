@@ -2,11 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""
-WSGI config for plane project.
+"""WSGI entrypoint for the Plane Django backend.
 
-It exposes the WSGI callable as a module-level variable named ``application``.
+Exposes the module-level callable ``application`` required by WSGI servers
+(gunicorn, uWSGI). ``DJANGO_SETTINGS_MODULE`` defaults to
+``plane.settings.production`` when not overridden externally.
 
+Startup contract: the ``migrator`` container runs Django migrations before any
+WSGI service starts, so this module assumes the database schema is at the
+expected revision at import time (per architectural rule in AAP §0.2.2).
 """
 
 import os
