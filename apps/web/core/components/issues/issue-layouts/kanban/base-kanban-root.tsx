@@ -4,6 +4,71 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Top-level orchestrator for the Kanban issue layout.
+ *
+ * Rendered purpose: resolves the active issues-store context from the URL, fetches grouped issues,
+ * wires permission-gated edit/quick-action callbacks, manages the global drag-to-delete drop zone,
+ * persists collapsed group state via the kanban filters, and renders either the flat KanBan board
+ * (`./default`) or the swimlane variant (`./swimlanes`) based on whether `sub_group_by` is active.
+ *
+ * Props (`IBaseKanBanLayout`):
+ *   - QuickActions (FC<IQuickActionProps>, required): scope-specific quick-action menu component
+ *     supplied by the route-aware root in `./roots/` (project, cycle, module, profile, view, team).
+ *   - addIssuesToView (issueIds => Promise<any>, optional): mutation invoked when existing issues
+ *     are attached to the current scope from the column header (cycles, modules, project views).
+ *   - canEditPropertiesBasedOnProject ((projectId) => boolean, optional): per-project edit gate
+ *     used for workspace-level boards where individual issues span multiple projects.
+ *   - isCompletedCycle (boolean, optional, default=false): when true, disables inline edits, quick
+ *     adds, and quick-action mutations because completed cycles are immutable.
+ *   - viewId (string | undefined, optional): the cycle/module/view id used for fetch + paginate
+ *     scoping; propagated to `fetchIssues` and `fetchNextIssues`.
+ *   - isEpic (boolean, optional, default=false): swaps the issue service from ISSUES to EPICS for
+ *     `useIssueDetail` and feeds through to the inner board for epic-specific behavior.
+ *
+ * MobX stores read (via React-context hooks):
+ *   - `useIssueStoreType()` resolves the active `EIssuesStoreType` from the URL.
+ *   - `useIssues(storeType)` exposes `issueMap`, `issuesFilter`, and `issues` (grouped IDs, loader,
+ *     pagination).
+ *   - `useIssueDetail(EPICS | ISSUES)` exposes `issue.getIssueById` for resolving the dragged
+ *     issue before opening the delete-confirmation modal.
+ *   - `useUserPermissions()` exposes `allowPermissions` for ADMIN/MEMBER project-level edit gating.
+ *   - `useKanbanView()` exposes `isDragging` driving the visibility of the global delete drop zone.
+ *   - `useIssuesActions(storeType)` exposes scope-bound mutators (`fetchIssues`, `fetchNextIssues`,
+ *     `quickAddIssue`, `updateIssue`, `removeIssue`, `removeIssueFromView`, `archiveIssue`,
+ *     `restoreIssue`, `updateFilters`).
+ *
+ * Side effects:
+ *   - Calls `fetchIssues("init-loader", { canGroup: true, perPageCount })` on mount and whenever
+ *     `storeType`, `group_by`, `sub_group_by`, or `viewId` change. `perPageCount` is 10 when
+ *     `sub_group_by` is active (smaller pages for the nested layout) and 30 otherwise — a tuned
+ *     trade-off between initial payload size and column scroll density.
+ *   - Registers a Pragmatic DnD `dropTargetForElements` on the delete drop zone via a `useEffect`
+ *     that sets local `isDragOverDelete` / `draggedIssueId` state and opens `DeleteIssueModal`.
+ *     This is the only drop target registered directly in this file; column-level drop targets
+ *     live in `./kanban-group.tsx`.
+ *   - Registers Pragmatic DnD `autoScrollForElements` on the scrollable container so the board
+ *     auto-scrolls during drag.
+ *   - `handleOnDrop` (from `useGroupIssuesDragNDrop`) ultimately invokes the shared
+ *     `handleGroupDragDrop` utility in `../utils.tsx` which calls `updateIssue` to persist the move.
+ *   - `handleDeleteIssue` calls the store `removeIssue` mutator (DELETE API call via
+ *     `apps/web/core/services/issue/*.service.ts`).
+ *   - `handleCollapsedGroups` calls `updateFilters` with `EIssueFilterType.KANBAN_FILTERS` to
+ *     persist the collapsed-group lists.
+ *   - `renderQuickActions` produces quick-action handlers that close over store mutators
+ *     (`removeIssue`, `updateIssue`, `removeIssueFromView`, `archiveIssue`, `restoreIssue`); the
+ *     `&&` short-circuits exist because the latter four mutators are declared optional on
+ *     `IssueActions` and therefore may be undefined for stores that do not implement them.
+ *
+ * Layout switching:
+ *   - `KanBanView = sub_group_by ? KanBanSwimLanes : KanBan` — the choice of board shell is purely
+ *     a function of whether the user has activated a sub-group-by display filter. The inner board
+ *     is wrapped in `<IssueLayoutHOC layout={EIssueLayoutTypes.KANBAN}>` from `../issue-layout-HOC`
+ *     which handles loader and empty-state gating.
+ *
+ * Consumers: every route-aware root in `./roots/` (`project-root`, `cycle-root`, `module-root`,
+ * `profile-issues-root`, `project-view-root`) plus team/epic roots from the plane-web overlay.
+ */
 import type { FC } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
@@ -33,6 +98,13 @@ import { getSourceFromDropPayload } from "../utils";
 import { KanBan } from "./default";
 import { KanBanSwimLanes } from "./swimlanes";
 
+/**
+ * The set of `EIssuesStoreType` values that are valid for the Kanban layout.
+ *
+ * Restricted to scopes that expose a grouped-issues board: project, module, cycle, project view,
+ * profile, team, team view, and epic. Workspace-level all-issues views (Global, Workspace Draft,
+ * Archived) are intentionally excluded because they ship a list-only experience.
+ */
 export type KanbanStoreType =
   | EIssuesStoreType.PROJECT
   | EIssuesStoreType.MODULE
@@ -43,6 +115,7 @@ export type KanbanStoreType =
   | EIssuesStoreType.TEAM_VIEW
   | EIssuesStoreType.EPIC;
 
+/** Props for `BaseKanBanRoot`; see the module-level JSDoc for full per-prop semantics. */
 export interface IBaseKanBanLayout {
   QuickActions: FC<IQuickActionProps>;
   addIssuesToView?: (issueIds: string[]) => Promise<any>;
@@ -52,6 +125,7 @@ export interface IBaseKanBanLayout {
   isEpic?: boolean;
 }
 
+/** Top-level orchestrator for the Kanban issue layout; see the module-level JSDoc for full semantics. */
 export const BaseKanBanRoot = observer(function BaseKanBanRoot(props: IBaseKanBanLayout) {
   const {
     QuickActions,
