@@ -4,6 +4,28 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Static notice strip shown on completed cycles informing the user that the cycle
+ * is read-only, optionally exposing a "Transfer work items" button that delegates
+ * to the caller's handler when transfer is permitted.
+ *
+ * Props:
+ *   - handleClick (() => void, required): callback invoked when the user clicks the
+ *     transfer button; the caller typically opens a TransferIssuesModal.
+ *   - canTransferIssues (boolean, optional, default=false): when true, renders the
+ *     transfer button alongside the notice; when false, only the notice is shown.
+ *   - disabled (boolean, optional, default=false): forwarded to the Button to disable
+ *     the action while a transfer is in flight or the user lacks permission.
+ *
+ * MobX stores read: NONE — this is a pure presentational component with no store
+ * subscriptions.
+ *
+ * Side effects: NONE directly — the parent owns the click behavior and any resulting
+ * navigation, API call, or store mutation.
+ *
+ * Consumers: rendered above the work items panel for completed cycles in the cycle
+ * detail / peek experiences.
+ */
 import React from "react";
 import { AlertCircle } from "lucide-react";
 // ui
