@@ -16,7 +16,11 @@
  * Props (TCycleProgressStats):
  *   - cycleId: string (required) — keys the persisted tab choice in localStorage.
  *   - distribution: TCycleDistribution | TCycleEstimateDistribution | undefined (required) —
- *     normalized cycle distribution; the `plotType` decides which shape is read.
+ *     cycle distribution payload already selected upstream by the per-viewer
+ *     `TCycleEstimateType` (`"issues"` → `cycleDetails.distribution`,
+ *     `"points"` → `cycleDetails.estimate_distribution`) in
+ *     `analytics-sidebar/issue-progress.tsx`. The component does not re-derive
+ *     the data shape from `plotType`.
  *   - groupedIssues: Record<string, number> (required) — aggregate counts by state group.
  *   - handleFiltersUpdate: (condition: TWorkItemFilterCondition) => void (required) —
  *     callback delegated from the parent to commit filter changes (e.g., toggle an
@@ -24,8 +28,10 @@
  *   - isEditable?: boolean (optional, default false) — gates clickability of rows; when
  *     false, rows render as read-only.
  *   - noBackground?: boolean (optional, default false) — strips the `bg-layer-2` tab list bg.
- *   - plotType: TCyclePlotType (required) — "burndown" or "burnup"; chooses between issue
- *     counts and estimate-point counts in the distribution mapping.
+ *   - plotType: TCyclePlotType (required) — burn direction of the cycle chart:
+ *     `"burndown"` (remaining work decreases toward zero) or `"burnup"` (completed
+ *     work increases toward scope). It controls chart shape, not the analytics
+ *     data shape — that is the role of `estimateType` upstream.
  *   - roundedTab?: boolean (optional, default false) — switches tab pill radius styling.
  *   - selectedFilters: TSelectedFilterProgressStats (required) — currently active
  *     assignee / label / state-group filter conditions for highlighting selected rows.
@@ -116,6 +122,10 @@ export const CycleProgressStats = observer(function CycleProgressStats(props: TC
   const selectedLabelIds = toFilterArray(selectedFilters?.labels?.value || []) as string[];
   const selectedStateGroups = toFilterArray(selectedFilters?.stateGroups?.value || []) as string[];
 
+  // INTENT UNCLEAR: CycleProgressStats branches issue vs estimate row mapping on
+  // plotType ("burndown" -> issue counts; otherwise -> estimate points), even though
+  // estimateType is the upstream selector that decides which distribution payload
+  // (`cycleDetails.distribution` vs `cycleDetails.estimate_distribution`) is passed in.
   const distributionAssigneeData: TAssigneeData =
     plotType === "burndown"
       ? (currentDistribution?.assignees || []).map((assignee) => ({

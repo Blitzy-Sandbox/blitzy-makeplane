@@ -27,7 +27,8 @@
  *
  * Side effects:
  *   - Form state: `react-hook-form` controllers for start_date / end_date; reset whenever
- *     `cycleDetails` changes (useEffect on lines 68–73).
+ *     `cycleDetails` changes (via the reset `useEffect` below that depends on
+ *     `[cycleDetails, reset]`).
  *   - API: `CycleService.cycleDateCheck` validates non-overlapping date ranges before commit.
  *   - Store mutation: `updateCycleDetails(workspaceSlug, projectId, cycleId, payload)` —
  *     PATCH against the cycle endpoint via the cycle store action.

@@ -50,8 +50,9 @@
  *
  * Derived state:
  *   - `cycleStatus`: lowercased cycle status (or "draft" when absent), narrowed
- *     to TCycleGroups. NOTE: existing TODO comment on line 56 notes this branch
- *     is a temporary workaround until the backend response shape is corrected.
+ *     to TCycleGroups. NOTE: the existing TODO comment below the cycleStatus
+ *     derivation notes this branch is a temporary workaround until the backend
+ *     response shape is corrected.
  *   - `isActive`: derived from cycleStatus === "current"; forwarded to
  *     CycleListItemAction to switch its date-display rendering mode.
  *   - `progress`: result of calculateCycleProgress(cycleDetails) from

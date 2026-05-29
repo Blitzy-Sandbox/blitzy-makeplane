@@ -42,8 +42,8 @@
  *   - Local state: `isArchiving` boolean flag toggled around the async call to drive
  *     the submit button's `loading` prop and label ("Archiving" vs. "Archive").
  *
- * Consumers: rendered from the cycle quick-actions menu
- * (`apps/web/core/components/cycles/quick-actions.tsx` line 124) when the user picks
+ * Consumers: rendered from `CycleQuickActions`
+ * (`apps/web/core/components/cycles/quick-actions.tsx`) when the user picks
  * the "Archive" overflow action on a cycle row.
  */
 import { useState } from "react";
