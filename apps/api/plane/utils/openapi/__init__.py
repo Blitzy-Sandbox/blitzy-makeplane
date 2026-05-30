@@ -2,15 +2,39 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""
-OpenAPI utilities for drf-spectacular integration.
+"""OpenAPI utilities for drf-spectacular integration.
 
-This module provides reusable components for API documentation:
-- Authentication extensions
-- Common parameters and responses
-- Helper decorators
-- Schema preprocessing hooks
-- Examples
+Centralizes the reusable building blocks consumed by ``apps/api/plane/api/views/``
+to attach OpenAPI documentation to DRF ViewSets via ``@extend_schema`` decorators.
+
+Submodule index:
+
+  - :mod:`auth`        — ``OpenApiAuthenticationExtension`` for the X-API-Key
+    header authentication scheme used by ``/api/v1/`` endpoints.
+  - :mod:`parameters`  — reusable path/query ``OpenApiParameter`` constants
+    (workspace slug, project/issue/cycle/module IDs, cursor, per_page, etc.).
+  - :mod:`responses`   — reusable ``OpenApiResponse`` constants for standard
+    HTTP status codes (401, 403, 404, 409, 422, ...) and the
+    :func:`responses.create_paginated_response` helper.
+  - :mod:`examples`    — reusable ``OpenApiExample`` payloads + sample dicts
+    + the :func:`examples.get_sample_for_schema` resolver.
+  - :mod:`decorators`  — domain-scoped ``@extend_schema`` wrappers
+    (``workspace_docs``, ``project_docs``, ``issue_docs``, ``cycle_docs``, ...)
+    that apply consistent tags, parameters, and responses.
+  - :mod:`hooks`       — drf-spectacular preprocessing hooks (filter to
+    ``/api/v1/`` paths, generate human-readable operation summaries).
+
+Runtime gating
+--------------
+The drf-spectacular schema endpoints (``/api/schema/``, ``/api/schema/swagger-ui/``,
+``/api/schema/redoc/``) are mounted only when ``settings.ENABLE_DRF_SPECTACULAR``
+is truthy (see ``apps/api/plane/urls.py`` line 26). When the flag is falsy in
+production, this package is still imported and the ``@extend_schema``-style
+decorators applied by view modules remain in place — they simply have no
+observable effect because no schema is generated at request time.
+
+drf-spectacular version: ``0.28.0`` (pinned in ``apps/api/requirements/base.txt``
+line 71); this module's API surface is bound to that version.
 """
 
 # Authentication extensions
