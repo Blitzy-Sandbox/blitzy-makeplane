@@ -2,6 +2,22 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Shared role enum and permission decorator for Plane's DRF endpoints.
+
+This module is the foundational layer of ``plane.utils.permissions`` and
+defines two reusable primitives: the ``ROLE`` enum that normalizes
+ADMIN/MEMBER/GUEST role comparisons across the codebase, and
+``allow_permission``, a decorator factory used to declaratively gate DRF
+view methods by workspace or project membership and role.
+
+The decorator computes access on every request from ``request.user``,
+``kwargs['slug']``, optionally ``kwargs['project_id']``, and ``kwargs['pk']``
+combined with live ORM lookups against ``WorkspaceMember`` and
+``ProjectMember``. The ``migrator`` container runs Django migrations
+before any API service starts, so those membership tables are guaranteed
+to exist at module import time.
+"""
+
 from plane.db.models import WorkspaceMember, ProjectMember
 from functools import wraps
 from rest_framework.response import Response
@@ -11,15 +27,39 @@ from enum import Enum
 
 
 class ROLE(Enum):
+    """Canonical workspace/project role enum used by the permission decorator.
+
+    Members carry the integer role values stored in ``WorkspaceMember.role``
+    and ``ProjectMember.role`` columns: ``ADMIN = 20``, ``MEMBER = 15``,
+    ``GUEST = 5``. Higher integer values denote higher privilege.
+    """
+
     ADMIN = 20
     MEMBER = 15
     GUEST = 5
 
 
 def allow_permission(allowed_roles, level="PROJECT", creator=False, model=None):
+    """Build a DRF view-method decorator that gates access by membership role.
+
+    ``allowed_roles`` accepts a list of ``ROLE`` enum members or raw integer
+    role values; both forms are normalized internally. ``level`` selects
+    between a ``WorkspaceMember`` check (``"WORKSPACE"``) and the default
+    ``ProjectMember`` check (``"PROJECT"``). When ``creator=True`` and
+    ``model`` is provided, the decorator first short-circuits to allow
+    requests whose ``request.user`` is the ``created_by`` of the object
+    identified by ``kwargs['pk']``. On the project path, a workspace-ADMIN
+    user who is also an active member of the target project is allowed
+    regardless of their project role. Denied requests return HTTP 403 with
+    a standard error payload.
+    """
+
     def decorator(view_func):
+        """Wrap ``view_func`` with the configured role/membership policy."""
+
         @wraps(view_func)
         def _wrapped_view(instance, request, *args, **kwargs):
+            """Run the configured role/membership policy for one DRF request."""
             # Check for creator if required
             if creator and model:
                 obj = model.objects.filter(id=kwargs["pk"], created_by=request.user).exists()
