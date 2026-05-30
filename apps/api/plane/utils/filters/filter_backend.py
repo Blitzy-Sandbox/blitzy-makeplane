@@ -1,6 +1,79 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Complex JSON filter backend for Django REST Framework.
+
+This module exposes :class:`ComplexFilterBackend`, a DRF
+``BaseFilterBackend`` that accepts a JSON filter tree on the
+``?filters=...`` query parameter (or via an explicit ``filter_data``
+argument passed by the view) and translates it into a single combined
+:class:`django.db.models.Q` object applied with one ``queryset.filter(...)``
+call.
+
+Query parameter consumed
+------------------------
+
+  - ``filters`` -- JSON object (URL-decoded) representing a tree of
+    logical operators (``or``, ``and``, ``not``) over leaf objects whose
+    keys are ``field__lookup`` (e.g., ``priority__in``,
+    ``sequence_id__gte``) and whose values are scalars, ``None``, or
+    lists of scalars.
+
+Order of operations (precedence rules)
+--------------------------------------
+
+For every request, the backend executes the following pipeline; failure
+at any stage raises :class:`rest_framework.exceptions.ValidationError`:
+
+  1. **Normalize** the incoming payload (dict or JSON string) into a
+     dict (``_normalize_filter_data``). Bad JSON -> ``invalid_json``;
+     wrong type -> ``invalid_filter_type``.
+  2. **Structure validation** with depth limit
+     (``_validate_structure``). Caps nesting to
+     ``view.complex_filter_max_depth`` or, in its absence,
+     ``default_max_depth`` (5). Rejects mixed operator/field keys,
+     empty objects, and operator-in-leaf violations.
+  3. **Field allowlist validation** against the view's
+     ``filterset_class.base_filters`` (``_validate_fields``). A view
+     without a ``filterset_class`` rejects all filtering -- fail-closed
+     behavior is intentional to prevent unintended data exposure.
+  4. **Tree evaluation** to a Q object (``_evaluate_node``):
+     ``or`` -> ``Q | Q``, ``and`` -> ``Q & Q``, ``not`` -> ``~Q``, leaf ->
+     ``_build_leaf_q``.
+  5. **Leaf evaluation** (``_build_leaf_q``): leaf conditions are
+     serialized into a ``QueryDict`` and run through the view's
+     ``filterset_class`` so django-filter performs lookup-by-lookup
+     validation and the filterset's ``build_combined_q()`` method
+     returns a Q object.
+  6. **Apply** the combined Q via a single
+     ``queryset.filter(combined_q)`` call.
+
+Extension hooks for subclasses
+------------------------------
+
+  - :meth:`ComplexFilterBackend._transform_field_name_for_validation` --
+    rewrites field keys (e.g., custom-property aliases) before the
+    allowlist check.
+  - :meth:`ComplexFilterBackend._preprocess_leaf_conditions` -- rewrites
+    leaf dicts before they reach django-filter (e.g.,
+    ``customproperty_<id>__<lookup>`` ->
+    ``customproperty_value__<lookup>``).
+
+Error handling
+--------------
+
+  - ``DRFValidationError`` is re-raised unchanged so DRF returns
+    structured 400 responses.
+  - All other exceptions are routed through
+    :func:`plane.utils.exception_logger.log_exception` for Sentry
+    capture and then re-raised.
+
+Used by view classes whose ``filter_backends`` include
+:class:`ComplexFilterBackend` and whose ``filterset_class`` extends
+:class:`plane.utils.filters.filterset.BaseFilterSet` -- including the
+issue list / cycle issue list / module issue list / workspace user
+issue views and the view-detail issue endpoint.
+"""
 
 # Python imports
 import json
@@ -21,8 +94,22 @@ class ComplexFilterBackend(filters.BaseFilterBackend):
     """
     Filter backend that supports complex JSON filtering.
 
+    Translates a JSON filter tree on the ``?filters=`` query parameter
+    (or an explicit ``filter_data`` argument passed by the view's
+    custom ``filter_queryset`` call) into a single ``Q`` object applied
+    via one ``queryset.filter(combined_q)`` call. The view supplies a
+    ``filterset_class`` that declares the allowed fields and provides
+    a ``build_combined_q()`` method.
+
+    Class attributes:
+        filter_param:        Query parameter name read from the
+                             request (default ``"filters"``).
+        default_max_depth:   Maximum allowed nesting depth when the
+                             view does not specify
+                             ``complex_filter_max_depth`` (default 5).
+
     For full, up-to-date examples and usage, see the package README
-    at `plane/utils/filters/README.md`.
+    at ``plane/utils/filters/README.md``.
     """
 
     filter_param = "filters"
@@ -140,7 +227,7 @@ class ComplexFilterBackend(filters.BaseFilterBackend):
         return field_name
 
     def _extract_field_names(self, filter_data):
-        """Extract all field names from a nested filter structure"""
+        """Extract all field names from a nested filter structure (recurses through ``or``/``and``/``not`` operators)."""  # noqa: E501
         if isinstance(filter_data, dict):
             fields = []
             for key, value in filter_data.items():
@@ -456,4 +543,5 @@ class ComplexFilterBackend(filters.BaseFilterBackend):
                 )
 
     def _is_scalar(self, value):
+        """Return True if ``value`` is acceptable as a leaf filter value (``None`` or a primitive scalar: ``str``, ``int``, ``float``, ``bool``)."""  # noqa: E501
         return value is None or isinstance(value, (str, int, float, bool))
