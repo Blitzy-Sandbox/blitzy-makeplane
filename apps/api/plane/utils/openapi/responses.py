@@ -2,11 +2,46 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""
-Common OpenAPI responses for drf-spectacular.
+"""Reusable OpenAPI response definitions for drf-spectacular.
 
-This module provides reusable response definitions for common HTTP status codes
-and scenarios that occur across multiple API endpoints.
+Centralizes the ``OpenApiResponse`` instances used by view decorators in
+``apps/api/plane/utils/openapi/decorators.py`` so every endpoint emits a
+consistent response shape (description, example payload, error_code) for the
+same logical condition.
+
+Response categories:
+
+  - Authentication & authorization — ``UNAUTHORIZED_RESPONSE``,
+    ``FORBIDDEN_RESPONSE``, ``ADMIN_ONLY_RESPONSE``.
+  - Generic resource state — ``NOT_FOUND_RESPONSE``,
+    ``VALIDATION_ERROR_RESPONSE``, ``INVALID_REQUEST_RESPONSE``,
+    ``REQUIRED_FIELDS_RESPONSE``, ``CONFLICT_RESPONSE``.
+  - Success acknowledgements — ``DELETED_RESPONSE``, ``ARCHIVED_RESPONSE``,
+    ``UNARCHIVED_RESPONSE``.
+  - Domain-specific 404s — ``PROJECT_NOT_FOUND_RESPONSE``,
+    ``WORKSPACE_NOT_FOUND_RESPONSE``, ``ISSUE_NOT_FOUND_RESPONSE``,
+    ``WORK_ITEM_NOT_FOUND_RESPONSE``, ``LABEL_NOT_FOUND_RESPONSE``,
+    ``MODULE_NOT_FOUND_RESPONSE``, ``MODULE_ISSUE_NOT_FOUND_RESPONSE``,
+    ``COMMENT_NOT_FOUND_RESPONSE``, ``LINK_NOT_FOUND_RESPONSE``,
+    ``ATTACHMENT_NOT_FOUND_RESPONSE``, ``ASSET_NOT_FOUND_RESPONSE``.
+  - Domain-specific 409s and 422s — ``EXTERNAL_ID_EXISTS_RESPONSE``,
+    ``PROJECT_NAME_TAKEN_RESPONSE``, ``LABEL_NAME_EXISTS_RESPONSE``,
+    ``CYCLE_CANNOT_ARCHIVE_RESPONSE``, ``STATE_NAME_EXISTS_RESPONSE``,
+    ``STATE_CANNOT_DELETE_RESPONSE``, ``CANNOT_DELETE_RESPONSE``,
+    ``CANNOT_ARCHIVE_RESPONSE``, ``ASSET_CONFLICT_RESPONSE``.
+  - File asset responses — ``PRESIGNED_URL_SUCCESS_RESPONSE``,
+    ``GENERIC_ASSET_UPLOAD_SUCCESS_RESPONSE``,
+    ``GENERIC_ASSET_VALIDATION_ERROR_RESPONSE``,
+    ``ASSET_DOWNLOAD_SUCCESS_RESPONSE``, ``ASSET_DOWNLOAD_ERROR_RESPONSE``,
+    ``ASSET_UPDATED_RESPONSE``, ``ASSET_DELETED_RESPONSE``.
+  - Search — ``BAD_SEARCH_REQUEST_RESPONSE``.
+  - Paginated envelopes — :func:`create_paginated_response` (factory that
+    builds an ``inline_serializer`` matching the response envelope produced
+    by :class:`plane.utils.paginator.BasePaginator`).
+
+Every response carries a stable ``error_code`` string (e.g.,
+``AUTHENTICATION_REQUIRED``, ``PERMISSION_DENIED``, ``RESOURCE_NOT_FOUND``)
+so API clients can branch on the code rather than parsing free-text messages.
 """
 
 from drf_spectacular.utils import OpenApiResponse, OpenApiExample, inline_serializer
@@ -361,8 +396,40 @@ def create_paginated_response(
     description="Paginated results",
     example_name="Paginated Response",
 ):
-    """Create a paginated response with the specified item schema"""
+    """Build an ``OpenApiResponse`` describing a paginated list of ``item_schema``.
 
+    The returned response wraps ``item_schema`` in an ``inline_serializer``
+    envelope matching the wire format produced by
+    :class:`plane.utils.paginator.BasePaginator.paginate`:
+
+    Envelope fields:
+        - ``grouped_by``         (str, nullable) — grouping dimension name.
+        - ``sub_grouped_by``     (str, nullable) — sub-grouping dimension name.
+        - ``total_count``        (int) — total matching rows.
+        - ``next_cursor``        (str) — opaque cursor for the next page.
+        - ``prev_cursor``        (str) — opaque cursor for the previous page.
+        - ``next_page_results``  (bool) — whether a next page exists.
+        - ``prev_page_results``  (bool) — whether a previous page exists.
+        - ``count``              (int) — rows on this page.
+        - ``total_pages``        (int) — total number of pages.
+        - ``total_results``      (int) — alias of ``total_count`` for legacy
+          consumers.
+        - ``extra_stats``        (dict, nullable) — aggregate stats payload.
+        - ``results``            (list[item_schema]) — page rows; sample data
+          is resolved via :func:`plane.utils.openapi.examples.get_sample_for_schema`.
+
+    Args:
+        item_schema: Serializer / OpenAPI schema describing a single row.
+        schema_name: Name for the generated inline serializer
+            (e.g., ``"PaginatedIssueResponse"``).
+        description: Human-readable description of what the list contains.
+        example_name: Lookup key passed to ``get_sample_for_schema`` to
+            populate the ``results`` field's example payload.
+
+    Returns:
+        OpenApiResponse: Drf-spectacular response describing the paginated
+        envelope.
+    """
     return OpenApiResponse(
         description=description,
         response=inline_serializer(
