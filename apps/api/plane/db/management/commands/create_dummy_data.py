@@ -1,6 +1,7 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Django management command to interactively provision a workspace and queue dummy-data jobs."""
 
 # Django imports
 from typing import Any
@@ -11,9 +12,37 @@ from plane.db.models import User, Workspace, WorkspaceMember
 
 
 class Command(BaseCommand):
+    """Interactively bootstrap a workspace with members and enqueue per-project dummy-data jobs.
+
+    CLI signature:
+        ``python manage.py create_dummy_data``
+
+    Console interaction:
+        Blocking ``input()`` prompts collect workspace name, slug, creator email,
+        comma-separated member emails, project count, and per-project entity counts
+        (issues, cycles, modules, pages, intake issues).
+
+    Side effects:
+        - Creates one ``Workspace`` row owned by the creator.
+        - Creates one ``WorkspaceMember`` for the creator (role=20, Admin) and bulk-
+          creates additional ``WorkspaceMember`` rows for the named member emails.
+        - For each requested project, enqueues an asynchronous Celery task via
+          ``plane.bgtasks.dummy_data_task.create_dummy_data`` that performs the
+          entity generation. Celery routes through RabbitMQ in this deployment;
+          Redis is reserved for caching and sessions only.
+
+    Idempotency:
+        NOT idempotent — the command rejects existing workspace slugs but otherwise
+        creates fresh rows and enqueues fresh jobs on every invocation.
+
+    Trigger context:
+        Operator-invoked manual seeding for developer / staging environments.
+    """
+
     help = "Create dump issues, cycles etc. for a project in a given workspace"
 
     def handle(self, *args: Any, **options: Any) -> str | None:
+        """Prompt for workspace and project parameters, create the workspace, and enqueue per-project Celery jobs."""
         try:
             workspace_name = input("Workspace Name: ")
             workspace_slug = input("Workspace slug: ")
