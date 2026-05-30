@@ -2,11 +2,51 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""
-Utilities for migrating legacy filters to rich filters format.
+"""Filter spec migration helpers — backfill / clear ``rich_filters`` JSON columns.
 
-This module contains helper functions for data migrations that convert
-filters fields to rich_filters fields using the LegacyToRichFiltersConverter.
+These functions implement the operational layer of the "legacy filters →
+rich filters" schema evolution. The Plane data model carries two parallel
+JSON columns on saved-view-style records (``IssueView``,
+``WorkspaceUserProperties``, ``ModuleUserProperties``, ``IssueUserProperty``,
+``CycleUserProperties``):
+
+  - ``filters``      — legacy flat dict (e.g.,
+    ``{"state": [uuid1, uuid2], "priority": ["high", "urgent"]}``).
+  - ``rich_filters`` — newer ``field__lookup`` tree (e.g.,
+    ``{"and": [{"state_id__in": "uuid1,uuid2"}, {"priority__in": "high,urgent"}]}``)
+    consumed by the v2 advanced-filter UI and
+    :class:`plane.utils.filters.filter_backend.ComplexFilterBackend`.
+
+Forward-compatible schema upgrade (FROM legacy ``filters`` → TO rich
+``rich_filters``):
+
+  - :func:`migrate_models_filters_to_rich_filters` iterates a set of model
+    classes and, for each, converts every record whose ``filters`` is
+    populated and whose ``rich_filters`` is empty, applying
+    :class:`~plane.utils.filters.converters.LegacyToRichFiltersConverter`
+    in non-strict mode so partial / invalid legacy data is dropped rather
+    than aborting the run. Updates are flushed via ``bulk_update`` with a
+    batch size of 1000 for efficiency. Per-record exceptions are logged but
+    do not abort the rest of the migration (tolerant by design — engineering
+    can repair stragglers after the fact).
+
+  - :func:`migrate_single_model_filters` is the per-model worker invoked by
+    the bulk orchestrator.
+
+Reverse / cleanup (TO empty ``rich_filters``):
+
+  - :func:`clear_models_rich_filters` clears ``rich_filters`` in bulk across
+    multiple models — used as the rollback path on the data migration
+    ``apps/api/plane/db/migrations/0107_migrate_filters_to_rich_filters.py``
+    or as a maintenance helper when a fresh re-migration is desired.
+
+Logging: all three helpers emit progress and error events to the
+``plane.api.filters.migration`` logger. Routed via the JSON formatter from
+:mod:`plane.celery` and visible to Sentry.
+
+Intended invocation contexts: Django data migration scripts (via
+``RunPython``), management commands, and one-off data-repair tasks. Not part
+of the request/response path.
 """
 
 import logging
@@ -21,16 +61,26 @@ logger = logging.getLogger("plane.api.filters.migration")
 def migrate_single_model_filters(
     model_class, model_name: str, converter: LegacyToRichFiltersConverter
 ) -> Tuple[int, int]:
-    """
-    Migrate filters to rich_filters for a single model.
+    """Convert legacy ``filters`` → ``rich_filters`` for every eligible row of one model.
+
+    FROM: rows where ``filters`` is non-empty AND ``rich_filters`` is empty.
+    TO:   ``rich_filters`` populated by
+          :meth:`LegacyToRichFiltersConverter.convert` (non-strict mode so
+          invalid legacy values are dropped rather than aborting).
+
+    Updates are flushed via :meth:`QuerySet.bulk_update` with
+    ``batch_size=1000``. Per-record conversion exceptions are caught and
+    logged at WARNING; the loop continues so a single bad row does not abort
+    a migration of thousands.
 
     Args:
-        model_class: Django model class
-        model_name: Human-readable name for logging
-        converter: Instance of LegacyToRichFiltersConverter
+        model_class: Django model class with both ``filters`` and
+            ``rich_filters`` JSON columns.
+        model_name: Human-readable name used in log messages.
+        converter: Configured :class:`LegacyToRichFiltersConverter` instance.
 
     Returns:
-        Tuple of (updated_count, error_count)
+        Tuple ``(updated_count, error_count)``.
     """
     # Find records that need migration - have filters but empty rich_filters
     records_to_migrate = model_class.objects.exclude(filters={}).filter(rich_filters={})
@@ -68,14 +118,21 @@ def migrate_models_filters_to_rich_filters(
     models_to_migrate: Dict[str, Any],
     converter: LegacyToRichFiltersConverter,
 ) -> Dict[str, Tuple[int, int]]:
-    """
-    Migrate legacy filters to rich_filters format for provided models.
+    """Run :func:`migrate_single_model_filters` across a set of models.
+
+    FROM: legacy ``filters`` columns on each model in ``models_to_migrate``.
+    TO:   populated ``rich_filters`` columns on the same rows.
+
+    Tolerant of per-model failure: if conversion fails for an entire model
+    the error is logged and the loop continues to the next model so a
+    single broken model does not block migration of the others.
 
     Args:
-        models_to_migrate: Dict mapping model names to model classes
+        models_to_migrate: Mapping of model name -> Django model class.
+        converter: Configured :class:`LegacyToRichFiltersConverter` instance.
 
     Returns:
-        Dictionary mapping model names to (updated_count, error_count) tuples
+        Mapping of model name -> ``(updated_count, error_count)``.
     """
     # Initialize the converter with default settings
 
@@ -106,14 +163,22 @@ def migrate_models_filters_to_rich_filters(
 
 
 def clear_models_rich_filters(models_to_clear: Dict[str, Any]) -> Dict[str, int]:
-    """
-    Clear rich_filters field for provided models (for reverse migration).
+    """Clear ``rich_filters`` on every row across a set of models.
+
+    FROM: populated ``rich_filters`` columns.
+    TO:   ``rich_filters = {}`` on every affected row.
+
+    Reverse migration / rollback helper: used to undo a prior
+    :func:`migrate_models_filters_to_rich_filters` run, or to reset
+    ``rich_filters`` before a fresh conversion. Legacy ``filters`` columns
+    are untouched.
 
     Args:
-        models_to_clear: Dictionary mapping model names to model classes
+        models_to_clear: Mapping of model name -> Django model class.
 
     Returns:
-        Dictionary mapping model names to count of cleared records
+        Mapping of model name -> count of rows whose ``rich_filters`` was
+        cleared.
     """
     logger.info("Starting reverse migration - clearing rich_filters for all models")
 
