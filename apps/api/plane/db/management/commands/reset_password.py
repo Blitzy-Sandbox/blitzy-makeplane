@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Django management command to reset a user's password from the console."""
+
 # Python imports
 import getpass
 
@@ -16,13 +18,40 @@ from plane.db.models import User
 
 
 class Command(BaseCommand):
+    """Reset a user's password after a double-confirmation prompt and a ``zxcvbn`` strength check.
+
+    CLI signature:
+        ``python manage.py reset_password <email>``
+
+    Console interaction:
+        Uses ``getpass.getpass`` twice (entry + confirmation) so the new password is
+        never echoed to the terminal.
+
+    Side effects:
+        - Calls ``user.set_password(new_password)`` to update the password hash.
+        - Sets ``is_password_autoset=False`` so the user is no longer treated as
+          holding an auto-generated default password.
+        - Rejects weak passwords by raising ``CommandError`` when
+          ``zxcvbn(password)['score'] < 3``.
+
+    Idempotency:
+        Idempotent for the new password -- re-running with the same chosen password
+        rehashes and saves but produces the same observable login behavior.
+
+    Trigger context:
+        Operator-invoked manual recovery when a user has lost access to their email
+        inbox and cannot use the self-service flow.
+    """
+
     help = "Reset password of the user with the given email"
 
     def add_arguments(self, parser):
+        """Register the ``email`` positional argument on the argparse parser."""
         # Positional argument
         parser.add_argument("email", type=str, help="user email")
 
     def handle(self, *args, **options):
+        """Resolve the user by email, prompt twice for a password, validate strength, and persist the new hash."""
         # get the user email from console
         email = options.get("email", False)
 
