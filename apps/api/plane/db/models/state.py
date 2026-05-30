@@ -2,6 +2,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Database model and managers for project-scoped issue workflow states.
+
+Defines :class:`StateGroup` (the canonical 6-bucket workflow taxonomy:
+backlog / unstarted / started / completed / cancelled / triage), the
+``DEFAULT_STATES`` seed list used at project bootstrap, and :class:`State`
+itself with three managers — :data:`State.objects` excludes triage,
+:data:`State.all_state_objects` includes every state, and
+:data:`State.triage_objects` returns triage only.
+"""
+
 # Django imports
 from django.db import models
 from django.template.defaultfilters import slugify
@@ -12,6 +22,14 @@ from .project import ProjectBaseModel
 from plane.db.mixins import SoftDeletionManager
 
 class StateGroup(models.TextChoices):
+    """Canonical 6-bucket issue workflow taxonomy used to group :class:`State` rows.
+
+    The first five (backlog, unstarted, started, completed, cancelled) form the
+    project's visible workflow ladder; ``triage`` is reserved for the
+    project's intake/triage flow and is filtered out of the default
+    :class:`StateManager`.
+    """
+
     BACKLOG = "backlog", "Backlog"
     UNSTARTED = "unstarted", "Unstarted"
     STARTED = "started", "Started"
@@ -63,25 +81,37 @@ DEFAULT_STATES = [
 
 
 class StateManager(SoftDeletionManager):
-    """Default manager - excludes triage states"""
+    """Soft-delete-aware manager that excludes triage states from the default queryset."""
 
     def get_queryset(self):
+        """Return all soft-delete-active states excluding the ``triage`` group."""
         return super().get_queryset().exclude(group=StateGroup.TRIAGE.value)
 
 
 class TriageStateManager(SoftDeletionManager):
-    """Manager for triage states only"""
+    """Soft-delete-aware manager that returns only triage states."""
 
     def get_queryset(self):
+        """Return only soft-delete-active states in the ``triage`` group."""
         return super().get_queryset().filter(group=StateGroup.TRIAGE.value)
 
 
 class State(ProjectBaseModel):
+    """Workflow state in a project's issue pipeline, classified by :class:`StateGroup`.
+
+    Each project owns its own set of states (seeded from ``DEFAULT_STATES`` at
+    project creation); ``sequence`` controls the within-group display order;
+    ``default`` flags the state that newly-created issues land in; ``is_triage``
+    cross-checks the group=triage classifier and is exposed via
+    :data:`State.triage_objects`.
+    """
+
     name = models.CharField(max_length=255, verbose_name="State Name")
     description = models.TextField(verbose_name="State Description", blank=True)
     color = models.CharField(max_length=255, verbose_name="State Color")
     slug = models.SlugField(max_length=100, blank=True)
     sequence = models.FloatField(default=65535)
+    # Valid: StateGroup — "backlog" | "unstarted" | "started" | "completed" | "cancelled" | "triage".
     group = models.CharField(
         choices=StateGroup.choices,
         default=StateGroup.BACKLOG,
@@ -97,10 +127,12 @@ class State(ProjectBaseModel):
     triage_objects = TriageStateManager()
 
     def __str__(self):
-        """Return name of the state"""
+        """Return name of the state."""
         return f"{self.name} <{self.project.name}>"
 
     class Meta:
+        """Database table layout and uniqueness constraints for :class:`State`."""
+
         unique_together = ["name", "project", "deleted_at"]
         constraints = [
             models.UniqueConstraint(
@@ -115,6 +147,12 @@ class State(ProjectBaseModel):
         ordering = ("sequence",)
 
     def save(self, *args, **kwargs):
+        """Slugify ``name`` and allocate the next per-project ``sequence`` slot on insert.
+
+        On insert, ``sequence`` is set to ``max(existing) + 15000`` so the new
+        state sorts after the project's existing states; ``slug`` is derived
+        from ``name`` on every save (insert and update).
+        """
         self.slug = slugify(self.name)
         if self._state.adding:
             # Get the maximum sequence value from the database
