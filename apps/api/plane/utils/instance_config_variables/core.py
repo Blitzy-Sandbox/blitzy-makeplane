@@ -2,6 +2,50 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Core instance-configuration variable metadata.
+
+Declares the canonical metadata for every core instance-configuration
+variable an administrator can manage from the admin UI: authentication
+toggles, workspace controls, OAuth provider credentials (Google, GitHub,
+GitLab, Gitea), SMTP delivery settings, LLM/AI provider credentials, and
+the Unsplash access key.
+
+Each entry is a ``dict`` with four keys:
+
+* ``key`` — the environment-variable name and configuration identifier
+  (also the ``InstanceConfiguration.key`` column value).
+* ``value`` — the bootstrap value resolved from ``os.environ`` at import
+  time (not lazily). The ``configure_instance`` management command
+  (:mod:`plane.license.management.commands.configure_instance`) writes
+  this value into :class:`plane.license.models.InstanceConfiguration`
+  only when the row does NOT already exist; subsequent edits via the
+  admin UI take precedence, so the env var is a SEED and not a runtime
+  override.
+* ``category`` — admin-UI grouping label (one of ``AUTHENTICATION``,
+  ``WORKSPACE_MANAGEMENT``, ``GOOGLE``, ``GITHUB``, ``GITLAB``,
+  ``GITEA``, ``SMTP``, ``AI``, ``UNSPLASH``).
+* ``is_encrypted`` — when ``True``, the value is Fernet-encrypted (key
+  derived from Django's ``SECRET_KEY`` via PBKDF2-HMAC-SHA256, see
+  :mod:`plane.license.utils.encryption`) before being persisted in
+  :class:`plane.license.models.InstanceConfiguration`. Cleartext for
+  feature toggles, hosts, and public OAuth client IDs; encrypted for
+  client secrets, SMTP passwords, LLM API keys, and the Unsplash access
+  key.
+
+``core_config_variables`` concatenates every category-specific list into
+a single ordered master list re-exported by the package ``__init__`` as
+part of ``instance_config_variables``.
+
+Note: ``GPT_ENGINE`` is retained for backwards compatibility; new code
+should read ``LLM_MODEL`` instead.
+
+Migrator startup contract (per AAP §0.2.2): the ``instance_configurations``
+table that ultimately stores these entries is created by the migrator
+container before API services start, so seed routines (the
+``configure_instance`` management command, signal handlers) that iterate
+this list at boot can assume the schema exists.
+"""
+
 # Python imports
 import os
 
