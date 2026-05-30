@@ -81,8 +81,11 @@ class IssueView(WorkspaceBaseModel):
     query = models.JSONField(verbose_name="View Query")
     # Shape: raw user-authored filter dict (see get_default_filters); recompiled into ``query`` on save.
     filters = models.JSONField(default=dict)
+    # Shape: display preferences dict (see get_default_display_filters); group_by/order_by/layout/etc.
     display_filters = models.JSONField(default=get_default_display_filters)
+    # Shape: per-column visibility dict (see get_default_display_properties); column key -> bool.
     display_properties = models.JSONField(default=get_default_display_properties)
+    # INTENT UNCLEAR: structured filter graph consumed by the rich-filter UI; shape varies per consumer.
     rich_filters = models.JSONField(default=dict)
     # Valid: 0 = Private | 1 = Public (note: default is 1 = Public).
     access = models.PositiveSmallIntegerField(default=1, choices=((0, "Private"), (1, "Public")))

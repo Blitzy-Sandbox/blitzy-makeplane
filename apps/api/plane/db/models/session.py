@@ -32,6 +32,8 @@ class Session(AbstractBaseSession):
     session payload for device-aware logout flows.
     """
 
+    # INTENT UNCLEAR: device-info payload mirrored from the session data dict in
+    # SessionStore.create_model_instance (e.g., user-agent / platform / IP); exact keys vary by login flow.
     device_info = models.JSONField(null=True, blank=True, default=None)
     session_key = models.CharField(max_length=128, primary_key=True)
     user_id = models.CharField(null=True, max_length=50, db_index=True)

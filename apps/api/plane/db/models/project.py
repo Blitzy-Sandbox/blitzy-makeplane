@@ -113,7 +113,9 @@ class Project(BaseModel):
     description = models.TextField(verbose_name="Project Description", blank=True)
     # Shape: ProseMirror document JSON; mirrors description_html
     description_text = models.JSONField(verbose_name="Project Description RT", blank=True, null=True)
+    # Shape: rendered HTML representation of description_text, persisted as JSON for client cache stability.
     description_html = models.JSONField(verbose_name="Project Description HTML", blank=True, null=True)
+    # Valid: 0 (Secret — explicit members only) | 2 (Public — any workspace member); see NETWORK_CHOICES.
     network = models.PositiveSmallIntegerField(default=2, choices=NETWORK_CHOICES)
     workspace = models.ForeignKey("db.WorkSpace", on_delete=models.CASCADE, related_name="workspace_project")
     identifier = models.CharField(max_length=12, verbose_name="Project Identifier", db_index=True)
@@ -132,6 +134,7 @@ class Project(BaseModel):
         blank=True,
     )
     emoji = models.CharField(max_length=255, null=True, blank=True)
+    # INTENT UNCLEAR: icon descriptor consumed by the project avatar renderer (emoji/icon/color tokens); shape varies per surface.
     icon_prop = models.JSONField(null=True)
     module_view = models.BooleanField(default=False)
     cycle_view = models.BooleanField(default=False)
@@ -315,6 +318,8 @@ class ProjectMember(ProjectBaseModel):
     role = models.PositiveSmallIntegerField(choices=ROLE_CHOICES, default=5)
     # Shape: {filters, display_filters, display_properties} — see get_default_props()
     view_props = models.JSONField(default=get_default_props)
+    # Shape: same {filters, display_filters, display_properties} as view_props (see get_default_props);
+    # holds the reset-to-default snapshot so the UI can restore view_props to a known baseline.
     default_props = models.JSONField(default=get_default_props)
     # Shape: {pages: {block_display}, navigation: {...}} — see get_default_preferences()
     preferences = models.JSONField(default=get_default_preferences)

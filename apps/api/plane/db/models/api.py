@@ -36,6 +36,14 @@ class APIToken(BaseModel):
     Tokens are prefixed ``plane_api_`` for visual identification; ``is_service``
     marks server-to-server tokens, ``is_active`` is the soft-revoke flag, and
     ``allowed_rate_limit`` overrides the default throttle scope when set.
+
+    Sensitive storage contract: :attr:`token` is a plain :class:`CharField`
+    that persists the bearer credential itself in cleartext (no hashing,
+    no encryption-at-rest is declared on this model). Authentication
+    compares the request-supplied token against the stored value
+    directly. Treat the ``api_tokens`` table as sensitive at rest.
+    # INTENT UNCLEAR: whether an external encryption-at-rest layer (DB
+    # column encryption, KMS, disk-level) is expected to wrap this column.
     """
 
     # Meta information
@@ -45,6 +53,7 @@ class APIToken(BaseModel):
     last_used = models.DateTimeField(null=True)
 
     # Token
+    # Sensitive: plain CharField persisting the bearer credential in cleartext (no hash, no encryption).
     token = models.CharField(max_length=255, unique=True, default=generate_token, db_index=True)
 
     # User Information

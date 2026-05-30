@@ -8,8 +8,13 @@
 HMAC-SHA256 shared secret used to sign payloads; :class:`WebhookLog` is the
 append-only delivery-attempt log written by the Celery delivery task
 (``bgtasks.webhook_task``); :class:`ProjectWebhook` is the optional join that
-restricts a webhook to one project. URLs are guarded against non-``http(s)``
-schemes and loopback/private destinations to mitigate SSRF.
+restricts a webhook to one project. URLs are guarded by two validators:
+:func:`validate_schema` rejects any scheme other than ``http``/``https``,
+and :func:`validate_domain` rejects exactly the literal hosts ``localhost``
+and ``127.0.0.1``. The model does NOT validate RFC1918 private IPv4
+ranges, IPv6 loopback / link-local, ``0.0.0.0``, or DNS names that
+resolve to private addresses; treat this layer as best-effort guidance,
+not as a complete SSRF mitigation.
 
 Cross-reference: technical specification §5.2.10 Webhook Delivery Sequence.
 """
@@ -43,10 +48,17 @@ def validate_schema(value):
 
 
 def validate_domain(value):
-    """Validate that the webhook URL does not target a loopback host.
+    """Reject the literal hosts ``localhost`` and ``127.0.0.1`` in the URL netloc.
 
-    Rejects ``localhost`` and ``127.0.0.1`` to mitigate server-side request
-    forgery against the API host itself.
+    This validator does NOT block RFC1918 private IPv4 ranges
+    (``10.0.0.0/8``, ``172.16.0.0/12``, ``192.168.0.0/16``), IPv6 loopback
+    (``::1``) or link-local addresses, ``0.0.0.0``, or DNS names that
+    resolve to private addresses — it is a narrow literal-host check, not
+    a complete SSRF mitigation.
+
+    Raises:
+        django.core.exceptions.ValidationError: if the URL netloc is
+            literally ``localhost`` or ``127.0.0.1``.
     """
     parsed_url = urlparse(value)
     domain = parsed_url.netloc
@@ -62,11 +74,22 @@ class Webhook(BaseModel):
     ``secret_key`` is the HMAC-SHA256 signing secret regenerated when
     rotated; ``is_internal`` reserves the row for system-managed integrations
     so users cannot mutate it via the API.
+
+    Sensitive storage contract: :attr:`secret_key` is a plain
+    :class:`CharField` that persists the shared signing secret in
+    cleartext (no hashing, no encryption-at-rest is declared on this
+    model). The Celery delivery task in ``bgtasks.webhook_task`` reads
+    the column directly to compute the HMAC-SHA256 signature attached
+    to every outbound payload; treat the ``webhooks`` table as
+    sensitive at rest.
+    # INTENT UNCLEAR: whether an external encryption-at-rest layer (DB
+    # column encryption, KMS, disk-level) is expected to wrap this column.
     """
 
     workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="workspace_webhooks")
     url = models.URLField(validators=[validate_schema, validate_domain], max_length=1024)
     is_active = models.BooleanField(default=True)
+    # Sensitive: plain CharField persisting the HMAC-SHA256 signing secret in cleartext (no hash, no encryption).
     secret_key = models.CharField(max_length=255, default=generate_token)
     project = models.BooleanField(default=False)
     issue = models.BooleanField(default=False)

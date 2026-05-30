@@ -171,9 +171,13 @@ class CycleUserProperties(ProjectBaseModel):
         on_delete=models.CASCADE,
         related_name="cycle_user_properties",
     )
+    # Shape: raw user-authored filter dict (see get_default_filters); facet keys -> selected value(s) or None.
     filters = models.JSONField(default=get_default_filters)
+    # Shape: display preferences dict (see get_default_display_filters); group_by/order_by/layout/etc.
     display_filters = models.JSONField(default=get_default_display_filters)
+    # Shape: per-column visibility dict (see get_default_display_properties); column key -> bool.
     display_properties = models.JSONField(default=get_default_display_properties)
+    # INTENT UNCLEAR: structured filter graph consumed by the rich-filter UI; shape varies per consumer.
     rich_filters = models.JSONField(default=dict)
 
     class Meta:

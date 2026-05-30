@@ -86,6 +86,27 @@ class User(AbstractBaseUser, PermissionsMixin):
     (avatar, cover image) are dual-stored as a legacy URL field plus a FK
     to :class:`FileAsset` — :attr:`avatar_url` and :attr:`cover_image_url`
     resolve the FK first, falling back to the legacy URL.
+
+    Authentication and authorization flags:
+        - :attr:`password` is inherited from
+          :class:`~django.contrib.auth.models.AbstractBaseUser` and stores
+          the hashed credential produced by Django's ``set_password()`` /
+          ``PASSWORD_HASHERS`` pipeline. Raw password text is never
+          persisted on this model; equality checks go through
+          ``check_password()``.
+        - :attr:`is_active` gates authentication: ``False`` blocks login
+          for the row regardless of credential validity (used by the
+          deactivation flow).
+        - :attr:`is_superuser` grants every Django permission via
+          :class:`~django.contrib.auth.models.PermissionsMixin` and is
+          force-coupled to :attr:`is_staff` by :meth:`save` (a
+          superuser is always staff).
+        - :attr:`is_staff` is the gatekeeper for the Django admin UI;
+          it does not affect API permissions, which are governed by
+          DRF permission classes in ``plane.app.permissions``.
+        - :attr:`is_email_verified`, :attr:`is_password_autoset`, and
+          :attr:`is_password_reset_required` drive onboarding /
+          reset flows; they do not directly grant or revoke access.
     """
 
     id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True, primary_key=True)
@@ -350,6 +371,14 @@ class Account(TimeAuditModel):
     sign-in; rotation timestamps support refresh-token flows. Historical
     audit of OAuth events lives separately in
     :class:`SocialLoginConnection`.
+
+    Sensitive storage contract: :attr:`access_token`, :attr:`refresh_token`,
+    and :attr:`id_token` are plain :class:`TextField` columns that persist
+    the credential strings as returned by the provider. No hashing,
+    encryption-at-rest, or KMS wrapping is declared on this model; the
+    ``accounts`` table must be treated as sensitive at rest.
+    # INTENT UNCLEAR: whether an external column-encryption layer (DB-level
+    # encryption, KMS, disk-level) is expected to wrap these columns.
     """
 
     PROVIDER_CHOICES = (
@@ -363,11 +392,14 @@ class Account(TimeAuditModel):
     provider_account_id = models.CharField(max_length=255)
     # Valid: PROVIDER_CHOICES — "google" | "github" | "gitlab".
     provider = models.CharField(choices=PROVIDER_CHOICES)
+    # Sensitive: plain TextField persisting the provider-issued OAuth access token in cleartext.
     access_token = models.TextField()
     access_token_expired_at = models.DateTimeField(null=True)
+    # Sensitive: plain TextField persisting the provider-issued OAuth refresh token in cleartext.
     refresh_token = models.TextField(null=True, blank=True)
     refresh_token_expired_at = models.DateTimeField(null=True)
     last_connected_at = models.DateTimeField(default=timezone.now)
+    # Sensitive: plain TextField persisting the provider-issued OAuth ID token (signed JWT) in cleartext.
     id_token = models.TextField(blank=True)
     # INTENT UNCLEAR: opaque per-provider metadata (e.g., scopes granted, provider-specific
     # user payload); shape varies per provider.

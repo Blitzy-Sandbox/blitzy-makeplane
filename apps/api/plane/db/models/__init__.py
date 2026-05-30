@@ -2,15 +2,20 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""Public import surface re-exporting every domain ORM model in :mod:`plane.db.models`.
+"""Curated public import surface for the :mod:`plane.db.models` package.
 
 Downstream code imports models from this package (e.g.,
 ``from plane.db.models import Issue``) instead of from individual
-sub-modules. Importing this package registers all models with Django's
-app registry and connects signal handlers (notably
-:func:`plane.db.models.user.create_user_notification`); the ``migrator``
-container must therefore complete schema migrations before the first
-API service import.
+sub-modules. The re-export list below is the curated public surface;
+it intentionally omits a small number of internal classes that are
+only imported from their defining sub-module (notably
+:class:`plane.db.models.webhook.ProjectWebhook`, accessed via
+``from plane.db.models.webhook import ProjectWebhook``). Importing this
+package registers all models with Django's app registry and connects
+signal handlers (notably
+:func:`plane.db.models.user.create_user_notification`); the
+``migrator`` container must therefore complete schema migrations
+before the first API service import.
 """
 
 from .analytic import AnalyticView

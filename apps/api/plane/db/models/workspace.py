@@ -179,7 +179,7 @@ class Workspace(BaseModel):
     background_color = models.CharField(max_length=255, default=get_random_color)
 
     def __str__(self):
-        """Return name of the Workspace"""
+        """Return the workspace name."""
         return self.name
 
     @property
@@ -269,8 +269,12 @@ class WorkspaceMember(BaseModel):
     )
     role = models.PositiveSmallIntegerField(choices=ROLE_CHOICES, default=5)  # Valid: 5=Guest, 15=Member, 20=Admin
     company_role = models.TextField(null=True, blank=True)  # Free-text job title captured at onboarding; not enforced.
+    # Shape: {filters, display_filters, display_properties} — see get_default_props().
     view_props = models.JSONField(default=get_default_props)
+    # Shape: same {filters, display_filters, display_properties} as view_props (see get_default_props);
+    # holds the reset-to-default snapshot so the UI can restore view_props to a known baseline.
     default_props = models.JSONField(default=get_default_props)
+    # Shape: per-tab issue visibility bools (see get_issue_props): {subscribed, assigned, created, all_issues}.
     issue_props = models.JSONField(default=get_issue_props)
     is_active = models.BooleanField(default=True)
     # Shape: per-user map of onboarding step keys to completion bool/timestamp.
@@ -296,7 +300,7 @@ class WorkspaceMember(BaseModel):
         ordering = ("-created_at",)
 
     def __str__(self):
-        """Return members of the workspace"""
+        """Return the member email and workspace name for admin/debug rendering."""
         return f"{self.member.email} <{self.workspace.name}>"
 
 
@@ -352,7 +356,7 @@ class Team(BaseModel):
     logo_props = models.JSONField(default=dict)
 
     def __str__(self):
-        """Return name of the team"""
+        """Return the team name and workspace name for admin/debug rendering."""
         return f"{self.name} <{self.workspace.name}>"
 
     class Meta:

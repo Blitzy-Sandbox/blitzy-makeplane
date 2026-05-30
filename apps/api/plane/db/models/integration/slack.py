@@ -52,7 +52,7 @@ class SlackProjectSync(ProjectBaseModel):
     )
 
     def __str__(self):
-        """Return the repo name."""
+        """Return the synced Plane project name."""
         return f"{self.project.name}"
 
     class Meta:
