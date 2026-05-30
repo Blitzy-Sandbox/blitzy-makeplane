@@ -2,6 +2,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Database model for saved-filter issue views, scoped to a workspace or project.
+
+:class:`IssueView` persists user-authored filter dicts plus the compiled
+``query`` (re-derived on every save via :func:`plane.utils.issue_filters.issue_filters`)
+and the display preferences applied when the view is rendered.
+"""
+
 # Django imports
 from django.conf import settings
 from django.db import models
@@ -12,6 +19,7 @@ from plane.utils.issue_filters import issue_filters
 
 
 def get_default_filters():
+    """Return the default :class:`IssueView` raw filter dict (all facets unset)."""
     return {
         "priority": None,
         "state": None,
@@ -26,6 +34,7 @@ def get_default_filters():
 
 
 def get_default_display_filters():
+    """Return the default :class:`IssueView` display-filter dict (list layout, newest-first ordering)."""
     return {
         "group_by": None,
         "order_by": "-created_at",
@@ -38,6 +47,7 @@ def get_default_display_filters():
 
 
 def get_default_display_properties():
+    """Return the default :class:`IssueView` display-property dict (every issue column enabled)."""
     return {
         "assignee": True,
         "attachment_count": True,
@@ -56,27 +66,49 @@ def get_default_display_properties():
 
 
 class IssueView(WorkspaceBaseModel):
+    """Saved-filter issue view scoped to a workspace (or one of its projects).
+
+    ``filters`` carries the raw user-authored filter dict; ``query`` is the
+    derived compiled-query snapshot recomputed on every save via
+    :func:`plane.utils.issue_filters.issue_filters`. ``access`` controls
+    public (1) / private (0) visibility and defaults to public. Views without
+    an attached project are workspace-global.
+    """
+
     name = models.CharField(max_length=255, verbose_name="View Name")
     description = models.TextField(verbose_name="View Description", blank=True)
+    # Shape: compiled filter query produced by plane.utils.issue_filters.issue_filters(filters, "POST").
     query = models.JSONField(verbose_name="View Query")
+    # Shape: raw user-authored filter dict (see get_default_filters); recompiled into ``query`` on save.
     filters = models.JSONField(default=dict)
     display_filters = models.JSONField(default=get_default_display_filters)
     display_properties = models.JSONField(default=get_default_display_properties)
     rich_filters = models.JSONField(default=dict)
+    # Valid: 0 = Private | 1 = Public (note: default is 1 = Public).
     access = models.PositiveSmallIntegerField(default=1, choices=((0, "Private"), (1, "Public")))
     sort_order = models.FloatField(default=65535)
+    # INTENT UNCLEAR: view logo/icon metadata consumed by the view dropdown; shape varies per surface.
     logo_props = models.JSONField(default=dict)
     owned_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="views")
     is_locked = models.BooleanField(default=False)
     archived_at = models.DateTimeField(null=True)
 
     class Meta:
+        """Database table metadata for ``IssueView``."""
+
         verbose_name = "Issue View"
         verbose_name_plural = "Issue Views"
         db_table = "issue_views"
         ordering = ("-created_at",)
 
     def save(self, *args, **kwargs):
+        """Recompile ``query`` from ``filters`` and allocate ``sort_order`` on insert.
+
+        ``query`` is regenerated via :func:`issue_filters` on every save so it
+        always reflects the current ``filters`` dict; on insert ``sort_order``
+        is set to ``max(existing) + 10000`` within the view's scope (project
+        if attached, else workspace-only views).
+        """
         query_params = self.filters
         self.query = issue_filters(query_params, "POST") if query_params else {}
 
@@ -95,5 +127,5 @@ class IssueView(WorkspaceBaseModel):
         super(IssueView, self).save(*args, **kwargs)
 
     def __str__(self):
-        """Return name of the View"""
+        """Return name of the View."""
         return f"{self.name} <{self.project.name}>"
