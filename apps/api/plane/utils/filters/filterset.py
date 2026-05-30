@@ -1,6 +1,54 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Base FilterSet classes for Plane's complex JSON filter backend.
+
+This module defines the filterset machinery consumed by
+:class:`plane.utils.filters.filter_backend.ComplexFilterBackend`:
+
+  - :class:`UUIDInFilter` / :class:`CharInFilter` -- list-of-values
+    variants used for ``?field__in=`` lookups whose elements are UUIDs
+    or strings respectively. (Wraps django-filter's
+    :class:`~django_filters.filters.BaseInFilter` over the
+    corresponding scalar filter type.)
+  - :class:`BaseFilterSet` -- :class:`django_filters.FilterSet`
+    subclass with Plane defaults: auto-generates ``__exact`` mirrors
+    of every ``exact`` filter (so the JSON filter UI can write
+    ``priority__exact``) and exposes ``build_combined_q()`` which
+    returns a single :class:`~django.db.models.Q` object covering all
+    bound conditions. ``filter_queryset()`` is overridden to use the
+    same path so both the legacy ``DjangoFilterBackend`` and the new
+    :class:`ComplexFilterBackend` consume identical semantics.
+  - :class:`IssueFilterSet` -- concrete filterset for
+    :class:`plane.db.models.Issue` used by the issue / cycle-issue /
+    module-issue / workspace-user issue / view-detail issue endpoints.
+
+Soft-delete-aware joins
+-----------------------
+
+Plane uses soft deletes (``deleted_at IS NOT NULL`` marks a tombstone)
+for many-to-many relations (``issue_assignee``, ``issue_cycle``,
+``issue_module``, ``issue_mention``, ``label_issue``,
+``issue_subscribers``). Every relation-based filter method on
+:class:`IssueFilterSet` AND's an explicit
+``<relation>__deleted_at__isnull=True`` guard onto the ``Q`` object
+so issues whose only matching join row is tombstoned do NOT leak into
+results. Naive ``Issue.objects.filter(label_issue__label_id=...)``
+without the guard would include tombstoned join rows; the methods
+here are the correct pattern and SHOULD be used as the template for
+any new relation filter.
+
+Combined Q assembly
+-------------------
+
+:meth:`BaseFilterSet.build_combined_q` is the integration point with
+:class:`ComplexFilterBackend`. Custom filter methods (``method=...``)
+may return a ``Q`` object directly OR a ``QuerySet`` (the latter is
+wrapped as ``Q(pk__in=subquery.values("pk"))`` for backward
+compatibility). Standard field filters fall back to
+``Q(**{f"{field_name}__{lookup_expr}": value})``. Filters with
+``exclude=True`` are negated.
+"""
 
 import copy
 
@@ -12,19 +60,40 @@ from plane.db.models import Issue
 
 
 class UUIDInFilter(filters.BaseInFilter, filters.UUIDFilter):
+    """``?field__in=<uuid>,<uuid>`` filter: comma-separated list of UUID values."""
+
     pass
 
 
 class CharInFilter(filters.BaseInFilter, filters.CharFilter):
+    """``?field__in=<str>,<str>`` filter: comma-separated list of string values."""
+
     pass
 
 
 class BaseFilterSet(FilterSet):
+    """``django_filters.FilterSet`` with Plane defaults: auto ``__exact`` mirrors and ``build_combined_q()``.
+
+    Override of :class:`django_filters.FilterSet` that:
+
+      - Auto-generates a ``<name>__exact`` mirror for every declared
+        filter whose ``lookup_expr == "exact"`` so the JSON filter
+        backend can address ``priority__exact`` etc. without each
+        FilterSet repeating the declaration.
+      - Exposes :meth:`build_combined_q` for the
+        :class:`ComplexFilterBackend` to fold every bound filter into
+        a single :class:`~django.db.models.Q` (custom methods may
+        return either a ``Q`` or a ``QuerySet`` -- the latter is
+        wrapped as ``Q(pk__in=qs.values("pk"))``).
+      - Overrides :meth:`filter_queryset` to route through the same
+        ``build_combined_q`` path so a single filterset can serve both
+        ``DjangoFilterBackend`` and ``ComplexFilterBackend``
+        consistently.
+    """
+
     @classmethod
     def get_filters(cls):
-        """
-        Get all filters for the filterset, including dynamically created __exact filters.
-        """
+        """Get all filters for the filterset, including dynamically created __exact filters."""
         # Get the standard filters first
         filters = super().get_filters()
 
@@ -122,6 +191,29 @@ class BaseFilterSet(FilterSet):
 
 
 class IssueFilterSet(BaseFilterSet):
+    """FilterSet for :class:`plane.db.models.Issue` -- soft-delete-aware relation filters.
+
+    Used by the issue / cycle-issue / module-issue / workspace-user
+    issue / view-detail issue endpoints (via ``filterset_class``).
+
+    Declared filters fall into three buckets:
+
+      - **Relation filters with soft-delete guards** (assignee, cycle,
+        module, mention, label, subscriber): bound to custom methods
+        (``filter_<name>``) so each join condition includes
+        ``<relation>__deleted_at__isnull=True``.
+      - **Direct field lookups**: ``created_by_id``, ``state_group``,
+        ``state_id``, ``project_id`` (and their ``__in`` variants) are
+        plain ``UUIDFilter`` / ``CharFilter`` against the issue row.
+      - **Boolean convenience filter**: ``is_archived`` translates
+        truthy/falsy to ``archived_at IS NOT NULL`` / ``archived_at
+        IS NULL`` respectively.
+
+    The ``Meta.fields`` dict adds date/range/exact lookups on
+    ``start_date``, ``target_date``, ``created_at``, ``updated_at``,
+    plus ``is_draft`` and ``priority`` direct lookups.
+    """
+
     # Custom filter methods to handle soft delete exclusion for relations
 
     assignee_id = filters.UUIDFilter(method="filter_assignee_id")
@@ -158,6 +250,8 @@ class IssueFilterSet(BaseFilterSet):
     subscriber_id__in = UUIDInFilter(method="filter_subscriber_id_in", lookup_expr="in")
 
     class Meta:
+        """Declarative django-filter config: ``model = Issue`` plus exact/range/in lookups on date and scalar fields."""
+
         model = Issue
         fields = {
             "start_date": ["exact", "range"],
@@ -170,8 +264,13 @@ class IssueFilterSet(BaseFilterSet):
 
     def filter_is_archived(self, queryset, name, value):
         """
-        Convenience filter: archived=true -> archived_at is not null,
-        archived=false -> archived_at is null
+        Apply a convenience boolean filter on ``archived_at``.
+
+        Truthy values (``True`` / ``"true"`` / ``"True"`` / ``1`` /
+        ``"1"``) match rows where ``archived_at`` IS NOT NULL.
+        Falsy values (``False`` / ``"false"`` / ``"False"`` / ``0`` /
+        ``"0"``) match rows where ``archived_at`` IS NULL.
+        Any other value applies no filter (returns ``Q()``).
         """
         if value in (True, "true", "True", 1, "1"):
             return Q(archived_at__isnull=False)
@@ -182,84 +281,84 @@ class IssueFilterSet(BaseFilterSet):
     # Filter methods with soft delete exclusion for relations
 
     def filter_assignee_id(self, queryset, name, value):
-        """Filter by assignee ID, excluding soft deleted users"""
+        """Filter by assignee ID, excluding soft-deleted ``issue_assignee`` join rows."""
         return Q(
             issue_assignee__assignee_id=value,
             issue_assignee__deleted_at__isnull=True,
         )
 
     def filter_assignee_id_in(self, queryset, name, value):
-        """Filter by assignee IDs (in), excluding soft deleted users"""
+        """Filter by assignee IDs (``__in``), excluding soft-deleted ``issue_assignee`` join rows."""
         return Q(
             issue_assignee__assignee_id__in=value,
             issue_assignee__deleted_at__isnull=True,
         )
 
     def filter_cycle_id(self, queryset, name, value):
-        """Filter by cycle ID, excluding soft deleted cycles"""
+        """Filter by cycle ID, excluding soft-deleted ``issue_cycle`` join rows."""
         return Q(
             issue_cycle__cycle_id=value,
             issue_cycle__deleted_at__isnull=True,
         )
 
     def filter_cycle_id_in(self, queryset, name, value):
-        """Filter by cycle IDs (in), excluding soft deleted cycles"""
+        """Filter by cycle IDs (``__in``), excluding soft-deleted ``issue_cycle`` join rows."""
         return Q(
             issue_cycle__cycle_id__in=value,
             issue_cycle__deleted_at__isnull=True,
         )
 
     def filter_module_id(self, queryset, name, value):
-        """Filter by module ID, excluding soft deleted modules"""
+        """Filter by module ID, excluding soft-deleted ``issue_module`` join rows."""
         return Q(
             issue_module__module_id=value,
             issue_module__deleted_at__isnull=True,
         )
 
     def filter_module_id_in(self, queryset, name, value):
-        """Filter by module IDs (in), excluding soft deleted modules"""
+        """Filter by module IDs (``__in``), excluding soft-deleted ``issue_module`` join rows."""
         return Q(
             issue_module__module_id__in=value,
             issue_module__deleted_at__isnull=True,
         )
 
     def filter_mention_id(self, queryset, name, value):
-        """Filter by mention ID, excluding soft deleted users"""
+        """Filter by mention ID, excluding soft-deleted ``issue_mention`` join rows."""
         return Q(
             issue_mention__mention_id=value,
             issue_mention__deleted_at__isnull=True,
         )
 
     def filter_mention_id_in(self, queryset, name, value):
-        """Filter by mention IDs (in), excluding soft deleted users"""
+        """Filter by mention IDs (``__in``), excluding soft-deleted ``issue_mention`` join rows."""
         return Q(
             issue_mention__mention_id__in=value,
             issue_mention__deleted_at__isnull=True,
         )
 
     def filter_label_id(self, queryset, name, value):
-        """Filter by label ID, excluding soft deleted labels"""
+        """Filter by label ID, excluding soft-deleted ``label_issue`` join rows."""
         return Q(
             label_issue__label_id=value,
             label_issue__deleted_at__isnull=True,
         )
 
     def filter_label_id_in(self, queryset, name, value):
-        """Filter by label IDs (in), excluding soft deleted labels"""
+        """Filter by label IDs (``__in``), excluding soft-deleted ``label_issue`` join rows."""
         return Q(
             label_issue__label_id__in=value,
             label_issue__deleted_at__isnull=True,
         )
 
     def filter_subscriber_id(self, queryset, name, value):
-        """Filter by subscriber ID, excluding soft deleted users"""
+        """Filter by subscriber ID, excluding soft-deleted ``issue_subscribers`` join rows."""
         return Q(
             issue_subscribers__subscriber_id=value,
             issue_subscribers__deleted_at__isnull=True,
         )
 
     def filter_subscriber_id_in(self, queryset, name, value):
-        """Filter by subscriber IDs (in), excluding soft deleted users"""
+        """Filter by subscriber IDs (``__in``), excluding soft-deleted ``issue_subscribers`` join rows."""
         return Q(
             issue_subscribers__subscriber_id__in=value,
             issue_subscribers__deleted_at__isnull=True,
