@@ -1,6 +1,11 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Inspect bucket permissions and publish existing objects, falling back to a manual policy file.
+
+Django management command that probes the configured S3/MinIO access key's permissions and either
+publishes existing objects via a bucket policy or writes ``permissions.json`` for manual application.
+"""
 
 # Python imports
 import os
@@ -13,9 +18,34 @@ from django.core.management import BaseCommand
 
 
 class Command(BaseCommand):
+    """Test S3 bucket permissions, publish existing objects when permitted, otherwise emit ``permissions.json``.
+
+    CLI signature:
+        ``python manage.py update_bucket``
+
+    Side effects:
+        - Constructs an S3 client against ``AWS_S3_ENDPOINT_URL`` (MinIO-compatible).
+        - Verifies the bucket named by ``AWS_S3_BUCKET_NAME`` exists.
+        - Probes ``s3:ListBucket``, ``s3:GetObject``, ``s3:PutObject``, and
+          ``s3:PutBucketPolicy`` permissions.
+        - If every probe succeeds: applies a bucket policy that grants
+          ``s3:GetObject`` to every existing object key (making existing objects
+          publicly readable while leaving new objects subject to their default ACL).
+        - Otherwise: writes the would-be policy to ``permissions.json`` for an
+          operator to apply manually.
+
+    Idempotency:
+        Idempotent in success path -- re-applying the same policy is a no-op.
+        The probe step temporarily creates and deletes ``test_permission_check.txt``.
+
+    Trigger context:
+        Operator-invoked one-time bucket configuration after deployment.
+    """
+
     help = "Create the default bucket for the instance"
 
     def get_s3_client(self):
+        """Return a boto3 S3 client configured against the ``AWS_S3_*`` environment variables."""
         s3_client = boto3.client(
             "s3",
             endpoint_url=os.environ.get("AWS_S3_ENDPOINT_URL"),  # MinIO endpoint
@@ -28,6 +58,7 @@ class Command(BaseCommand):
 
     # Check if the access key has the required permissions
     def check_s3_permissions(self, bucket_name):
+        """Probe ``s3:ListBucket``, ``s3:GetObject``, ``s3:PutObject``, and ``s3:PutBucketPolicy`` permissions."""
         s3_client = self.get_s3_client()
         permissions = {
             "s3:GetObject": False,
@@ -100,6 +131,7 @@ class Command(BaseCommand):
         return permissions
 
     def generate_bucket_policy(self, bucket_name):
+        """Build an S3 bucket policy granting ``s3:GetObject`` on every existing object in ``bucket_name``."""
         s3_client = self.get_s3_client()
         response = s3_client.list_objects_v2(Bucket=bucket_name)
         public_object_resource = []
@@ -121,6 +153,7 @@ class Command(BaseCommand):
         return bucket_policy
 
     def make_objects_public(self, bucket_name):
+        """Apply the policy returned by ``generate_bucket_policy`` to ``bucket_name``."""
         # Initialize S3 client
         s3_client = self.get_s3_client()
         # Get the bucket policy
@@ -132,6 +165,7 @@ class Command(BaseCommand):
         return
 
     def handle(self, *args, **options):
+        """Verify bucket existence, probe permissions, and either publish objects or write ``permissions.json``."""
         # Create a session using the credentials from Django settings
 
         # Check if the bucket exists
