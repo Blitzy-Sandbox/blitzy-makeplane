@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Django management command to backfill ``Description`` rows from legacy ``IssueComment`` records."""
+
 # Django imports
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -12,9 +14,34 @@ from plane.db.models import IssueComment
 
 
 class Command(BaseCommand):
+    """Create ``Description`` rows for every ``IssueComment`` that has no ``description_id`` yet.
+
+    CLI signature:
+        ``python manage.py copy_issue_comment_to_description``
+
+    Side effects:
+        - Bulk-inserts ``Description`` rows mirroring each unlinked ``IssueComment``'s
+          ``comment_json`` / ``comment_html`` / ``comment_stripped`` payload (plus
+          audit and tenancy fields).
+        - Bulk-updates ``IssueComment.description_id`` to point at the newly created
+          ``Description`` rows.
+        - Each batch of 500 rows is processed inside a single ``transaction.atomic()``
+          block so partial failures roll back cleanly.
+
+    Idempotency:
+        Idempotent across re-runs because the query filters on
+        ``description_id__isnull=True`` — once a comment is linked to a description it
+        is excluded from subsequent passes.
+
+    Trigger context:
+        One-time data backfill assisting the migration from ``IssueComment``'s legacy
+        inline body fields to the unified ``Description`` table.
+    """
+
     help = "Create Description records for existing IssueComment"
 
     def handle(self, *args, **kwargs):
+        """Loop through unlinked ``IssueComment`` rows in batches of 500 and link each to a new ``Description``."""
         batch_size = 500
 
         while True:
