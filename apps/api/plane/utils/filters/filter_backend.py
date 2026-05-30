@@ -214,9 +214,9 @@ class ComplexFilterBackend(filters.BaseFilterBackend):
                 )
 
     def _transform_field_name_for_validation(self, field_name):
-        """Hook: Transform a field name before validation.
+        """Transform a field name before validation.
 
-        Override this in subclasses to handle special field naming conventions.
+        Subclass hook -- override to handle special field naming conventions.
 
         Args:
             field_name: The original field name from the filter data
@@ -303,11 +303,12 @@ class ComplexFilterBackend(filters.BaseFilterBackend):
         return self._build_leaf_q(node, view, queryset)
 
     def _preprocess_leaf_conditions(self, leaf_conditions, view, queryset):
-        """Hook: Preprocess leaf conditions before building Q object.
+        """Preprocess leaf conditions before building a Q object.
 
-        Override this in subclasses to transform filter keys/values.
-        For example, custom property filters might need to be transformed
-        from 'customproperty_<id>__<lookup>' to 'customproperty_value__<lookup>'.
+        Subclass hook -- override to transform filter keys/values. For
+        example, custom property filters might need to be transformed from
+        ``'customproperty_<id>__<lookup>'`` to
+        ``'customproperty_value__<lookup>'``.
 
         Args:
             leaf_conditions: Dict of field filters

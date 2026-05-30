@@ -28,10 +28,11 @@ Runtime gating
 --------------
 The drf-spectacular schema endpoints (``/api/schema/``, ``/api/schema/swagger-ui/``,
 ``/api/schema/redoc/``) are mounted only when ``settings.ENABLE_DRF_SPECTACULAR``
-is truthy (see ``apps/api/plane/urls.py`` line 26). When the flag is falsy in
-production, this package is still imported and the ``@extend_schema``-style
-decorators applied by view modules remain in place — they simply have no
-observable effect because no schema is generated at request time.
+is truthy (see the ``if settings.ENABLE_DRF_SPECTACULAR:`` block in
+:mod:`plane.urls`). When the flag is falsy in production, this package is
+still imported and the ``@extend_schema``-style decorators applied by view
+modules remain in place — they simply have no observable effect because no
+schema is generated at request time.
 
 drf-spectacular version: ``0.28.0`` (pinned in ``apps/api/requirements/base.txt``
 line 71); this module's API surface is bound to that version.

@@ -8,9 +8,14 @@ Configures the OTLP exporter targeting ``https://telemetry.plane.so`` (the
 Plane-hosted anonymized telemetry collector) and registers Django request
 auto-instrumentation. Two entrypoints:
 
-  - :func:`init_tracer`     -- call once at process startup
-    (``plane.wsgi`` / ``plane.asgi``).
+  - :func:`init_tracer`     -- call once before emitting spans.
   - :func:`shutdown_tracer` -- call on graceful shutdown to flush pending spans.
+
+Both entrypoints are invoked from the ``instance_traces`` Celery task in
+:mod:`plane.license.bgtasks.tracer` (``init_tracer`` at the top of the task,
+``shutdown_tracer`` in its ``finally`` block). That task is scheduled by
+Celery Beat every 6 hours via the ``CELERY_BEAT_SCHEDULE`` entry
+``run-every-6-hours-for-instance-trace`` in :mod:`plane.celery`.
 
 This anonymized OpenTelemetry pipeline is distinct from the in-app
 event-tracking pipeline (:mod:`plane.bgtasks.event_tracking_task`), which
@@ -38,12 +43,14 @@ def init_tracer():
     """Initialize OpenTelemetry with the OTLP exporter and Django auto-instrumentation.
 
     Idempotent -- calling twice is harmless and returns the previously
-    configured provider. Invoked from ``plane.wsgi`` and ``plane.asgi`` at
-    process startup. Anonymized spans are batched and exported via OTLP to
-    the endpoint resolved from the ``OTLP_ENDPOINT`` environment variable,
-    defaulting to ``https://telemetry.plane.so`` (the Plane-hosted
-    telemetry collector). The service name reported on each span resolves
-    from ``SERVICE_NAME`` (default ``plane-ce-api``).
+    configured provider. Invoked from the ``instance_traces`` Celery task in
+    :mod:`plane.license.bgtasks.tracer` (scheduled by Celery Beat every 6
+    hours via the ``run-every-6-hours-for-instance-trace`` entry in
+    :mod:`plane.celery`). Anonymized spans are batched and exported via
+    OTLP to the endpoint resolved from the ``OTLP_ENDPOINT`` environment
+    variable, defaulting to ``https://telemetry.plane.so`` (the
+    Plane-hosted telemetry collector). The service name reported on each
+    span resolves from ``SERVICE_NAME`` (default ``plane-ce-api``).
 
     Side effects:
         * Installs a global :class:`opentelemetry.sdk.trace.TracerProvider`.
@@ -93,11 +100,13 @@ def init_tracer():
 def shutdown_tracer():
     """Flush pending spans and shut down the OpenTelemetry tracer provider.
 
-    Invoked on graceful process shutdown (via :func:`atexit.register` from
-    :func:`init_tracer`) to ensure no spans are dropped from the
-    :class:`BatchSpanProcessor`'s queue. Idempotent -- safe to call when
-    the tracer was never initialized or has already been shut down; in
-    either case the global provider reference is cleared.
+    Invoked explicitly from the ``finally`` block of the ``instance_traces``
+    Celery task in :mod:`plane.license.bgtasks.tracer`, and also registered
+    via :func:`atexit.register` by :func:`init_tracer` so it fires on
+    graceful interpreter shutdown. Either path ensures no spans are dropped
+    from the :class:`BatchSpanProcessor`'s queue. Idempotent -- safe to
+    call when the tracer was never initialized or has already been shut
+    down; in either case the global provider reference is cleared.
     """
     global _TRACER_PROVIDER
 

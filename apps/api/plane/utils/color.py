@@ -12,6 +12,6 @@ import random
 import string
 
 
-def get_random_color() -> str:
+def get_random_color():
     """Return a random ``#RRGGBB`` hex color string for default tint assignment."""
     return "#" + "".join(random.choices(string.hexdigits, k=6))

@@ -8,9 +8,10 @@ Defines :data:`SPECTACULAR_SETTINGS`, the configuration dictionary consumed
 by ``drf-spectacular`` when generating the OpenAPI 3.x schema for the
 ``/api/v1/`` REST surface. This module is imported conditionally by
 :mod:`plane.settings.common` only when the ``ENABLE_DRF_SPECTACULAR``
-environment variable equals ``"1"`` (see ``common.py:502-507``); in the
-default deployment the schema-generation routes in :mod:`plane.urls` are
-not installed and this module is not loaded.
+environment variable equals ``"1"`` (the conditional ``if
+ENABLE_DRF_SPECTACULAR:`` block in :mod:`plane.settings.common` performs
+the import); in the default deployment the schema-generation routes in
+:mod:`plane.urls` are not installed and this module is not loaded.
 
 The settings dictionary covers:
     - **API metadata**: title, description, contact, version, license, and

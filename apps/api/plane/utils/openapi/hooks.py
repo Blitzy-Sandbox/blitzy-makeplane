@@ -19,9 +19,10 @@ Two hooks compose the Plane schema generation pipeline:
 
 The schema endpoints (``/api/schema/``, ``/api/schema/swagger-ui/``,
 ``/api/schema/redoc/``) are mounted only when
-``settings.ENABLE_DRF_SPECTACULAR`` is truthy (see
-``apps/api/plane/urls.py`` line 26), so these hooks run only at schema
-generation time -- not on every HTTP request.
+``settings.ENABLE_DRF_SPECTACULAR`` is truthy (see the
+``if settings.ENABLE_DRF_SPECTACULAR:`` block in :mod:`plane.urls`), so
+these hooks run only at schema generation time -- not on every HTTP
+request.
 
 These functions perform NO I/O and have NO side effects; they pure-function
 transform the in-memory schema representation.

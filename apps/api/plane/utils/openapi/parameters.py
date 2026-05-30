@@ -31,9 +31,10 @@ Parameter categories:
 
 These constants are loaded transitively via
 ``apps/api/plane/utils/openapi/__init__.py`` and are only relevant when
-``settings.ENABLE_DRF_SPECTACULAR`` is truthy (see
-``apps/api/plane/urls.py`` line 26) — at runtime in non-schema mode they
-are inert references with no effect on request/response handling.
+``settings.ENABLE_DRF_SPECTACULAR`` is truthy (see the
+``if settings.ENABLE_DRF_SPECTACULAR:`` block in :mod:`plane.urls`) — at
+runtime in non-schema mode they are inert references with no effect on
+request/response handling.
 """
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiExample

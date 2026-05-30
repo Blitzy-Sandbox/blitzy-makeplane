@@ -39,8 +39,8 @@ in the response-examples half of the file. These are intentionally
 preserved (no refactoring per project rules).
 
 Loaded transitively via ``apps/api/plane/utils/openapi/__init__.py`` and
-only effective when ``settings.ENABLE_DRF_SPECTACULAR`` is truthy (see
-``apps/api/plane/urls.py`` line 26).
+only effective when ``settings.ENABLE_DRF_SPECTACULAR`` is truthy (see the
+``if settings.ENABLE_DRF_SPECTACULAR:`` block in :mod:`plane.urls`).
 """
 
 from drf_spectacular.utils import OpenApiExample
