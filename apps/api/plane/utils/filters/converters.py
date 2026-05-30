@@ -1,6 +1,97 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Legacy → rich filter format converter.
+
+This module exposes :class:`LegacyToRichFiltersConverter`, which
+translates Plane's v1 "legacy" flat-dict filter format (still used by
+saved views and persisted in the ``filters`` JSON column) into the
+v2 "rich" nested operator-tree format consumed by the advanced filter
+UI and :class:`plane.utils.filters.filter_backend.ComplexFilterBackend`
+(persisted in the ``rich_filters`` JSON column).
+
+Wire format — legacy (input)
+----------------------------
+
+Flat ``{name: value}`` dict where ``name`` is a user-facing label and
+``value`` is a scalar, list of scalars, or — for date fields — a
+list of strings using a ``"<date>;<direction>"`` directional syntax::
+
+    {
+        "state":       ["<uuid>", "<uuid>"],         # M:N IDs
+        "priority":    "high",                       # scalar choice
+        "labels":      ["<uuid>"],                   # single-element list
+        "assignees":   ["<uuid>", "<uuid>"],         # multi-value M:N
+        "start_date":  ["2023-01-01"],               # simple date
+        "target_date": ["2023-01-01;after", "2023-12-31;before"],
+                                                     # range (after AND before)
+        "start_date":  ["2_weeks"],                  # relative — SKIPPED
+    }
+
+Wire format — rich (output)
+---------------------------
+
+Either a single-leaf dict (when exactly one condition is produced) or
+a top-level ``"and"`` of leaf conditions. Each leaf key is
+``<rich_field>__<lookup>``; list values are joined with commas for the
+``__in`` and ``__range`` lookups (so the value is always a string,
+never a list)::
+
+    # Empty input
+    {}
+
+    # One condition -> leaf
+    {"state_id__in": "<uuid>,<uuid>"}
+
+    # Multiple conditions -> wrapped in "and"
+    {
+        "and": [
+            {"state_id__in":   "<uuid>,<uuid>"},
+            {"priority__exact": "high"},
+            {"target_date__range": "2023-01-01,2023-12-31"},
+        ]
+    }
+
+Lossiness boundary
+------------------
+
+Conversion is intentionally lossy in two scenarios:
+
+  1. **Relative date patterns** like ``"2_weeks"`` / ``"3_months"``
+     are SKIPPED for the entire field — the rich format expresses
+     absolute dates only and there is no rich equivalent.
+  2. **Complex date conditions** (more than two ``"<date>;<dir>"``
+     parts) are SKIPPED — only the simple ``after && before`` range
+     OR a single ``__exact`` are emitted.
+
+Both behaviors are intentional and are NOT signaled as errors even in
+strict mode — see ``_convert_date_value`` for the exact rules.
+
+Strict vs non-strict mode
+-------------------------
+
+  - **Non-strict** (default, used by the data migration at
+    :mod:`plane.db.migrations.0107_migrate_filters_to_rich_filters`):
+    silently drops invalid values (bad UUIDs, unknown choices,
+    malformed dates) and unsupported legacy keys. Used to backfill
+    ``rich_filters`` on existing rows where we'd rather drop garbage
+    than abort the migration.
+  - **Strict**: collects every validation issue into a list and
+    raises a single ``ValueError`` at the end with a
+    semicolon-joined error message. Used by callers that want a hard
+    failure for invalid input.
+
+Configuration
+-------------
+
+Conversion is driven by four class-level defaults
+(``DEFAULT_FIELD_MAPPINGS``, ``DEFAULT_UUID_FIELDS``,
+``DEFAULT_VALID_CHOICES``, ``DEFAULT_DATE_FIELDS``). Callers may
+extend or replace any of them via constructor args; the per-instance
+copies (``FIELD_MAPPINGS``, ``UUID_FIELDS``, ``VALID_CHOICES``,
+``DATE_FIELDS``) are built once in ``__init__`` and never mutate the
+class-level defaults.
+"""
 
 import re
 import uuid
@@ -11,6 +102,49 @@ from dateutil.parser import parse as dateutil_parse
 
 
 class LegacyToRichFiltersConverter:
+    """Stateful converter from legacy flat-dict filters to rich operator-tree filters.
+
+    Instantiate once per migration / request and call
+    :meth:`convert` repeatedly. The instance carries the active
+    ``FIELD_MAPPINGS`` / ``UUID_FIELDS`` / ``VALID_CHOICES`` /
+    ``DATE_FIELDS`` configuration (initialized in
+    :meth:`__init__` from the ``DEFAULT_*`` class attributes, with
+    optional extension or full replacement via constructor args).
+
+    Public API:
+
+      - :meth:`convert` — main entry point; legacy dict -> rich dict
+        (or raises ``ValueError`` in strict mode).
+      - :meth:`add_field_mapping`, :meth:`add_uuid_field`,
+        :meth:`add_choice_field`, :meth:`add_date_field`,
+        :meth:`update_mappings` — runtime extension helpers used by
+        the migration to add migration-specific field mappings.
+
+    Class-level defaults (immutable; per-instance copies are made):
+
+      - ``DEFAULT_FIELD_MAPPINGS``: 12 legacy → rich field renames
+        (``state`` → ``state_id``, ``labels`` → ``label_id``,
+        ``cycle`` → ``cycle_id``, ``module`` → ``module_id``,
+        ``assignees`` → ``assignee_id``,
+        ``mentions`` → ``mention_id``,
+        ``created_by`` → ``created_by_id``,
+        ``project`` → ``project_id``, plus identity mappings for
+        ``state_group``, ``priority``, ``start_date``,
+        ``target_date``).
+      - ``DEFAULT_UUID_FIELDS``: 8 rich fields whose values must
+        parse via :class:`uuid.UUID`.
+      - ``DEFAULT_VALID_CHOICES``: ``state_group`` ∈
+        {backlog, unstarted, started, completed, cancelled};
+        ``priority`` ∈ {urgent, high, medium, low, none}.
+      - ``DEFAULT_DATE_FIELDS``: {``start_date``, ``target_date``}.
+      - ``DATE_PATTERN``: regex matching relative-date tokens like
+        ``2_weeks`` or ``3_months`` so they can be detected and
+        skipped (no rich-format equivalent).
+
+    See the module docstring for the input / output wire formats,
+    the lossiness boundary, and the strict vs non-strict semantics.
+    """
+
     # Default mapping from legacy filter names to new rich filter field names
     DEFAULT_FIELD_MAPPINGS = {
         "state": "state_id",
@@ -155,7 +289,7 @@ class LegacyToRichFiltersConverter:
             self.DATE_FIELDS.update(date_fields)
 
     def _validate_uuid(self, value: str) -> bool:
-        """Validate if a string is a valid UUID"""
+        """Return ``True`` iff ``value`` parses as a valid UUID."""
         try:
             uuid.UUID(str(value))
             return True
@@ -163,13 +297,20 @@ class LegacyToRichFiltersConverter:
             return False
 
     def _validate_choice(self, field_name: str, value: str) -> bool:
-        """Validate if a value is valid for a choice field"""
+        """Return ``True`` iff ``value`` is an allowed choice for ``field_name``.
+
+        Returns ``True`` for fields not registered in ``VALID_CHOICES``.
+        """
         if field_name not in self.VALID_CHOICES:
             return True  # No validation needed for this field
         return value in self.VALID_CHOICES[field_name]
 
     def _validate_date(self, value: Union[str, datetime]) -> bool:
-        """Validate if a value is a valid date using dateutil parser"""
+        """Return ``True`` iff ``value`` is a valid date.
+
+        Accepts a :class:`~datetime.datetime` instance or a string
+        parseable by :func:`dateutil.parser.parse`.
+        """
         if isinstance(value, datetime):
             return True
         if isinstance(value, str):
@@ -182,7 +323,12 @@ class LegacyToRichFiltersConverter:
         return False
 
     def _validate_value(self, rich_field_name: str, value: Any) -> bool:
-        """Validate a single value based on field type"""
+        """Dispatch validation to UUID / choice / date validators by field type.
+
+        Routes to :meth:`_validate_uuid` / :meth:`_validate_choice` /
+        :meth:`_validate_date` based on which set ``rich_field_name``
+        belongs to. Returns ``True`` if no specific validator applies.
+        """
         if rich_field_name in self.UUID_FIELDS:
             return self._validate_uuid(value)
         elif rich_field_name in self.VALID_CHOICES:
@@ -192,7 +338,7 @@ class LegacyToRichFiltersConverter:
         return True  # No specific validation needed
 
     def _filter_valid_values(self, rich_field_name: str, values: List[Any]) -> List[Any]:
-        """Filter out invalid values from a list and return only valid ones"""
+        """Return the subset of ``values`` for which :meth:`_validate_value` returns ``True`` (preserves order)."""
         valid_values = []
         for value in values:
             if self._validate_value(rich_field_name, value):
@@ -318,18 +464,30 @@ class LegacyToRichFiltersConverter:
 
     def convert(self, legacy_filters: dict, strict: bool = False) -> Dict[str, Any]:
         """
-        Convert legacy filters to rich filters format with validation
+        Convert a legacy flat-dict filter into the rich operator-tree filter format.
+
+        See the module docstring for the input / output wire formats
+        and the lossiness boundary. Unsupported legacy keys (those not
+        in ``self.FIELD_MAPPINGS``) and individually-invalid values
+        (bad UUID, unknown choice, unparseable date) are skipped in
+        non-strict mode; in strict mode every issue is collected and
+        a single ``ValueError`` is raised at the end with a
+        semicolon-joined error message.
 
         Args:
-            legacy_filters: Dictionary of legacy filters
-            strict: If True, raise exception on validation errors.
-                   If False, skip invalid values (default behavior)
+            legacy_filters: Dict of legacy filters
+                (see module docstring for wire format).
+            strict: If True, collect validation errors and raise
+                ``ValueError`` at the end. If False (default),
+                silently skip invalid values.
 
         Returns:
-            Dictionary of rich filters
+            Rich filter dict (empty dict, single leaf, or
+            ``{"and": [...]}`` of leaves).
 
         Raises:
-            ValueError: If strict=True and validation fails
+            ValueError: If ``strict=True`` and validation found at
+                least one issue.
         """
         rich_filters = {}
         validation_errors = []
