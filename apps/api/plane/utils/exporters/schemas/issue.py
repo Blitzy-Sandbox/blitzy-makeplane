@@ -2,6 +2,29 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Concrete export schema for Plane :class:`~plane.db.models.Issue` records.
+
+Declares the column contract (id, project identifier/name/id, sequence id,
+name, description, priority, start/target dates, state, the
+created/updated/completed/archived timestamps, modules, created-by,
+labels, comments, estimate, links, assignees, subscribers count,
+attachments, cycle name/start/end, parent, and relations) that
+:class:`plane.utils.exporters.exporter.Exporter` materializes into CSV,
+JSON, or XLSX output via the per-format writers in
+:mod:`plane.utils.exporters.formatters`.
+
+The schema relies on Django prefetch on the input queryset (``assignees``,
+``labels``, ``issue_module``, ``issue_subscribers``, ``issue_comments``,
+``issue_link``, ``issue_relation``, ``issue_related``, ``estimate_point``,
+``state``, and ``parent``) to avoid N+1 queries during bulk exports.
+Joins on attachments (``FileAsset``) and cycles (``CycleIssue``) are not
+direct reverse relations on ``Issue`` and are pre-collected once per
+queryset via :meth:`IssueExportSchema.get_context_data`, which populates
+``context['attachments_dict']`` and ``context['cycles_dict']`` for
+per-row lookup by the ``prepare_attachment_*`` and ``prepare_cycle_*``
+hooks.
+"""
+
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
@@ -68,7 +91,30 @@ def get_issue_last_cycles_dict(issues_queryset: QuerySet) -> Dict[str, Optional[
 
 
 class IssueExportSchema(ExportSchema):
-    """Schema for exporting issue data in various formats."""
+    """Schema for exporting :class:`~plane.db.models.Issue` rows.
+
+    Declares 30 columns in the order they are emitted by the formatters
+    (driven by ``_declared_fields`` on the parent
+    :class:`~plane.utils.exporters.schemas.base.ExportSchema`):
+    ``id``, ``project_identifier``, ``project_name``, ``project_id``,
+    ``sequence_id``, ``name``, ``description``, ``priority``,
+    ``start_date``, ``target_date``, ``state_name``, ``created_at``,
+    ``updated_at``, ``completed_at``, ``archived_at``, ``module_name``,
+    ``created_by``, ``labels``, ``comments``, ``estimate``, ``link``,
+    ``assignees``, ``subscribers_count``, ``attachment_count``,
+    ``attachment_links``, ``cycle_name``, ``cycle_start_date``,
+    ``cycle_end_date``, ``parent``, ``relations``.
+
+    The input queryset is expected to be prefetched for ``assignees``,
+    ``labels``, ``issue_module``, ``issue_subscribers``,
+    ``issue_comments``, ``issue_link``, ``issue_relation``,
+    ``issue_related``, ``estimate_point``, ``state``, and ``parent`` to
+    avoid N+1 queries. Joins on ``FileAsset`` (attachments) and
+    ``CycleIssue`` (last cycle per issue) are not direct reverse
+    relations on ``Issue``; they are precomputed once per queryset by
+    :meth:`get_context_data` and looked up per row through
+    ``context['attachments_dict']`` and ``context['cycles_dict']``.
+    """
 
     @staticmethod
     def _get_created_by(obj) -> str:
@@ -120,21 +166,27 @@ class IssueExportSchema(ExportSchema):
     relations = JSONField(label="Relations")
 
     def prepare_id(self, i):
+        """Return the human-readable issue id as ``"<project.identifier>-<sequence_id>"``."""
         return f"{i.project.identifier}-{i.sequence_id}"
 
     def prepare_state_name(self, i):
+        """Return the related ``State.name`` when the issue has a state, otherwise ``None``."""
         return i.state.name if i.state else None
 
     def prepare_module_name(self, i):
+        """Return the list of ``Module.name`` strings linked via the ``issue_module`` reverse relation."""
         return [m.module.name for m in i.issue_module.all()]
 
     def prepare_created_by(self, i):
+        """Return the issue creator's ``"<first> <last>"`` name via the ``created_by`` FK (``""`` if absent)."""
         return self._get_created_by(i)
 
     def prepare_labels(self, i):
+        """Return the list of ``Label.name`` strings linked via the ``labels`` M2M relation."""
         return [label.name for label in i.labels.all()]
 
     def prepare_comments(self, i):
+        """Return comment dicts (``comment``, ``created_at``, ``created_by``) from the ``issue_comments`` relation."""
         return [
             {
                 "comment": comment.comment_stripped,
@@ -145,32 +197,40 @@ class IssueExportSchema(ExportSchema):
         ]
 
     def prepare_estimate(self, i):
+        """Return the related ``EstimatePoint.value`` string, or ``""`` when the issue has no estimate."""
         return i.estimate_point.value if i.estimate_point and i.estimate_point.value else ""
 
     def prepare_link(self, i):
+        """Return the list of ``IssueLink.url`` strings from the ``issue_link`` reverse relation."""
         return [link.url for link in i.issue_link.all()]
 
     def prepare_assignees(self, i):
+        """Return the list of assignee ``"<first> <last>"`` names from the ``assignees`` M2M relation."""
         return [f"{u.first_name} {u.last_name}" for u in i.assignees.all()]
 
     def prepare_subscribers_count(self, i):
+        """Return the integer count of rows in the ``issue_subscribers`` reverse relation."""
         return i.issue_subscribers.count()
 
     def prepare_attachment_count(self, i):
+        """Return the count of attachments precomputed in ``context['attachments_dict']`` for this issue id."""
         return len((self.context.get("attachments_dict") or {}).get(i.id, []))
 
     def prepare_attachment_links(self, i):
+        """Return the v2 asset URLs for this issue's attachments via ``context['attachments_dict']``."""
         return [
             f"/api/assets/v2/workspaces/{i.workspace.slug}/projects/{i.project_id}/issues/{i.id}/attachments/{asset}/"
             for asset in (self.context.get("attachments_dict") or {}).get(i.id, [])
         ]
 
     def prepare_cycle_name(self, i):
+        """Return the name of the issue's last cycle from ``context['cycles_dict']`` (``""`` if none)."""
         cycles_dict = self.context.get("cycles_dict") or {}
         last_cycle = cycles_dict.get(i.id)
         return last_cycle.cycle.name if last_cycle else ""
 
     def prepare_cycle_start_date(self, i):
+        """Return the start date of the issue's last cycle from ``context['cycles_dict']`` (``""`` if absent)."""
         cycles_dict = self.context.get("cycles_dict") or {}
         last_cycle = cycles_dict.get(i.id)
         if last_cycle and last_cycle.cycle.start_date:
@@ -178,6 +238,7 @@ class IssueExportSchema(ExportSchema):
         return ""
 
     def prepare_cycle_end_date(self, i):
+        """Return the end date of the issue's last cycle from ``context['cycles_dict']`` (``""`` if absent)."""
         cycles_dict = self.context.get("cycles_dict") or {}
         last_cycle = cycles_dict.get(i.id)
         if last_cycle and last_cycle.cycle.end_date:
@@ -185,11 +246,17 @@ class IssueExportSchema(ExportSchema):
         return ""
 
     def prepare_parent(self, i):
+        """Return the parent issue id ``"<project.identifier>-<sequence_id>"`` or ``""`` when no parent."""
         if not i.parent:
             return ""
         return f"{i.parent.project.identifier}-{i.parent.sequence_id}"
 
     def prepare_relations(self, i):
+        """Return a mapping of relation type to related issue id.
+
+        Covers both ``issue_relation`` (forward) and ``issue_related``
+        (reverse, remapped via ``IssueRelationChoices._REVERSE_MAPPING``).
+        """
         # Should show reverse relation as well
         from plane.db.models.issue import IssueRelationChoices
 
