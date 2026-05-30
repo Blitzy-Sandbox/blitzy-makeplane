@@ -2,6 +2,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Database model for polymorphic user-favorites entries and folders.
+
+:class:`UserFavorite` stores per-user pins for any workspace entity discriminated
+by ``entity_type`` + ``entity_identifier`` and supports folder-style grouping
+via the self-referential ``parent`` foreign key.
+"""
+
 from django.conf import settings
 
 # Django imports
@@ -12,8 +19,13 @@ from .workspace import WorkspaceBaseModel
 
 
 class UserFavorite(WorkspaceBaseModel):
-    """_summary_
-    UserFavorite (model): To store all the favorites of the user
+    """Polymorphic per-user favorite entry referencing a workspace or project entity.
+
+    Each row is identified by ``(entity_type, entity_identifier, user)`` — the
+    ``entity_type`` is a free-form string identifying the kind of entity
+    (e.g., "issue", "cycle", "page"), and ``entity_identifier`` holds the
+    referenced entity's UUID. Folders are modelled by ``is_folder=True`` plus
+    a self-referential ``parent`` link.
     """
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="favorites")
@@ -31,6 +43,8 @@ class UserFavorite(WorkspaceBaseModel):
     )
 
     class Meta:
+        """Database table metadata for ``UserFavorite``."""
+
         unique_together = ["entity_type", "user", "entity_identifier", "deleted_at"]
         constraints = [
             models.UniqueConstraint(
@@ -50,6 +64,13 @@ class UserFavorite(WorkspaceBaseModel):
         ]
 
     def save(self, *args, **kwargs):
+        """Allocate the next ``sequence`` slot at the end of the user's current favorite list when inserting.
+
+        The scoping is project-aware: project-attached favorites are sequenced
+        within the project's workspace, workspace-attached favorites are
+        sequenced within the workspace; new entries land at the end of their
+        respective sequence space (max + 10000).
+        """
         if self._state.adding:
             if self.project:
                 largest_sequence = UserFavorite.objects.filter(workspace=self.project.workspace).aggregate(
@@ -65,5 +86,5 @@ class UserFavorite(WorkspaceBaseModel):
         super(UserFavorite, self).save(*args, **kwargs)
 
     def __str__(self):
-        """Return user and the entity type"""
+        """Return user and the entity type."""
         return f"{self.user.email} <{self.entity_type}>"
