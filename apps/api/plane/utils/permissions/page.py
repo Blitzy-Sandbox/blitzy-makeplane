@@ -2,6 +2,23 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Page-scoped DRF permission helper for Plane's project pages API.
+
+This module exposes ``ProjectPagePermission``, a ``BasePermission`` subclass
+used by the page ViewSets to gate access by project membership role, page
+ownership, and page visibility (public versus private). The module also
+declares the local integer aliases ``ADMIN``, ``MEMBER``, and ``GUEST``
+derived from ``plane.app.permissions.ROLE`` so the method/role policy matrix
+below can compare against raw role values without re-reading the enum on
+every call.
+
+Decisions are computed per request from ``view.kwargs`` (``slug``,
+``project_id``, ``page_id``) plus live ORM lookups against ``ProjectMember``
+and ``Page``. Because the ``migrator`` container runs Django migrations
+before any API service starts, the project membership and page tables are
+guaranteed to exist when this module is imported by the WSGI/ASGI workers.
+"""
+
 from plane.db.models import ProjectMember, Page
 from plane.app.permissions import ROLE
 
@@ -85,6 +102,13 @@ class ProjectPagePermission(BasePermission):
         return False
 
     def _check_project_action_access(self, request, role):
+        """Resolve HTTP-method-and-role matrix for public-page access.
+
+        Returns ``True`` when ``role`` is permitted to perform the request's
+        HTTP method on a public page (POST/PUT/PATCH allowed for ADMIN and
+        MEMBER, DELETE allowed for ADMIN only, SAFE_METHODS allowed for all
+        active project roles), ``False`` otherwise.
+        """
         method = request.method
 
         # Only admins can create (POST) pages
