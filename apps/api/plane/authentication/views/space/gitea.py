@@ -2,6 +2,61 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Space-scoped Gitea OAuth 2.0 sign-in (initiate + callback).
+
+Two Django :class:`View` subclasses implement the Gitea authorization-code
+flow for the public-space / tenant surface:
+
+  * :class:`GiteaOauthInitiateSpaceEndpoint` -- ``GET /auth/spaces/gitea/``
+    generates a CSRF ``state`` (``uuid.uuid4().hex``), stashes the space
+    host, optional sanitized ``next_path``, and state in the Redis-backed
+    session, and redirects the browser to Gitea's authorization endpoint
+    via :meth:`GiteaOAuthProvider.get_auth_url`.
+  * :class:`GiteaCallbackSpaceEndpoint` -- ``GET /auth/spaces/gitea/callback/``
+    validates the returned ``state`` against the session value (CSRF
+    defense), validates the authorization ``code``, exchanges it for a
+    Plane :class:`User` via :meth:`GiteaOAuthProvider.authenticate`, calls
+    :func:`user_login` with ``is_space=True``, and redirects to the
+    sanitized ``next_path`` (or to ``base_host`` if absent).
+
+This module is the ``is_space=True`` mirror of
+:mod:`plane.authentication.views.app.gitea` -- view-class shapes mirror
+the app surface; only the host-resolution and login flags differ.
+
+Divergence from sibling OAuth views (intentional):
+    Unlike :mod:`plane.authentication.views.space.google`,
+    :mod:`plane.authentication.views.space.github`,
+    :mod:`plane.authentication.views.space.gitlab`, this module composes
+    redirect URLs directly via ``f"{base_host(...)}?{urlencode(params)}"``
+    rather than going through :func:`get_safe_redirect_url`. The
+    success-path redirect also skips the
+    :func:`url_has_allowed_host_and_scheme` guard; safety is delegated
+    entirely to :func:`validate_next_path` (which constrains the path
+    component). The local name ``base_host`` is NOT shadowed here.
+
+OAuth state CSRF defense:
+    ``state = uuid.uuid4().hex`` is generated server-side on initiate,
+    stored in ``request.session["state"]``, and verified on callback;
+    mismatch raises ``GITEA_OAUTH_PROVIDER_ERROR``.
+
+Open-redirect prevention:
+    Post-auth ``next_path`` is sanitized via :func:`validate_next_path`
+    BOTH when persisted to the session on initiate AND when composed into
+    the final redirect URL on callback.
+
+Session storage:
+    OAuth ``state``, ``host``, and (optional) sanitized ``next_path`` are
+    written to Django's Redis-backed session. Redis is used for caching
+    and session storage only -- Plane's Celery task queueing routes
+    through RabbitMQ, but OAuth itself does NOT enqueue any Celery task
+    here.
+
+Error codes:
+    ``INSTANCE_NOT_CONFIGURED`` (initiate path),
+    ``GITEA_OAUTH_PROVIDER_ERROR`` (state mismatch, missing code, provider
+    failure on both paths).
+"""
+
 # Python imports
 import uuid
 from urllib.parse import urlencode
@@ -23,7 +78,44 @@ from plane.utils.path_validator import validate_next_path
 
 
 class GiteaOauthInitiateSpaceEndpoint(View):
+    """Begin the space-tenant Gitea OAuth flow.
+
+    HTTP method / URL:
+        ``GET /auth/spaces/gitea/``
+
+    Permission:
+        Django :class:`~django.views.View` subclass (not DRF). Anonymous
+        access required -- this view begins the sign-in.
+
+    Query parameters:
+        * ``next_path`` (str, optional) -- post-auth redirect destination;
+          sanitized via :func:`validate_next_path` and persisted to
+          ``request.session["next_path"]`` for the callback to consume.
+
+    Response:
+        HTTP 302 redirect -- either to Gitea's authorization endpoint
+        (``provider.get_auth_url()``) on the happy path, or back to
+        ``f"{base_host(request, is_space=True)}?{urlencode(params)}"``
+        with :meth:`AuthenticationException.get_error_dict` query params
+        on failure.
+
+    Side effects (Redis-backed session writes):
+        * ``request.session["host"] = base_host(request, is_space=True)``
+        * ``request.session["next_path"] = validate_next_path(next_path)``
+          (only when ``next_path`` is present)
+        * ``request.session["state"] = uuid.uuid4().hex`` (CSRF token
+          verified on callback).
+
+    Error codes:
+        ``INSTANCE_NOT_CONFIGURED``, ``GITEA_OAUTH_PROVIDER_ERROR``.
+
+    Pre-condition:
+        ``Instance.objects.first().is_setup_done`` must be ``True``;
+        otherwise redirect with ``INSTANCE_NOT_CONFIGURED``.
+    """
+
     def get(self, request):
+        """Stash host + sanitized next_path + state in session, then redirect to Gitea's auth URL."""
         # Get host and next path
         request.session["host"] = base_host(request=request, is_space=True)
         next_path = request.GET.get("next_path")
@@ -58,7 +150,51 @@ class GiteaOauthInitiateSpaceEndpoint(View):
 
 
 class GiteaCallbackSpaceEndpoint(View):
+    """Complete the space-tenant Gitea OAuth flow (token exchange + login).
+
+    HTTP method / URL:
+        ``GET /auth/spaces/gitea/callback/``
+
+    Permission:
+        Django :class:`~django.views.View` subclass (not DRF). Public
+        endpoint hit by Gitea's redirect-back to Plane.
+
+    Query parameters (set by Gitea):
+        * ``code`` (str, required) -- authorization code to exchange.
+        * ``state`` (str, required) -- CSRF token; MUST match the value
+          stored on initiate in ``request.session["state"]``.
+
+    Session reads:
+        * ``request.session.get("next_path")`` -- persisted by the
+          initiate view; consumed here to compose the final redirect.
+
+    Response:
+        HTTP 302 redirect -- on success to
+        ``f"{base_host(request, is_space=True)}{validate_next_path(session_next_path)}"``
+        (or just ``base_host(...)`` when no ``next_path``); on failure to
+        ``f"{base_host(request, is_space=True)}?{urlencode(error_params)}"``.
+
+        Unlike :mod:`plane.authentication.views.space.google`,
+        :mod:`plane.authentication.views.space.github`,
+        :mod:`plane.authentication.views.space.gitlab`, this view does NOT
+        apply :func:`url_has_allowed_host_and_scheme` to the success-path
+        URL; safety is delegated entirely to :func:`validate_next_path`.
+
+    Error codes:
+        ``GITEA_OAUTH_PROVIDER_ERROR`` -- raised on state mismatch,
+        missing ``code``, or any failure inside
+        :meth:`GiteaOAuthProvider.authenticate`.
+
+    Side effects:
+        * On success: :func:`user_login` with ``is_space=True`` writes the
+          Django session to Redis-backed session storage.
+        * No DB writes from this view directly; user-row writes happen
+          inside :meth:`GiteaOAuthProvider.authenticate` when the Gitea
+          account is first linked.
+    """
+
     def get(self, request):
+        """Validate state + code, exchange for a User, log in, and redirect to the sanitized next_path."""
         code = request.GET.get("code")
         state = request.GET.get("state")
         next_path = request.session.get("next_path")
