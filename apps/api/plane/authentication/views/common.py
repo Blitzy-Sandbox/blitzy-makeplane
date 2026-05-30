@@ -2,6 +2,37 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Shared authentication endpoints for the Plane API.
+
+Cross-context (app + space) authentication endpoints used directly by the
+auth URLconf (``apps/api/plane/authentication/urls.py``):
+
+  * :class:`CSRFTokenEndpoint`       -- issues a CSRF token for browser
+                                       clients (``GET /auth/get-csrf-token/``)
+  * :func:`csrf_failure`             -- Django CSRF failure handler bound by
+                                       ``settings.CSRF_FAILURE_VIEW``
+  * :class:`ChangePasswordEndpoint`  -- authenticated password change
+                                       (``POST /auth/change-password/``)
+  * :class:`SetUserPasswordEndpoint` -- first-time password set for accounts
+                                       whose password is still auto-set
+                                       (``POST /auth/set-password/``)
+
+Password endpoints enforce strength via :func:`zxcvbn` (score >= 3 required)
+and refresh the session through :func:`user_login` so the post-rotation
+session reflects the new credentials. All error paths return the
+standardized envelope from :meth:`AuthenticationException.get_error_dict`
+keyed by an :data:`AUTHENTICATION_ERROR_CODES` entry so the auth error
+surface is consistent across app and space contexts.
+
+Architectural notes (per AAP 0.2.2):
+
+  * Session storage is Redis-backed (Redis = caching and session only --
+    Plane does NOT use Redis as a task broker; Celery jobs route through
+    RabbitMQ elsewhere in the auth subsystem).
+  * The migrator container has already run schema migrations by the time
+    this module is imported; ``User`` queries assume the target revision.
+"""
+
 # Django imports
 from django.shortcuts import render
 
@@ -26,9 +57,31 @@ from plane.authentication.utils.host import base_host
 
 
 class CSRFTokenEndpoint(APIView):
+    """Issue a CSRF token for unauthenticated browser clients.
+
+    HTTP method / URL:
+        ``GET /auth/get-csrf-token/``
+
+    Permission:
+        ``permission_classes = [AllowAny]`` -- clients fetch the CSRF token
+        BEFORE they can authenticate, so this endpoint must be anonymous.
+
+    Request body:
+        None (GET).
+
+    Response (HTTP 200):
+        ``{"csrf_token": <str>}``
+
+    Side effects:
+        Invoking :func:`django.middleware.csrf.get_token` causes Django's
+        CSRF middleware to set the ``csrftoken`` cookie on the response.
+        No database writes.
+    """
+
     permission_classes = [AllowAny]
 
     def get(self, request):
+        """Return ``{"csrf_token": <str>}`` and set the ``csrftoken`` cookie."""
         # Generate a CSRF token
         csrf_token = get_token(request)
         # Return the CSRF token in a JSON response
@@ -36,7 +89,21 @@ class CSRFTokenEndpoint(APIView):
 
 
 def csrf_failure(request, reason=""):
-    """Custom CSRF failure view"""
+    """Render the project's CSRF-failure HTML page.
+
+    Bound by ``settings.CSRF_FAILURE_VIEW`` and invoked by Django's CSRF
+    middleware whenever a request fails CSRF verification. Renders
+    ``csrf_failure.html`` with the failure ``reason`` and the resolved root
+    host URL (via :func:`base_host`) so the template can present a
+    context-appropriate error and recovery link.
+
+    Args:
+        request: The Django request that failed CSRF verification.
+        reason: Short failure reason supplied by Django's CSRF middleware.
+
+    Returns:
+        An :class:`HttpResponse` rendering ``csrf_failure.html``.
+    """
     return render(
         request,
         "csrf_failure.html",
@@ -45,7 +112,40 @@ def csrf_failure(request, reason=""):
 
 
 class ChangePasswordEndpoint(APIView):
+    """Authenticated password change for the current user.
+
+    HTTP method / URL:
+        ``POST /auth/change-password/``
+
+    Effective permission:
+        Inherits DRF's ``DEFAULT_PERMISSION_CLASSES`` (configured to
+        :class:`IsAuthenticated` in ``plane/settings/common.py``); this
+        endpoint requires an authenticated session and does not declare its
+        own ``permission_classes`` attribute.
+
+    Request body (JSON):
+        * ``old_password`` (str) -- required when
+          ``request.user.is_password_autoset`` is ``False``; verified via
+          :meth:`User.check_password`.
+        * ``new_password`` (str, required) -- must score >= 3 on
+          :func:`zxcvbn` strength estimation.
+
+    Response shapes:
+        * HTTP 200 -- ``{"message": "Password updated successfully"}``
+        * HTTP 400 -- :meth:`AuthenticationException.get_error_dict` envelope
+          with error code ``MISSING_PASSWORD``, ``INCORRECT_OLD_PASSWORD``,
+          or ``PASSWORD_TOO_WEAK``.
+
+    Side effects:
+        * Hashes the new password (``User.set_password``).
+        * Sets ``is_password_autoset = False``.
+        * Persists the user row (``user.save()``).
+        * Refreshes the Redis-backed session via :func:`user_login` with
+          ``is_app=True`` so subsequent requests use the new credentials.
+    """
+
     def post(self, request):
+        """Validate inputs, update the password hash, and refresh the session."""
         user = User.objects.get(pk=request.user.id)
 
         # If the user password is not autoset then we need to check the old passwords
@@ -97,8 +197,52 @@ class ChangePasswordEndpoint(APIView):
 
 
 class SetUserPasswordEndpoint(APIView):
+    """First-time password set for auto-set-password accounts.
+
+    Used when a user is created with an auto-generated
+    (``is_password_autoset == True``) password (e.g., after OAuth-only or
+    magic-link signup) and is now choosing a user-defined password for the
+    first time. Refuses if the user already has a self-chosen password.
+
+    HTTP method / URL:
+        ``POST /auth/set-password/``
+
+    Effective permission:
+        Inherits DRF's ``DEFAULT_PERMISSION_CLASSES`` (configured to
+        :class:`IsAuthenticated` in ``plane/settings/common.py``); this
+        endpoint requires an authenticated session and does not declare its
+        own ``permission_classes`` attribute.
+
+    Pre-condition:
+        ``request.user.is_password_autoset`` must be ``True``. If ``False``,
+        the endpoint returns HTTP 400 with the ``PASSWORD_ALREADY_SET``
+        error code instructing the client to use the profile-level password
+        change flow instead.
+
+    Request body (JSON):
+        * ``password`` (str, required) -- must score >= 3 on :func:`zxcvbn`
+          strength estimation.
+
+    Response shapes:
+        * HTTP 200 -- full :class:`UserSerializer` payload reflecting the
+          updated password state (``is_password_autoset == False``).
+        * HTTP 400 -- :meth:`AuthenticationException.get_error_dict` envelope
+          with error code ``PASSWORD_ALREADY_SET`` or ``INVALID_PASSWORD``.
+
+    Side effects:
+        * Hashes the new password (``User.set_password``).
+        * Sets ``is_password_autoset = False``.
+        * Persists the user row.
+        * Refreshes the Redis-backed session via :func:`user_login` with
+          ``is_app=True``.
+        * Invalidates the cached ``/api/users/me/`` response via
+          :func:`invalidate_cache` so subsequent ``GET /users/me/`` returns
+          the new password state.
+    """
+
     @invalidate_cache("/api/users/me/")
     def post(self, request):
+        """Validate, set first-time password, refresh session, invalidate ``/users/me/`` cache."""
         user = User.objects.get(pk=request.user.id)
         password = request.data.get("password", False)
 
