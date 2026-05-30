@@ -2,6 +2,17 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Database models for the in-app notification pipeline and email-delivery audit log.
+
+:class:`Notification` is the in-app inbox row (one per recipient × event);
+:class:`UserNotificationPreference` carries per-user × workspace × project
+opt-in toggles; :class:`EmailNotificationLog` is the append-only audit log
+written by the Celery email-delivery task (via RabbitMQ — not Redis;
+Redis is caching/session only).
+
+Cross-reference: technical specification §4.6 Notification Pipeline Workflow.
+"""
+
 # Django imports
 from django.conf import settings
 from django.db import models
@@ -11,12 +22,23 @@ from .base import BaseModel
 
 
 class Notification(BaseModel):
+    """In-app notification record fanned out to a single recipient for one workspace event.
+
+    Each row is keyed by ``(receiver, entity_name, entity_identifier)`` and
+    carries lifecycle timestamps (``read_at``, ``snoozed_till``,
+    ``archived_at``) and rich-text body in parallel JSON / HTML / stripped
+    representations. Rows are produced by signal handlers in
+    ``bgtasks.notification_task`` (Celery via RabbitMQ).
+    """
+
     workspace = models.ForeignKey("db.Workspace", related_name="notifications", on_delete=models.CASCADE)
     project = models.ForeignKey("db.Project", related_name="notifications", on_delete=models.CASCADE, null=True)
+    # INTENT UNCLEAR: event-specific payload consumed by the inbox renderer; shape varies per entity_name.
     data = models.JSONField(null=True)
     entity_identifier = models.UUIDField(null=True)
     entity_name = models.CharField(max_length=255)
     title = models.TextField()
+    # Shape: ProseMirror JSON document tree (TipTap-compatible) mirroring message_html.
     message = models.JSONField(null=True)
     message_html = models.TextField(blank=True, default="<p></p>")
     message_stripped = models.TextField(blank=True, null=True)
@@ -33,6 +55,8 @@ class Notification(BaseModel):
     archived_at = models.DateTimeField(null=True)
 
     class Meta:
+        """Django metadata: ``notifications`` table, indexed for per-receiver / per-workspace inbox queries."""
+
         verbose_name = "Notification"
         verbose_name_plural = "Notifications"
         db_table = "notifications"
@@ -65,11 +89,16 @@ class Notification(BaseModel):
         ]
 
     def __str__(self):
-        """Return name of the notifications"""
+        """Return name of the notifications."""
         return f"{self.receiver.email} <{self.workspace.name}>"
 
 
 def get_default_preference():
+    """Return the default per-user notification-preference dict shape.
+
+    Currently retained for migration use; the live preferences are stored as
+    boolean columns on :class:`UserNotificationPreference`.
+    """
     return {
         "property_change": {"email": True},
         "state": {"email": True},
@@ -79,6 +108,14 @@ def get_default_preference():
 
 
 class UserNotificationPreference(BaseModel):
+    """Per-user notification-preference toggles, optionally scoped to a workspace or project.
+
+    Controls whether the user receives notifications for property changes,
+    state changes, comments, mentions, and issue-completed events. ``workspace``
+    and ``project`` are nullable so users can express global, workspace-wide,
+    or project-specific preferences in the same table.
+    """
+
     # user it is related to
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -108,17 +145,26 @@ class UserNotificationPreference(BaseModel):
     issue_completed = models.BooleanField(default=True)
 
     class Meta:
+        """Django model metadata: ``user_notification_preferences`` table holding boolean opt-in toggles."""
+
         verbose_name = "UserNotificationPreference"
         verbose_name_plural = "UserNotificationPreferences"
         db_table = "user_notification_preferences"
         ordering = ("-created_at",)
 
     def __str__(self):
-        """Return the user"""
+        """Return the user."""
         return f"<{self.user}>"
 
 
 class EmailNotificationLog(BaseModel):
+    """Append-only audit log of email notifications dispatched by the Celery email-delivery task.
+
+    ``processed_at`` marks when the row was enqueued for delivery; ``sent_at``
+    marks SMTP-handoff success. ``data`` carries the rendered email payload
+    used by ``bgtasks.email_notification_task``.
+    """
+
     # receiver
     receiver = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -133,7 +179,7 @@ class EmailNotificationLog(BaseModel):
     # entity - can be issues, pages, etc.
     entity_identifier = models.UUIDField(null=True)
     entity_name = models.CharField(max_length=255)
-    # data
+    # INTENT UNCLEAR: rendered email payload consumed by bgtasks.email_notification_task; shape varies per entity.
     data = models.JSONField(null=True)
     # sent at
     processed_at = models.DateTimeField(null=True)
@@ -143,6 +189,8 @@ class EmailNotificationLog(BaseModel):
     new_value = models.CharField(max_length=300, blank=True, null=True)
 
     class Meta:
+        """Django model metadata: ``email_notification_logs`` append-only audit table."""
+
         verbose_name = "Email Notification Log"
         verbose_name_plural = "Email Notification Logs"
         db_table = "email_notification_logs"
