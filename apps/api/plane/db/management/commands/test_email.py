@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Django management command to send a test email through the configured SMTP backend."""
+
 from django.core.mail import EmailMultiAlternatives, get_connection
 from django.core.management import BaseCommand, CommandError
 from django.template.loader import render_to_string
@@ -12,13 +14,36 @@ from plane.license.utils.instance_value import get_email_configuration
 
 
 class Command(BaseCommand):
-    """Django command to pause execution until db is available"""
+    """Send a test email to the given receiver via the runtime email configuration.
+
+    CLI signature:
+        ``python manage.py test_email <to_email>``
+
+    Side effects:
+        - Calls ``plane.license.utils.instance_value.get_email_configuration()`` to
+          resolve ``EMAIL_HOST``, ``EMAIL_HOST_USER``, ``EMAIL_HOST_PASSWORD``,
+          ``EMAIL_PORT``, ``EMAIL_USE_TLS``, ``EMAIL_USE_SSL``, and ``EMAIL_FROM``
+          from the current ``Instance`` configuration.
+        - Opens a 30-second-timeout SMTP connection.
+        - Renders ``emails/test_email.html`` and a tag-stripped plaintext alternative.
+        - Sends one multipart email to ``to_email``.
+
+    Idempotency:
+        Idempotent -- re-running sends an additional test email; no application state
+        is mutated.
+
+    Trigger context:
+        Operator-invoked manual SMTP smoke test after configuration changes or
+        deployment.
+    """
 
     def add_arguments(self, parser):
+        """Register the ``to_email`` positional argument on the argparse parser."""
         # Positional argument
         parser.add_argument("to_email", type=str, help="receiver's email")
 
     def handle(self, *args, **options):
+        """Resolve email configuration, render the test template, and send a multipart email."""
         receiver_email = options.get("to_email")
 
         if not receiver_email:
