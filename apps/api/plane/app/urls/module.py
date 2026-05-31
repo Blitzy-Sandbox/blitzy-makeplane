@@ -2,6 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for module-domain endpoints.
+
+Maps the module ViewSets from ``plane.app.views`` (CRUD, module-issue
+membership, links, favorites, user-properties, archive/unarchive) to
+URL paths scoped under
+``workspaces/<slug>/projects/<project_id>/modules/``.
+"""
+
 from django.urls import path
 
 
