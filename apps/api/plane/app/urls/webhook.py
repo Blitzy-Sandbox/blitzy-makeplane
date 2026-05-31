@@ -2,6 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for workspace webhook endpoints.
+
+Maps the webhook endpoints from ``plane.app.views`` (CRUD, secret
+regeneration, delivery log retrieval) to URL paths scoped under
+``workspaces/<slug>/webhooks/`` and
+``workspaces/<slug>/webhook-logs/``.
+"""
+
 from django.urls import path
 
 from plane.app.views import (
