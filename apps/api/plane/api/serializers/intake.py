@@ -1,6 +1,14 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Intake (triage inbox) serializers for the ``/api/v1/`` API surface.
+
+Used by :mod:`plane.api.views.intake` to validate and shape requests against
+``IntakeIssue`` (the staging row that links a submitted ``Issue`` to its
+host project). The ``IntakeIssueUpdateSerializer`` carries the
+TRIAGE → default-state transition contract used when triagers accept an
+intake submission into the project workflow.
+"""
 
 # Module imports
 from .base import BaseSerializer
