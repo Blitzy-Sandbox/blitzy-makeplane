@@ -1,6 +1,14 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Cycle (sprint / iteration) serializers for the ``/api/v1/`` API surface.
+
+Used by :mod:`plane.api.views.cycle`. Cycle write paths normalise client
+dates to UTC through :func:`plane.utils.timezone_converter.convert_to_utc`,
+honouring the host project's timezone, and gate creation on the project's
+``cycle_view`` feature flag. Read serializers attach the per-status work-item
+counters and estimate roll-ups annotated by the ViewSet's queryset.
+"""
 
 # Third party imports
 import pytz
@@ -28,6 +36,12 @@ class CycleCreateSerializer(BaseSerializer):
     )
 
     def __init__(self, *args, **kwargs):
+        """Bind the project's timezone to ``start_date`` / ``end_date`` fields.
+
+        Applied only when the host project is timezone-aware so client-side
+        date inputs are interpreted in the project's local timezone before
+        normalisation to UTC.
+        """
         super().__init__(*args, **kwargs)
         project = self.context.get("project")
         if project and project.timezone:
@@ -36,6 +50,8 @@ class CycleCreateSerializer(BaseSerializer):
             self.fields["end_date"].timezone = project_timezone
 
     class Meta:
+        """DRF metadata: serialize ``Cycle`` write payload; audit, scope, and identifier columns are read-only."""
+
         model = Cycle
         fields = [
             "name",
@@ -59,6 +75,13 @@ class CycleCreateSerializer(BaseSerializer):
         ]
 
     def validate(self, data):
+        """Validate the host project, the cycle feature flag, and the date range.
+
+        Resolves ``project_id`` from initial data or the bound instance, rejects projects
+        without ``cycle_view`` enabled, enforces ``start_date <= end_date``, and normalises
+        both dates to UTC via :func:`plane.utils.timezone_converter.convert_to_utc`. When
+        ``owned_by`` is blank, defaults it to the request user.
+        """
         project_id = self.initial_data.get("project_id") or (
             self.instance.project_id if self.instance and hasattr(self.instance, "project_id") else None
         )
@@ -104,6 +127,8 @@ class CycleUpdateSerializer(CycleCreateSerializer):
     """
 
     class Meta(CycleCreateSerializer.Meta):
+        """DRF metadata: extend :class:`CycleCreateSerializer.Meta` to expose ``owned_by`` on update."""
+
         model = Cycle
         fields = CycleCreateSerializer.Meta.fields + [
             "owned_by",
@@ -129,6 +154,8 @@ class CycleSerializer(BaseSerializer):
     started_estimates = serializers.FloatField(read_only=True)
 
     class Meta:
+        """DRF metadata: serialize ``Cycle`` with all fields; audit, scope, and ownership columns are read-only."""
+
         model = Cycle
         fields = "__all__"
         read_only_fields = [
@@ -155,6 +182,8 @@ class CycleIssueSerializer(BaseSerializer):
     sub_issues_count = serializers.IntegerField(read_only=True)
 
     class Meta:
+        """DRF metadata: serialize ``CycleIssue``; ``workspace``, ``project``, ``cycle`` are read-only."""
+
         model = CycleIssue
         fields = "__all__"
         read_only_fields = ["workspace", "project", "cycle"]
@@ -169,6 +198,8 @@ class CycleLiteSerializer(BaseSerializer):
     """
 
     class Meta:
+        """DRF metadata: serialize ``Cycle`` with all fields for lightweight read-only payloads."""
+
         model = Cycle
         fields = "__all__"
 
