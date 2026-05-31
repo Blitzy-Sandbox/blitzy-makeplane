@@ -2,6 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing package for the Plane DRF web-client API.
+
+Concatenates ``urlpatterns`` from each sibling route module
+(analytic, api, asset, cycle, estimate, external, intake, issue, module,
+notification, page, project, search, state, user, views, workspace,
+webhook, timezone, exporter) into a single package-level routing registry
+mounted by ``apps/api/plane/urls.py`` under the ``api/`` prefix.
+"""
+
 from .analytic import urlpatterns as analytic_urls
 from .api import urlpatterns as api_urls
 from .asset import urlpatterns as asset_urls
