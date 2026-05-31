@@ -80,7 +80,13 @@ class IssueVersionEndpoint(BaseAPIView):
     """
 
     def process_paginated_result(self, fields, results, timezone):
-        """Project the paginated queryset to ``fields`` via ``.values(*fields)`` and convert ``created_at`` / ``updated_at`` to the given user ``timezone``."""
+        """Project the paginated queryset to ``fields`` and convert datetimes.
+
+        Calls ``.values(*fields)`` on ``results`` and converts the
+        ``created_at`` / ``updated_at`` fields to the supplied user
+        ``timezone`` via
+        :func:`plane.utils.timezone_converter.user_timezone_converter`.
+        """
         paginated_data = results.values(*fields)
 
         datetime_fields = ["created_at", "updated_at"]
@@ -90,7 +96,12 @@ class IssueVersionEndpoint(BaseAPIView):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def get(self, request, slug, project_id, issue_id, pk=None):
-        """Return one :class:`IssueVersion` (when ``pk`` is given) or a cursor-paginated list of versions for the issue."""
+        """Return one :class:`IssueVersion` or a cursor-paginated list.
+
+        When ``pk`` is supplied returns the single version detail;
+        otherwise returns a cursor-paginated list of versions for the
+        issue.
+        """
         if pk:
             issue_version = IssueVersion.objects.get(
                 workspace__slug=slug, project_id=project_id, issue_id=issue_id, pk=pk
@@ -131,7 +142,10 @@ class IssueVersionEndpoint(BaseAPIView):
 
 
 class WorkItemDescriptionVersionEndpoint(BaseAPIView):
-    """Read-only description-only version history for work items (issues), populated by the live-server collaboration layer.
+    """Read-only description-only version history for work items (issues).
+
+    Rows are populated by the live-server collaboration layer when it
+    persists Y.Doc snapshots (see tech spec section 5.2.5.4).
 
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/projects/<project_id>/work-items/<work_item_id>/description-versions/
@@ -172,7 +186,13 @@ class WorkItemDescriptionVersionEndpoint(BaseAPIView):
     """
 
     def process_paginated_result(self, fields, results, timezone):
-        """Project the paginated queryset to ``fields`` via ``.values(*fields)`` and convert ``created_at`` / ``updated_at`` to the given user ``timezone``."""
+        """Project the paginated queryset to ``fields`` and convert datetimes.
+
+        Calls ``.values(*fields)`` on ``results`` and converts the
+        ``created_at`` / ``updated_at`` fields to the supplied user
+        ``timezone`` via
+        :func:`plane.utils.timezone_converter.user_timezone_converter`.
+        """
         paginated_data = results.values(*fields)
 
         datetime_fields = ["created_at", "updated_at"]
@@ -182,11 +202,14 @@ class WorkItemDescriptionVersionEndpoint(BaseAPIView):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def get(self, request, slug, project_id, work_item_id, pk=None):
-        """Return one :class:`IssueDescriptionVersion` (when ``pk`` is given) or a cursor-paginated list ordered by ``-created_at``.
+        """Return one :class:`IssueDescriptionVersion` or a paginated list.
 
-        Returns HTTP 403 if the requesting user is a project guest
-        (``role=ROLE.GUEST.value``) who is not the issue creator AND
-        the project does not have ``guest_view_all_features`` enabled.
+        When ``pk`` is supplied returns the single version detail;
+        otherwise returns a cursor-paginated list ordered by
+        ``-created_at``. Returns HTTP 403 if the requesting user is a
+        project guest (``role=ROLE.GUEST.value``) who is not the issue
+        creator AND the project does not have ``guest_view_all_features``
+        enabled.
         """
         project = Project.objects.get(pk=project_id)
         issue = Issue.objects.get(workspace__slug=slug, project_id=project_id, pk=work_item_id)

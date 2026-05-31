@@ -31,7 +31,11 @@ from plane.db.models import IssueSubscriber, ProjectMember
 
 
 class IssueSubscriberViewSet(BaseViewSet):
-    """Manage the notification subscriber list for an issue (with a dynamic permission override for self-service actions).
+    """Manage the notification subscriber list for an issue.
+
+    A dynamic permission override allows self-service subscribe /
+    unsubscribe under :class:`ProjectLitePermission` while admin
+    list / destroy paths remain under :class:`ProjectEntityPermission`.
 
     HTTP methods + URL patterns:
         GET    /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/issue-subscribers/
@@ -90,7 +94,12 @@ class IssueSubscriberViewSet(BaseViewSet):
     permission_classes = [ProjectEntityPermission]
 
     def get_permissions(self):
-        """Override the class-level :class:`ProjectEntityPermission` with :class:`ProjectLitePermission` for the self-service actions ``subscribe``, ``unsubscribe``, and ``subscription_status``."""
+        """Switch to :class:`ProjectLitePermission` for self-service actions.
+
+        Overrides the class-level :class:`ProjectEntityPermission` for
+        the ``subscribe``, ``unsubscribe``, and ``subscription_status``
+        actions; all other actions retain the default permission.
+        """
         if self.action in ["subscribe", "unsubscribe", "subscription_status"]:
             self.permission_classes = [ProjectLitePermission]
         else:
@@ -99,14 +108,22 @@ class IssueSubscriberViewSet(BaseViewSet):
         return super(IssueSubscriberViewSet, self).get_permissions()
 
     def perform_create(self, serializer):
-        """Inject ``project_id`` and ``issue_id`` from URL kwargs at save time so they need not be in the request body."""
+        """Inject ``project_id`` and ``issue_id`` from URL kwargs at save time.
+
+        Lets clients POST without those fields in the request body.
+        """
         serializer.save(
             project_id=self.kwargs.get("project_id"),
             issue_id=self.kwargs.get("issue_id"),
         )
 
     def get_queryset(self):
-        """Return :class:`IssueSubscriber` rows for the URL's workspace + project + issue, restricted to active project members and ordered by ``-created_at``."""
+        """Return :class:`IssueSubscriber` rows for the URL's issue scope.
+
+        Filters by ``workspace__slug``, ``project_id``, and ``issue_id``
+        from the URL; restricts to rows owned by active project members
+        on a non-archived project; orders by ``-created_at``; distinct.
+        """
         return (
             super()
             .get_queryset()
@@ -135,7 +152,10 @@ class IssueSubscriberViewSet(BaseViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def destroy(self, request, slug, project_id, issue_id, subscriber_id):
-        """Remove a specific subscriber (identified by ``subscriber_id`` in the URL) from the issue (admin path; for self-unsubscribe see :meth:`unsubscribe`)."""
+        """Remove ``subscriber_id`` from the issue's subscriber list.
+
+        Admin path; for self-unsubscribe see :meth:`unsubscribe`.
+        """
         issue_subscriber = IssueSubscriber.objects.get(
             project=project_id,
             subscriber=subscriber_id,
@@ -146,10 +166,11 @@ class IssueSubscriberViewSet(BaseViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def subscribe(self, request, slug, project_id, issue_id):
-        """Self-subscribe the requesting user to the issue; return HTTP 400 ``"User already subscribed to the issue."`` if already subscribed.
+        """Self-subscribe the requesting user to the issue.
 
-        Uses :class:`ProjectLitePermission` per the dynamic override in
-        :meth:`get_permissions`.
+        Returns HTTP 400 ``"User already subscribed to the issue."`` if
+        the row already exists. Uses :class:`ProjectLitePermission` per
+        the dynamic override in :meth:`get_permissions`.
         """
         if IssueSubscriber.objects.filter(
             issue_id=issue_id,
