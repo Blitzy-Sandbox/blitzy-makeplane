@@ -1,6 +1,16 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Workspace- and project-member endpoints for the external ``/api/v1/`` API.
+
+Exposes:
+- ``GET /api/v1/workspaces/<slug>/members/`` for workspace members
+- ``GET|POST /api/v1/workspaces/<slug>/projects/<project_id>/members/`` and
+  ``GET|PATCH|DELETE`` on the detail variant for project members.
+
+Authentication is via the ``X-Api-Key`` header (see
+``plane.api.middleware.api_authentication.APIKeyAuthentication``).
+"""
 
 # Third Party imports
 from rest_framework.response import Response
@@ -29,6 +39,32 @@ from plane.utils.openapi import (
 
 
 class WorkspaceMemberAPIEndpoint(BaseAPIView):
+    """List members of a workspace (admin-only).
+
+    HTTP methods + URL pattern:
+        GET /api/v1/workspaces/<slug>/members/
+
+    Request body:
+        None.
+
+    Response shape:
+        JSON array of ``UserLite`` objects merged with an integer ``role``
+        field. Each item has the fields exposed by ``UserLiteSerializer``
+        plus ``role`` from the underlying ``WorkspaceMember`` row.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``WorkSpaceAdminPermission`` — only workspace ``ADMIN`` role.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Side effects:
+        Read-only — no DB writes, no Celery enqueues.
+    """
+
     permission_classes = [WorkSpaceAdminPermission]
     use_read_replica = True
 
@@ -67,7 +103,7 @@ class WorkspaceMemberAPIEndpoint(BaseAPIView):
     )
     # Get all the users that are present inside the workspace
     def get(self, request, slug):
-        """List workspace members
+        """List workspace members.
 
         Retrieve all users who are members of the specified workspace.
         Returns user profiles with their respective workspace roles and permissions.
@@ -92,10 +128,50 @@ class WorkspaceMemberAPIEndpoint(BaseAPIView):
 
 
 class ProjectMemberListCreateAPIEndpoint(BaseAPIView):
+    """List members of a project or add a new project member.
+
+    HTTP methods + URL patterns:
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/members/
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/members/
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/project-members/
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/project-members/
+
+    Request body (POST) — see ``ProjectMemberSerializer``:
+        member (uuid, required) – User pk to add to the project.
+        role   (int,  optional) – ``ROLE`` enum value; default per
+            ``ProjectMemberSerializer``.
+
+    Response shape:
+        - GET: JSON array of ``UserLite`` objects (see
+          ``UserLiteSerializer``) for users in the project.
+        - POST: ``ProjectMember`` serialized via
+          ``ProjectMemberSerializer``.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        Dispatched dynamically by ``get_permissions``:
+            - GET   → ``ProjectMemberPermission`` (any project member)
+            - POST  → ``ProjectAdminPermission`` (project ``ADMIN`` only)
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Side effects on POST:
+        Writes a single ``ProjectMember`` row. No Celery enqueues.
+    """
+
     permission_classes = [ProjectMemberPermission]
     use_read_replica = True
 
     def get_permissions(self):
+        """Select permission class per HTTP method.
+
+        ``GET`` uses ``ProjectMemberPermission`` so any active project
+        member can read the member roster, while non-safe methods
+        (currently ``POST``) require ``ProjectAdminPermission``.
+        """
         if self.request.method == "GET":
             return [ProjectMemberPermission()]
         return [ProjectAdminPermission()]
@@ -119,7 +195,7 @@ class ProjectMemberListCreateAPIEndpoint(BaseAPIView):
     )
     # Get all the users that are present inside the workspace
     def get(self, request, slug, project_id):
-        """List project members
+        """List project members.
 
         Retrieve all users who are members of the specified project.
         Returns user profiles with their project-specific roles and access levels.
@@ -150,6 +226,12 @@ class ProjectMemberListCreateAPIEndpoint(BaseAPIView):
         request=OpenApiRequest(request=ProjectMemberSerializer),
     )
     def post(self, request, slug, project_id):
+        """Create a new project member.
+
+        Writes a single ``ProjectMember`` row scoped to the URL's
+        ``(workspace_slug, project_id)``. The serializer resolves the
+        target user from the request body's ``member`` field.
+        """
         serializer = ProjectMemberSerializer(data=request.data, context={"slug": slug})
         serializer.is_valid(raise_exception=True)
         serializer.save(project_id=project_id)
@@ -158,6 +240,41 @@ class ProjectMemberListCreateAPIEndpoint(BaseAPIView):
 
 # API endpoint to get and update a project member
 class ProjectMemberDetailAPIEndpoint(ProjectMemberListCreateAPIEndpoint):
+    """Retrieve, update, or deactivate a single project member.
+
+    HTTP methods + URL patterns:
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/members/<uuid:pk>/
+        PATCH   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/members/<uuid:pk>/
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/members/<uuid:pk>/
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/project-members/<uuid:pk>/
+        PATCH   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/project-members/<uuid:pk>/
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/project-members/<uuid:pk>/
+
+    Request body (PATCH) — partial ``ProjectMemberSerializer`` payload:
+        Any subset of the writable ``ProjectMember`` fields (typically
+        ``role``).
+
+    Response shape:
+        - GET: ``UserLiteSerializer`` payload (the underlying user, not the
+          ``ProjectMember`` row).
+        - PATCH: ``ProjectMemberSerializer`` payload.
+        - DELETE: empty body with HTTP 204.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        Inherits ``get_permissions`` from the parent class:
+            - GET   → ``ProjectMemberPermission``
+            - PATCH → ``ProjectAdminPermission``
+            - DELETE → ``ProjectAdminPermission``
+
+    Side effects on DELETE:
+        Soft-deactivates the member by setting ``is_active=False`` rather
+        than removing the row, preserving historical references. No
+        Celery enqueues.
+    """
+
     @extend_schema(
         operation_id="get_project_member",
         summary="Get project member",
@@ -173,7 +290,7 @@ class ProjectMemberDetailAPIEndpoint(ProjectMemberListCreateAPIEndpoint):
     )
     # Get a project member by ID
     def get(self, request, slug, project_id, pk):
-        """Get project member
+        """Get project member.
 
         Retrieve a project member by ID.
         Returns a project member with their project-specific roles and access levels.
@@ -201,6 +318,7 @@ class ProjectMemberDetailAPIEndpoint(ProjectMemberListCreateAPIEndpoint):
         request=OpenApiRequest(request=ProjectMemberSerializer),
     )
     def patch(self, request, slug, project_id, pk):
+        """Apply a partial update to a project member's attributes (typically role)."""
         project_member = ProjectMember.objects.get(project_id=project_id, workspace__slug=slug, pk=pk)
         serializer = ProjectMemberSerializer(project_member, data=request.data, partial=True, context={"slug": slug})
         serializer.is_valid(raise_exception=True)
@@ -216,6 +334,11 @@ class ProjectMemberDetailAPIEndpoint(ProjectMemberListCreateAPIEndpoint):
         responses={204: OpenApiResponse(description="Project member deleted")},
     )
     def delete(self, request, slug, project_id, pk):
+        """Soft-deactivate a project member by setting ``is_active=False``.
+
+        The row is preserved for historical references (audit logs, activity
+        feeds, prior assignments).
+        """
         project_member = ProjectMember.objects.get(project_id=project_id, workspace__slug=slug, pk=pk)
         project_member.is_active = False
         project_member.save()
