@@ -2,6 +2,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for asset upload/download endpoints.
+
+Wires the V1 (legacy) and V2 asset endpoints from ``plane.app.views``
+to the presigned-upload, restore, duplicate, check, and download routes
+covering workspace, user, project, and static-file asset surfaces.
+"""
+
 from django.urls import path
 
 
