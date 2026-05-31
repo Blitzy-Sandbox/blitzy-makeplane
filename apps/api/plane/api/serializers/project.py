@@ -1,6 +1,16 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Project serializers for the ``/api/v1/`` API surface.
+
+Used by :mod:`plane.api.views.project`. Write paths enforce identifier
+character rules (``Project.FORBIDDEN_IDENTIFIER_CHARS_PATTERN``), confirm
+``project_lead`` / ``default_assignee`` / ``default_state`` / ``estimate``
+references belong to the workspace and project, and sanitise rich-text
+description via :func:`plane.utils.content_validator.validate_html_content`.
+``ProjectIdentifier`` rows are created alongside the project to enforce
+case-insensitive uniqueness within a workspace.
+"""
 
 # Third party imports
 import random
@@ -69,6 +79,12 @@ class ProjectCreateSerializer(BaseSerializer):
     ]
 
     class Meta:
+        """DRF metadata for ``ProjectCreateSerializer``.
+
+        Exposes the writable fields needed for new-project creation; audit
+        columns and ``logo_props`` are kept read-only.
+        """
+
         model = Project
         fields = [
             "name",
@@ -105,6 +121,10 @@ class ProjectCreateSerializer(BaseSerializer):
         ]
 
     def validate(self, data):
+        """Enforce identifier character rules and verify workspace membership.
+
+        Confirms ``project_lead`` and ``default_assignee`` are active workspace members.
+        """
         project_name = data.get("name", None)
         project_identifier = data.get("identifier", None)
 
@@ -140,6 +160,14 @@ class ProjectCreateSerializer(BaseSerializer):
         return data
 
     def create(self, validated_data):
+        """Normalise the identifier, reject duplicates within the workspace, and seed default logo metadata when absent.
+
+        Uppercases ``identifier``, rejects empty values, rejects existing
+        ``ProjectIdentifier`` rows for the same name within the workspace, and
+        randomises ``logo_props`` from
+        :attr:`PROJECT_ICON_DEFAULT_ICONS` / :attr:`PROJECT_ICON_DEFAULT_COLORS`
+        when the caller does not supply one.
+        """
         identifier = validated_data.get("identifier", "").strip().upper()
 
         if identifier == "":
@@ -171,6 +199,12 @@ class ProjectUpdateSerializer(ProjectCreateSerializer):
     """
 
     class Meta(ProjectCreateSerializer.Meta):
+        """DRF metadata for ``ProjectUpdateSerializer``.
+
+        Extends ``ProjectCreateSerializer.Meta`` with the writable
+        ``default_state`` and ``estimate`` fields for update flows.
+        """
+
         model = Project
         fields = ProjectCreateSerializer.Meta.fields + [
             "default_state",
@@ -180,6 +214,10 @@ class ProjectUpdateSerializer(ProjectCreateSerializer):
         read_only_fields = ProjectCreateSerializer.Meta.read_only_fields
 
     def update(self, instance, validated_data):
+        """Re-validate identifier characters and confirm scoped references.
+
+        ``default_state`` and ``estimate`` must belong to the project being updated.
+        """
         project_name = validated_data.get("name", None)
         project_identifier = validated_data.get("identifier", None)
 
@@ -224,6 +262,12 @@ class ProjectSerializer(BaseSerializer):
     cover_image_url = serializers.CharField(read_only=True)
 
     class Meta:
+        """DRF metadata for the full ``ProjectSerializer``.
+
+        Includes all model fields plus computed annotations; audit columns,
+        ``emoji``, and ``cover_image_url`` are kept read-only.
+        """
+
         model = Project
         fields = "__all__"
         read_only_fields = [
@@ -239,6 +283,11 @@ class ProjectSerializer(BaseSerializer):
         ]
 
     def validate(self, data):
+        """Enforce identifier rules, workspace membership, and HTML sanitisation.
+
+        Validates ``project_lead`` / ``default_assignee`` membership and runs
+        ``description_html`` through :func:`validate_html_content` for safety.
+        """
         project_name = data.get("name", None)
         project_identifier = data.get("identifier", None)
 
@@ -281,6 +330,10 @@ class ProjectSerializer(BaseSerializer):
         return data
 
     def create(self, validated_data):
+        """Create the ``Project`` together with its companion ``ProjectIdentifier`` row.
+
+        The companion row enforces case-insensitive identifier uniqueness within the workspace.
+        """
         identifier = validated_data.get("identifier", "").strip().upper()
         if identifier == "":
             raise serializers.ValidationError(detail="Project Identifier is required")
@@ -308,6 +361,13 @@ class ProjectLiteSerializer(BaseSerializer):
     cover_image_url = serializers.CharField(read_only=True)
 
     class Meta:
+        """DRF metadata for ``ProjectLiteSerializer``.
+
+        Exposes read-only ``id``, ``identifier``, ``name``, ``cover_image``,
+        ``icon_prop``, ``emoji``, ``description``, and ``cover_image_url`` for
+        compact list payloads.
+        """
+
         model = Project
         fields = [
             "id",
