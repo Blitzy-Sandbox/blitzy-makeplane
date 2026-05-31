@@ -2,6 +2,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for public-integration endpoints.
+
+Maps the Unsplash and GPT-assistant endpoints from ``plane.app.views``
+to the top-level ``unsplash/`` integration route plus the project- and
+workspace-scoped AI-assistant routes.
+"""
+
 from django.urls import path
 
 
