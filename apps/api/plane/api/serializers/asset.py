@@ -1,6 +1,14 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""File-asset / presigned-upload serializers for the ``/api/v1/`` API surface.
+
+Used by :mod:`plane.api.views.asset`. The request serializers validate
+client-supplied metadata (filename, MIME type, size, entity context) used to
+generate presigned S3 POST policies, while ``FileAssetSerializer`` shapes the
+read response with the resolved ``asset_url`` annotated by the ViewSet
+queryset.
+"""
 
 # Third party imports
 from rest_framework import serializers
@@ -101,6 +109,8 @@ class FileAssetSerializer(BaseSerializer):
     asset_url = serializers.CharField(read_only=True)
 
     class Meta:
+        """DRF metadata: serialize ``FileAsset`` with audit, relation, storage, and ``asset_url`` as read-only."""
+
         model = FileAsset
         fields = "__all__"
         read_only_fields = [
