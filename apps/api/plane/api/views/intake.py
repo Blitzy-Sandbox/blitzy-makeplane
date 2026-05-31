@@ -2,6 +2,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Intake (triage) endpoints for the external ``/api/v1/`` API.
+
+The "intake" is Plane's triage inbox: work-item submissions awaiting
+acceptance, rejection, or snoozing before being promoted into the
+project's regular issue list. Endpoints here let API clients list,
+create, update, or delete intake issues for a project that has its
+``intake_view`` enabled.
+
+Authentication is via the ``X-Api-Key`` header (see
+``plane.api.middleware.api_authentication.APIKeyAuthentication``).
+"""
+
 # Python imports
 import json
 
@@ -52,7 +64,56 @@ from plane.utils.openapi import (
 
 
 class IntakeIssueListCreateAPIEndpoint(BaseAPIView):
-    """Intake Work Item List and Create Endpoint"""
+    """Intake work-item list and create endpoint.
+
+    HTTP methods + URL pattern:
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/intake-issues/
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/intake-issues/
+
+    Request body (POST) — see ``IntakeIssueCreateSerializer`` / nested
+    ``IssueCreateSerializer``:
+        issue (object, required):
+            name        (str, required)        – Issue title.
+            description (object, optional)     – Plane ProseMirror JSON.
+            priority    (str, optional)        – One of ``low``,
+                ``medium``, ``high``, ``urgent``, ``none``; invalid values
+                return ``400 Bad Request``.
+        external_id     (str, optional)        – External identifier;
+            combined with ``external_source`` uniquely identifies an
+            imported issue.
+        external_source (str, optional)        – External system identifier.
+
+    Response shape:
+        - GET: paginated array of intake issues serialized via
+          ``IntakeIssueSerializer`` (includes nested issue payload).
+        - POST: created intake issue serialized via
+          ``IntakeIssueSerializer``.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectLitePermission`` — any active project member regardless of
+        role.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Filter logic:
+        The base queryset excludes expired-snoozed items by default
+        (``snoozed_till__gte=timezone.now()`` OR ``snoozed_till IS NULL``).
+        If the project does not have ``intake_view`` enabled the endpoint
+        returns ``400 Bad Request``.
+
+    Side effects on POST:
+        - Writes ``Issue`` row (in draft state) + ``IntakeIssue`` row;
+          assigns the project's default state.
+        - Conflict on ``(external_id, external_source)``: returns
+          ``409 Conflict`` with the existing intake issue id.
+        - Enqueues ``issue_activity`` task via Celery+RabbitMQ for activity
+          feed materialization. May trigger webhook fan-out if the project
+          has active webhook subscriptions.
+    """
 
     serializer_class = IntakeIssueSerializer
 
@@ -61,6 +122,11 @@ class IntakeIssueListCreateAPIEndpoint(BaseAPIView):
     use_read_replica = True
 
     def get_queryset(self):
+        """Filter intake issues to the URL's workspace + project.
+
+        Excludes expired-snoozed items by default (``snoozed_till >= now()``
+        OR ``snoozed_till IS NULL``).
+        """
         intake = Intake.objects.filter(
             workspace__slug=self.kwargs.get("slug"),
             project_id=self.kwargs.get("project_id"),
@@ -104,10 +170,10 @@ class IntakeIssueListCreateAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, project_id):
-        """List intake work items
+        """List intake issues for the project.
 
-        Retrieve all work items in the project's intake queue.
-        Returns paginated results when listing all intake work items.
+        Returns an empty 400 response if the project does not have
+        ``intake_view`` enabled.
         """
         issue_queryset = self.get_queryset()
         return self.paginate(
@@ -140,10 +206,13 @@ class IntakeIssueListCreateAPIEndpoint(BaseAPIView):
         },
     )
     def post(self, request, slug, project_id):
-        """Create intake work item
+        """Create a new intake issue.
 
-        Submit a new work item to the project's intake queue for review and triage.
-        Automatically creates the work item with default triage state and tracks activity.
+        Validates priority against ``["low", "medium", "high", "urgent",
+        "none"]``. Returns ``409 Conflict`` on
+        ``(external_id, external_source)`` duplicates. Enqueues
+        ``issue_activity`` via Celery+RabbitMQ for activity feed
+        materialization.
         """
         if not request.data.get("issue", {}).get("name", False):
             return Response({"error": "Name is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -220,7 +289,51 @@ class IntakeIssueListCreateAPIEndpoint(BaseAPIView):
 
 
 class IntakeIssueDetailAPIEndpoint(BaseAPIView):
-    """Intake Issue API Endpoint"""
+    """Retrieve, update, or delete a single intake (triage) issue.
+
+    HTTP methods + URL pattern:
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/intake-issues/<uuid:issue_id>/
+        PATCH   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/intake-issues/<uuid:issue_id>/
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/intake-issues/<uuid:issue_id>/
+
+    Request body (PATCH) — partial ``IntakeIssueSerializer`` / nested
+    ``IssueSerializer`` payload. Role-based field restrictions apply:
+        - Guest role (``ProjectMember.role <= 5``): may only update
+          ``name``, ``description``, ``description_html``; other fields
+          are silently ignored or return ``400 Bad Request``.
+        - Higher roles (``role > 15``): may also update intake-specific
+          attributes — ``status``, ``snoozed_till``, ``duplicate_to``.
+
+    Response shape:
+        - GET: intake issue serialized via ``IntakeIssueSerializer``
+          (with nested issue payload).
+        - PATCH: updated intake issue via ``IntakeIssueSerializer``.
+        - DELETE: HTTP 204 with empty body.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectLitePermission`` — any active project member regardless of
+        role. Field-level write access is enforced inside the handler
+        based on ``ProjectMember.role``.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Constraints on DELETE:
+        Intake issues in status ``-2`` (pending), ``-1`` (rejected),
+        ``0`` (snoozed), or ``2`` (accepted) may only be deleted by the
+        creator or a project ``ADMIN``. Items in status ``1`` (declined
+        / expired) can be deleted by any project member.
+
+    Side effects on PATCH / DELETE:
+        - PATCH: dispatches ``issue_activity`` via Celery+RabbitMQ for
+          non-trivial field changes; webhook fan-out on status
+          transitions.
+        - DELETE: hard-deletes the ``IntakeIssue`` row (the underlying
+          ``Issue`` follows the project's deletion semantics).
+    """
 
     permission_classes = [ProjectLitePermission]
 
@@ -231,6 +344,7 @@ class IntakeIssueDetailAPIEndpoint(BaseAPIView):
     filterset_fields = ["status"]
 
     def get_queryset(self):
+        """Filter intake issues to the URL's workspace + project + issue."""
         intake = Intake.objects.filter(
             workspace__slug=self.kwargs.get("slug"),
             project_id=self.kwargs.get("project_id"),
@@ -270,10 +384,7 @@ class IntakeIssueDetailAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, project_id, issue_id):
-        """Retrieve intake work item
-
-        Retrieve details of a specific intake work item.
-        """
+        """Retrieve a single intake issue with its nested issue payload."""
         intake_issue_queryset = self.get_queryset().get(issue_id=issue_id)
         intake_issue_data = IntakeIssueSerializer(intake_issue_queryset, fields=self.fields, expand=self.expand).data
         return Response(intake_issue_data, status=status.HTTP_200_OK)
@@ -301,10 +412,13 @@ class IntakeIssueDetailAPIEndpoint(BaseAPIView):
         },
     )
     def patch(self, request, slug, project_id, issue_id):
-        """Update intake work item
+        """Update the intake issue partially.
 
-        Modify an existing intake work item's properties or status for triage processing.
-        Supports status changes like accept, reject, or mark as duplicate.
+        Applies role-based field restrictions: guests (``role <= 5``) may
+        only modify ``name``, ``description``, ``description_html``;
+        higher roles may also modify ``status``, ``snoozed_till``, and
+        ``duplicate_to``. Dispatches ``issue_activity`` via Celery for
+        non-trivial changes.
         """
         intake = Intake.objects.filter(workspace__slug=slug, project_id=project_id).first()
 
@@ -447,10 +561,11 @@ class IntakeIssueDetailAPIEndpoint(BaseAPIView):
         },
     )
     def delete(self, request, slug, project_id, issue_id):
-        """Delete intake work item
+        """Delete the intake issue.
 
-        Permanently remove an intake work item from the triage queue.
-        Also deletes the underlying work item if it hasn't been accepted yet.
+        Items in status ``-2`` / ``-1`` / ``0`` / ``2`` may only be
+        deleted by the creator or a project ``ADMIN``; items in status
+        ``1`` (declined / expired) can be deleted by any project member.
         """
         intake = Intake.objects.filter(workspace__slug=slug, project_id=project_id).first()
 
