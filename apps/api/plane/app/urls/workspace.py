@@ -2,6 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for workspace-level endpoints.
+
+Maps the workspace ViewSets from ``plane.app.views`` (CRUD,
+invitations, memberships, preferences, themes, stats, activity, labels,
+user properties, states, estimates, modules, cycles, favorites, drafts,
+quick links, home preferences, recent visits, stickies, sidebar) to URL
+paths scoped under ``workspaces/<slug>/``.
+"""
+
 from django.urls import path
 
 
