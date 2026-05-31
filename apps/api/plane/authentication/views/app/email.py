@@ -60,8 +60,11 @@ keys that may be raised from this module:
 Architectural notes
 -------------------
 
-  * Session refresh writes to **Redis-backed Django session storage**.
-    Redis = caching + session only in this project; Plane does NOT use
+  * Session refresh writes to the **PostgreSQL-backed Django session
+    store** via the custom ``plane.db.models.session`` engine (see
+    ``SESSION_ENGINE`` in ``apps/api/plane/settings/common.py``). Redis
+    is used for caching and selected ephemeral auth data (e.g. magic-
+    code TTL storage), NOT for Django sessions; Plane does NOT use
     Redis as a task broker -- Celery jobs route through **RabbitMQ**.
   * The migrator container has already run schema migrations by the time
     this module is imported, so :class:`User` and :class:`Instance`
@@ -165,7 +168,9 @@ class SignInAuthEndpoint(View):
           (``is_app=True``) -- establishes the Django session, rotates
           the session key, and writes
           ``request.session["device_info"]``. Sessions are persisted to
-          **Redis** (Redis = caching + session only; Celery uses RabbitMQ).
+          **PostgreSQL** via the custom ``plane.db.models.session``
+          engine (Redis = caching + selected ephemeral auth data only;
+          Celery uses RabbitMQ).
         * Returns :class:`django.http.HttpResponseRedirect` -- this view
           never returns JSON. All client UX (success and error) is
           driven by reading the redirect URL's query string.
@@ -353,8 +358,8 @@ class SignUpAuthEndpoint(View):
           and any other post-account bootstrap state.
         * On successful authentication, calls
           :func:`plane.authentication.utils.login.user_login`
-          (``is_app=True``) to establish the Redis-backed Django
-          session.
+          (``is_app=True``) to establish the PostgreSQL-backed Django
+          session via the custom ``plane.db.models.session`` engine.
         * Returns :class:`django.http.HttpResponseRedirect` -- this view
           never returns JSON.
 

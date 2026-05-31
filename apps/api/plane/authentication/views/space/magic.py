@@ -28,15 +28,20 @@ Async infrastructure (per AAP architectural context -- critical distinction):
       :func:`magic_link.delay(email, key, token)` enqueues the task
       :func:`plane.bgtasks.magic_link_code_task.magic_link` for a Celery
       worker to consume from the RabbitMQ broker.
-    * Magic-code STORAGE uses **Redis (cache only -- not task queue)**:
-      :class:`MagicCodeProvider` writes the issued ``(key, token)`` to
-      Redis with a short TTL and reads it back on sign-in / sign-up.
-    * Session storage uses **Redis (session only -- not task queue)**:
-      :func:`user_login` with ``is_space=True`` writes the Django session
-      to Redis-backed session storage.
+    * Magic-code STORAGE uses **Redis (cache / ephemeral auth data only --
+      not task queue)**: :class:`MagicCodeProvider` writes the issued
+      ``(key, token)`` to Redis with a short TTL and reads it back on
+      sign-in / sign-up.
+    * Django session storage uses **PostgreSQL** via the custom
+      ``plane.db.models.session`` engine (see ``SESSION_ENGINE`` in
+      ``apps/api/plane/settings/common.py``): :func:`user_login` with
+      ``is_space=True`` writes the Django session to the PostgreSQL
+      ``sessions`` table -- NOT Redis.
 
-    Plane uses RabbitMQ for task queueing and Redis for caching + sessions;
-    these are DIFFERENT backing services and must not be conflated.
+    Plane uses RabbitMQ for task queueing, Redis for caching + selected
+    ephemeral auth data, and PostgreSQL for authoritative session
+    storage; these are THREE DIFFERENT backing services and must not be
+    conflated.
 
 Open-redirect prevention:
     Both sign-in / sign-up views sanitize ``next_path`` via
@@ -178,9 +183,10 @@ class MagicSignInSpaceEndpoint(View):
         * Reads the magic code from **Redis** via
           :meth:`MagicCodeProvider.authenticate` (key ``magic_<email>``);
           the provider deletes the code on successful consumption
-          (Redis = cache only).
+          (Redis = cache / ephemeral auth data only).
         * On success: :func:`user_login` with ``is_space=True`` writes
-          the Django session to Redis-backed session storage.
+          the Django session to the PostgreSQL-backed session store via
+          the ``plane.db.models.session`` engine (NOT Redis).
     """
 
     def post(self, request):
@@ -278,11 +284,13 @@ class MagicSignUpSpaceEndpoint(View):
 
     Side effects:
         * Reads the magic code from **Redis** via
-          :meth:`MagicCodeProvider.authenticate` (Redis = cache only).
+          :meth:`MagicCodeProvider.authenticate` (Redis = cache /
+          ephemeral auth data only).
         * Creates a new :class:`User` row inside the provider's
           ``authenticate`` flow.
         * On success: :func:`user_login` with ``is_space=True`` writes
-          the Django session to Redis-backed session storage.
+          the Django session to the PostgreSQL-backed session store via
+          the ``plane.db.models.session`` engine (NOT Redis).
         * Does NOT directly enqueue Celery tasks from this view;
           downstream post-create signal handlers may enqueue tasks via
           RabbitMQ.

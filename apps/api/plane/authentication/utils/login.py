@@ -25,11 +25,14 @@ Upstream symbol dependencies:
     written into ``device_info["ip_address"]``.
 
 Session storage note (per architectural rule): Django sessions are
-persisted to **Redis** through the configured session backend; Redis is
-used for caching and session storage **only** in this project. Celery
-task queueing uses RabbitMQ, not Redis — do not conflate the two when
-reading code that touches ``request.session`` here vs. code that calls
-``.delay()`` elsewhere in the codebase.
+persisted to **PostgreSQL** via the custom ``plane.db.models.session``
+engine (see ``SESSION_ENGINE`` in
+``apps/api/plane/settings/common.py``) — they are NOT Redis-backed.
+Redis is reserved for caching and selected ephemeral auth artefacts
+(e.g. magic-code TTL data). Celery task queueing uses RabbitMQ, not
+Redis — do not conflate the three (PostgreSQL sessions, Redis cache,
+RabbitMQ queue) when reading code that touches ``request.session``
+here vs. code that calls ``.delay()`` elsewhere in the codebase.
 """
 
 # Django imports
@@ -51,11 +54,13 @@ def user_login(request, user, is_app=False, is_admin=False, is_space=False):
     consumers (e.g. session listing, suspicious-login detection).
 
     The session payload is persisted by the configured Django session
-    backend, which is Redis-backed in this project (Redis = caching and
-    session storage only — Celery task queueing uses RabbitMQ, not Redis).
-    The explicit :meth:`request.session.save` ensures durability before the
-    request finishes; without it the session would only be flushed at the
-    end of the response cycle.
+    backend, which is the custom ``plane.db.models.session`` engine in
+    this project — writes land in the PostgreSQL ``sessions`` table
+    (Redis is used for caching and selected ephemeral auth data only;
+    Celery task queueing uses RabbitMQ, not Redis). The explicit
+    :meth:`request.session.save` ensures durability before the request
+    finishes; without it the session would only be flushed at the end
+    of the response cycle.
 
     Side effects (in order):
 

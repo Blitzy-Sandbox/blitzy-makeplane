@@ -320,11 +320,16 @@ class IssueListCreateAPIEndpoint(BaseAPIView):
 
     This viewset provides ``list`` and ``create`` on issue level.
 
-    HTTP methods + URL patterns:
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/work_item.py``):
         GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/
+                  (legacy alias, name ``issue``)
         POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/
+                  (legacy alias, name ``issue``)
         GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/
+                  (modern, name ``work-item-list``)
         POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/
+                  (modern, name ``work-item-list``)
 
     Request body (POST) — see ``IssueCreateSerializer``:
         name             (str,  required) – Work-item title.
@@ -630,26 +635,34 @@ class IssueListCreateAPIEndpoint(BaseAPIView):
 
 
 class IssueDetailAPIEndpoint(BaseAPIView):
-    """Retrieve, upsert (PUT), partially update, or delete a single issue.
+    """Retrieve, partially update, or delete a single issue.
 
-    HTTP methods + URL pattern:
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/work_item.py``):
         GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:pk>/
-        PUT     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:pk>/
+                    (legacy alias, name ``issue``)
         PATCH   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:pk>/
+                    (legacy alias, name ``issue``)
         DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:pk>/
-        (and the ``/work-items/<uuid:pk>/`` alias variants)
+                    (legacy alias, name ``issue``)
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:pk>/
+                    (modern, name ``work-item-detail``)
+        PATCH   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:pk>/
+                    (modern, name ``work-item-detail``)
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:pk>/
+                    (modern, name ``work-item-detail``)
 
-    Request body (PUT) — upsert mode:
-        Both ``external_id`` AND ``external_source`` are REQUIRED. PUT
-        uses these to upsert based on ``(external_id, external_source)``
-        rather than the URL pk; if no matching row exists, a new issue
-        is created.
+    Note:
+        Although a ``put`` method is defined on this class, the URL
+        config restricts ``http_method_names`` to ``["get", "patch",
+        "delete"]``, so PUT is NOT routed to this endpoint. The
+        ``put`` method body is therefore unreachable at the registered
+        URLs.
 
     Request body (PATCH) — partial ``IssueSerializer`` payload.
 
     Response shape:
-        ``IssueSerializer`` payload (GET / PUT / PATCH); HTTP 204 for
-        DELETE.
+        ``IssueSerializer`` payload (GET / PATCH); HTTP 204 for DELETE.
 
     Authentication:
         ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
@@ -662,12 +675,10 @@ class IssueDetailAPIEndpoint(BaseAPIView):
         (300/minute) when the API token has ``is_service=True``.
 
     Constraints:
-        - PUT requires both ``external_id`` and ``external_source``;
-          missing either returns ``400 Bad Request``.
         - DELETE is restricted to the issue's creator (``created_by``)
           or a project ``ADMIN``; other roles return ``403 Forbidden``.
 
-    Side effects on PUT / PATCH / DELETE:
+    Side effects on PATCH / DELETE:
         Dispatches ``issue_activity`` and ``model_activity`` via
         Celery+RabbitMQ; fires ``issue`` webhook events.
     """
@@ -1323,10 +1334,16 @@ class LabelDetailAPIEndpoint(LabelListCreateAPIEndpoint):
 class IssueLinkListCreateAPIEndpoint(BaseAPIView):
     """List or create external links attached to an issue.
 
-    HTTP methods + URL pattern:
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/work_item.py``):
         GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/links/
+                  (legacy alias, name ``link``)
         POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/links/
-        (and the ``/work-items/<uuid:issue_id>/links/`` alias variants)
+                  (legacy alias, name ``link``)
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/links/
+                  (modern, name ``work-item-link-list``)
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/links/
+                  (modern, name ``work-item-link-list``)
 
     Request body (POST) — see ``IssueLinkSerializer``:
         url      (str, required) – External URL.
@@ -1462,11 +1479,20 @@ class IssueLinkListCreateAPIEndpoint(BaseAPIView):
 class IssueLinkDetailAPIEndpoint(BaseAPIView):
     """Retrieve, update, or delete a single issue link.
 
-    HTTP methods + URL pattern:
-        GET     /.../issues/<uuid:issue_id>/links/<uuid:link_id>/
-        PATCH   /.../issues/<uuid:issue_id>/links/<uuid:link_id>/
-        DELETE  /.../issues/<uuid:issue_id>/links/<uuid:link_id>/
-        (and the ``/work-items/`` alias variants)
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/work_item.py``):
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/links/<uuid:pk>/
+                    (legacy alias, name ``link``)
+        PATCH   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/links/<uuid:pk>/
+                    (legacy alias, name ``link``)
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/links/<uuid:pk>/
+                    (legacy alias, name ``link``)
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/links/<uuid:pk>/
+                    (modern, name ``work-item-link-detail``)
+        PATCH   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/links/<uuid:pk>/
+                    (modern, name ``work-item-link-detail``)
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/links/<uuid:pk>/
+                    (modern, name ``work-item-link-detail``)
 
     Request body (PATCH) — partial ``IssueLinkSerializer`` payload.
 
@@ -1635,10 +1661,16 @@ class IssueLinkDetailAPIEndpoint(BaseAPIView):
 class IssueCommentListCreateAPIEndpoint(BaseAPIView):
     """List or create comments on an issue.
 
-    HTTP methods + URL pattern:
-        GET   /.../issues/<uuid:issue_id>/comments/
-        POST  /.../issues/<uuid:issue_id>/comments/
-        (and the ``/work-items/`` alias variants)
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/work_item.py``):
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/comments/
+                  (legacy alias, name ``comment``)
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/comments/
+                  (legacy alias, name ``comment``)
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/comments/
+                  (modern, name ``work-item-comment-list``)
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/comments/
+                  (modern, name ``work-item-comment-list``)
 
     Request body (POST) — see ``IssueCommentSerializer``:
         comment_html      (str, optional)    – HTML body.
@@ -1827,11 +1859,20 @@ class IssueCommentListCreateAPIEndpoint(BaseAPIView):
 class IssueCommentDetailAPIEndpoint(BaseAPIView):
     """Retrieve, update, or delete a single comment on an issue.
 
-    HTTP methods + URL pattern:
-        GET     /.../issues/<uuid:issue_id>/comments/<uuid:comment_id>/
-        PATCH   /.../issues/<uuid:issue_id>/comments/<uuid:comment_id>/
-        DELETE  /.../issues/<uuid:issue_id>/comments/<uuid:comment_id>/
-        (and the ``/work-items/`` alias variants)
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/work_item.py``):
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/comments/<uuid:pk>/
+                    (legacy alias, name ``comment``)
+        PATCH   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/comments/<uuid:pk>/
+                    (legacy alias, name ``comment``)
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/comments/<uuid:pk>/
+                    (legacy alias, name ``comment``)
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/comments/<uuid:pk>/
+                    (modern, name ``work-item-comment-detail``)
+        PATCH   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/comments/<uuid:pk>/
+                    (modern, name ``work-item-comment-detail``)
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/comments/<uuid:pk>/
+                    (modern, name ``work-item-comment-detail``)
 
     Request body (PATCH) — partial ``IssueCommentSerializer`` payload.
 
@@ -2030,8 +2071,12 @@ class IssueCommentDetailAPIEndpoint(BaseAPIView):
 class IssueActivityListAPIEndpoint(BaseAPIView):
     """List model-state activity entries for an issue (read-only).
 
-    HTTP methods + URL pattern:
-        GET   /.../issues/<uuid:issue_id>/activities/
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/work_item.py``):
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/activities/
+                  (legacy alias, name ``activity``)
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/activities/
+                  (modern, name ``work-item-activity-list``)
 
     Response shape:
         Paginated array of ``IssueActivity`` rows via
@@ -2112,8 +2157,12 @@ class IssueActivityListAPIEndpoint(BaseAPIView):
 class IssueActivityDetailAPIEndpoint(BaseAPIView):
     """Retrieve a single activity entry for an issue.
 
-    HTTP methods + URL pattern:
-        GET   /.../issues/<uuid:issue_id>/activities/<uuid:activity_id>/
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/work_item.py``):
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/activities/<uuid:pk>/
+                  (legacy alias, name ``activity``)
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/activities/<uuid:pk>/
+                  (modern, name ``work-item-activity-detail``)
 
     Response shape:
         ``IssueActivity`` row via ``IssueActivitySerializer``. Same
@@ -2192,11 +2241,16 @@ class IssueActivityDetailAPIEndpoint(BaseAPIView):
 class IssueAttachmentListCreateAPIEndpoint(BaseAPIView):
     """List or create file attachments on an issue.
 
-    HTTP methods + URL pattern:
-        GET   /.../issues/<uuid:issue_id>/issue-attachments/
-        POST  /.../issues/<uuid:issue_id>/issue-attachments/
-        (and the ``/work-items/<uuid:issue_id>/issue-attachments/``
-        alias variants)
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/work_item.py``):
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/issue-attachments/
+                  (legacy alias, name ``attachment``)
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/issue-attachments/
+                  (legacy alias, name ``attachment``)
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/attachments/
+                  (modern, name ``work-item-attachment-list``)
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/attachments/
+                  (modern, name ``work-item-attachment-list``)
 
     Request body (POST):
         name        (str, required) – Original filename.
@@ -2448,10 +2502,20 @@ class IssueAttachmentListCreateAPIEndpoint(BaseAPIView):
 class IssueAttachmentDetailAPIEndpoint(BaseAPIView):
     """Retrieve, finalize, or delete a single issue attachment.
 
-    HTTP methods + URL pattern:
-        GET     /.../issues/<uuid:issue_id>/issue-attachments/<uuid:pk>/
-        PATCH   /.../issues/<uuid:issue_id>/issue-attachments/<uuid:pk>/
-        DELETE  /.../issues/<uuid:issue_id>/issue-attachments/<uuid:pk>/
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/work_item.py``):
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/issue-attachments/<uuid:pk>/
+                    (legacy alias, name ``issue-attachment``)
+        PATCH   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/issue-attachments/<uuid:pk>/
+                    (legacy alias, name ``issue-attachment``)
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/issue-attachments/<uuid:pk>/
+                    (legacy alias, name ``issue-attachment``)
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/attachments/<uuid:pk>/
+                    (modern, name ``work-item-attachment-detail``)
+        PATCH   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/attachments/<uuid:pk>/
+                    (modern, name ``work-item-attachment-detail``)
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/attachments/<uuid:pk>/
+                    (modern, name ``work-item-attachment-detail``)
 
     Request body (PATCH):
         is_uploaded (bool, required) – Confirms the client has finished
@@ -2690,8 +2754,12 @@ class IssueAttachmentDetailAPIEndpoint(BaseAPIView):
 class IssueSearchEndpoint(BaseAPIView):
     """Workspace-wide search across issues.
 
-    HTTP methods + URL pattern:
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/work_item.py``):
         GET   /api/v1/workspaces/<slug>/issues/search/
+                  (legacy alias, name ``issue-search``)
+        GET   /api/v1/workspaces/<slug>/work-items/search/
+                  (modern, name ``work-item-search``)
 
     Query parameters:
         search (str, required) – Search term applied to ``name``,
@@ -2799,9 +2867,16 @@ class IssueSearchEndpoint(BaseAPIView):
 class IssueRelationListCreateAPIEndpoint(BaseAPIView):
     """List or create relations between issues.
 
-    HTTP methods + URL pattern:
-        GET   /.../issues/<uuid:issue_id>/issue-relation/
-        POST  /.../issues/<uuid:issue_id>/issue-relation/
+    HTTP methods + URL pattern (registered in
+    ``apps/api/plane/api/urls/work_item.py``):
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/relations/
+                  (name ``work-item-relation-list``)
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/relations/
+                  (name ``work-item-relation-list``)
+
+    Note:
+        Only the modern ``/work-items/`` path is registered; no legacy
+        ``/issues/<issue_id>/issue-relation/`` route exists.
 
     Request body (POST):
         relation_type (str, required) – One of ``blocking``,

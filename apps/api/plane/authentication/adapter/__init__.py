@@ -39,8 +39,12 @@ Async-infrastructure note (per AAP section 0.2.2): this layer is pure
 adapter logic and contains no direct Redis or RabbitMQ access. The
 only Celery handoff originates in :mod:`.base` via
 ``user_activation_email.delay(...)`` which routes through Celery +
-RabbitMQ (Redis in this codebase is reserved for caching and session
-storage). Higher-level Celery handoffs (e.g. magic-link code email,
+RabbitMQ. Redis in this codebase is reserved for caching and selected
+ephemeral auth artefacts (e.g. magic-code TTL data); Django sessions
+themselves are persisted to PostgreSQL via the custom
+``plane.db.models.session`` engine (see
+``apps/api/plane/settings/common.py`` ``SESSION_ENGINE``), not Redis.
+Higher-level Celery handoffs (e.g. magic-link code email,
 forgot-password email) live in :mod:`plane.authentication.views` and
 :mod:`plane.authentication.provider.credentials.magic_code`.
 """

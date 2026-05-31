@@ -62,7 +62,7 @@ class UserEndpoint(BaseAPIView):
         },
     )
     def get(self, request):
-        """Get current user
+        """Get current user.
 
         Retrieve the authenticated user's profile information including basic details.
         Returns user data based on the current authentication context.

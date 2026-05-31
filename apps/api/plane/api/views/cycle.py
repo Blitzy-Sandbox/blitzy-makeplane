@@ -707,14 +707,21 @@ class CycleDetailAPIEndpoint(BaseAPIView):
 
 
 class CycleArchiveUnarchiveAPIEndpoint(BaseAPIView):
-    """Archive or unarchive a cycle.
+    """List archived cycles, archive a cycle, or unarchive a cycle.
 
-    HTTP methods + URL pattern:
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/cycle.py``):
         POST    /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/archive/
-        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/archive/
+                    (name ``cycle-archive-unarchive``)
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/archived-cycles/
+                    (name ``cycle-archive-unarchive``)
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/archived-cycles/<uuid:cycle_id>/unarchive/
+                    (name ``cycle-archive-unarchive``)
 
     Response shape:
         - POST: ``{archived_at: <ISO timestamp>}``.
+        - GET: paginated list of archived cycles (``archived_at IS NOT
+          NULL``) with the same rollup annotations as the list endpoint.
         - DELETE: HTTP 204 with empty body.
 
     Authentication:
@@ -732,8 +739,11 @@ class CycleArchiveUnarchiveAPIEndpoint(BaseAPIView):
         may be archived; otherwise POST returns ``400 Bad Request``.
 
     Side effects:
-        Writes ``archived_at`` field; dispatches ``model_activity`` via
-        Celery+RabbitMQ for the audit feed.
+        - POST: writes the ``archived_at`` field on the cycle and
+          dispatches ``model_activity`` via Celery+RabbitMQ for the
+          audit feed.
+        - GET: read-only.
+        - DELETE: clears the ``archived_at`` field (unarchive).
     """
 
     permission_classes = [ProjectEntityPermission]
@@ -929,11 +939,12 @@ class CycleArchiveUnarchiveAPIEndpoint(BaseAPIView):
 class CycleIssueListCreateAPIEndpoint(BaseAPIView):
     """List or bulk-add issues to a cycle.
 
-    HTTP methods + URL patterns:
-        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/issues/
-        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/issues/
-        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/work-items/
-        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/work-items/
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/cycle.py``):
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/cycle-issues/
+                  (name ``cycle-issues``)
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/cycle-issues/
+                  (name ``cycle-issues``)
 
     Request body (POST):
         issues (list[uuid], required) -- Issue pks to associate with the
@@ -960,11 +971,6 @@ class CycleIssueListCreateAPIEndpoint(BaseAPIView):
           association so the issue's activity feed records the cycle
           assignment.
         - Fires ``cycle_issue`` webhook events if active.
-
-    Note:
-        The ``/work-items/`` alias is the modern, language-neutral path;
-        the older ``/issues/`` path is preserved for backwards
-        compatibility. Both share the same handler.
     """
 
     serializer_class = CycleIssueSerializer
@@ -1170,28 +1176,34 @@ class CycleIssueListCreateAPIEndpoint(BaseAPIView):
 
 
 class CycleIssueDetailAPIEndpoint(BaseAPIView):
-    """Remove an issue from a cycle.
+    """Retrieve or remove an issue's cycle association.
 
-    HTTP methods + URL patterns:
-        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/issues/<uuid:issue_id>/
-        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/work-items/<uuid:issue_id>/
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/cycle.py``):
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/cycle-issues/<uuid:issue_id>/
+                    (name ``cycle-issues``)
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/cycle-issues/<uuid:issue_id>/
+                    (name ``cycle-issues``)
 
     Response shape:
-        HTTP 204 with empty body.
+        - GET: the ``CycleIssue`` row via ``CycleIssueSerializer``.
+        - DELETE: HTTP 204 with empty body.
 
     Authentication:
         ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
         from ``BaseAPIView``).
     Permissions:
-        ``ProjectEntityPermission`` -- mutations require project ``ADMIN``
-        or ``MEMBER``.
+        ``ProjectEntityPermission`` -- SAFE methods require project
+        membership; mutations require project ``ADMIN`` or ``MEMBER``.
     Throttle:
         ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
         (300/minute) when the API token has ``is_service=True``.
 
     Side effects:
-        Hard-deletes the ``CycleIssue`` row; dispatches ``issue_activity``
-        via Celery+RabbitMQ; fires ``cycle_issue`` webhook events.
+        - GET: read-only.
+        - DELETE: hard-deletes the ``CycleIssue`` row; dispatches
+          ``issue_activity`` via Celery+RabbitMQ; fires ``cycle_issue``
+          webhook events.
     """
 
     serializer_class = CycleIssueSerializer

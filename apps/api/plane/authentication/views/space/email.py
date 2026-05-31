@@ -25,10 +25,13 @@ Authentication delegation:
     with ``is_signup=False`` for sign-in and ``is_signup=True`` for sign-up.
 
 Session storage (per AAP §0.2.2):
-    :func:`user_login` calls Django's :func:`django.contrib.auth.login` which
-    writes the session to Redis-backed session storage. Plane uses Redis for
-    caching and session storage only — Celery tasks (which this module does
-    NOT enqueue) route through RabbitMQ.
+    :func:`user_login` calls Django's :func:`django.contrib.auth.login`
+    which writes the session to the PostgreSQL-backed Django session
+    store via the custom ``plane.db.models.session`` engine (see
+    ``SESSION_ENGINE`` in ``apps/api/plane/settings/common.py``). Plane
+    uses Redis for caching and selected ephemeral auth data only — it
+    is NOT the Django session backend. Celery tasks (which this module
+    does NOT enqueue) route through RabbitMQ.
 
 Open-redirect prevention:
     ``next_path`` is sanitized via :func:`validate_next_path` and the
@@ -98,9 +101,11 @@ class SignInAuthSpaceEndpoint(View):
         raised by :meth:`EmailProvider.authenticate`.
 
     Side effects:
-        * On success: :func:`user_login` with ``is_space=True`` writes the
-          Django session to Redis-backed session storage (Redis = cache /
-          session only — Plane Celery tasks route through RabbitMQ).
+        * On success: :func:`user_login` with ``is_space=True`` writes
+          the Django session to the PostgreSQL-backed session store via
+          the ``plane.db.models.session`` engine (Redis = cache and
+          selected ephemeral auth data only — Plane Celery tasks route
+          through RabbitMQ).
         * On failure: no DB writes, no session writes — only a redirect
           with error params.
 
@@ -228,7 +233,8 @@ class SignUpAuthSpaceEndpoint(View):
           ``EmailProvider(request, key=email, code=password,
           is_signup=True).authenticate()``.
         * Logs the user in via :func:`user_login` with ``is_space=True``
-          which writes the Django session to Redis-backed session storage.
+          which writes the Django session to the PostgreSQL-backed
+          session store via the ``plane.db.models.session`` engine.
         * Does NOT directly enqueue Celery tasks from this view; downstream
           post-create signal handlers may enqueue tasks via RabbitMQ.
 

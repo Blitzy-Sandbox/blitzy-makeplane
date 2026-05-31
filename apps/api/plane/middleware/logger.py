@@ -165,9 +165,14 @@ class APITokenLogMiddleware:
 
     Writes:
         - Enqueues a ``process_logs.delay(...)`` Celery task carrying
-          a sanitized log payload (Celery via RabbitMQ). No database
-          writes occur on the request thread; persistence is
-          off-loaded so request latency is unaffected.
+          a payload that includes the raw ``X-Api-Key`` value (stored as
+          ``token_identifier``), the full request headers (``str(request.headers)``),
+          the decoded request body, and the decoded response body
+          (Celery via RabbitMQ). No sanitization or redaction is applied
+          on this hot path, so downstream consumers MUST treat the
+          persisted record as containing credentials and other sensitive
+          data. No database writes occur on the request thread;
+          persistence is off-loaded so request latency is unaffected.
 
     MIDDLEWARE position:
         Position 12 in ``apps/api/plane/settings/common.py``, directly

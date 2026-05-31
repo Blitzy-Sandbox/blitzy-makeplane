@@ -26,9 +26,13 @@ surface is consistent across app and space contexts.
 
 Architectural notes (per AAP 0.2.2):
 
-  * Session storage is Redis-backed (Redis = caching and session only --
-    Plane does NOT use Redis as a task broker; Celery jobs route through
-    RabbitMQ elsewhere in the auth subsystem).
+  * Session storage is PostgreSQL-backed via the custom
+    ``plane.db.models.session`` engine (see ``SESSION_ENGINE`` in
+    ``apps/api/plane/settings/common.py``). Redis is used for caching
+    and selected ephemeral auth data only -- it is NOT the Django
+    session backend, and Plane does NOT use Redis as a task broker
+    (Celery jobs route through RabbitMQ elsewhere in the auth
+    subsystem).
   * The migrator container has already run schema migrations by the time
     this module is imported; ``User`` queries assume the target revision.
 """
@@ -140,8 +144,9 @@ class ChangePasswordEndpoint(APIView):
         * Hashes the new password (``User.set_password``).
         * Sets ``is_password_autoset = False``.
         * Persists the user row (``user.save()``).
-        * Refreshes the Redis-backed session via :func:`user_login` with
-          ``is_app=True`` so subsequent requests use the new credentials.
+        * Refreshes the PostgreSQL-backed Django session via
+          :func:`user_login` with ``is_app=True`` so subsequent requests
+          use the new credentials.
     """
 
     def post(self, request):
@@ -233,8 +238,8 @@ class SetUserPasswordEndpoint(APIView):
         * Hashes the new password (``User.set_password``).
         * Sets ``is_password_autoset = False``.
         * Persists the user row.
-        * Refreshes the Redis-backed session via :func:`user_login` with
-          ``is_app=True``.
+        * Refreshes the PostgreSQL-backed Django session via
+          :func:`user_login` with ``is_app=True``.
         * Invalidates the cached ``/api/users/me/`` response via
           :func:`invalidate_cache` so subsequent ``GET /users/me/`` returns
           the new password state.

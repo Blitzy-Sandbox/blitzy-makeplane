@@ -19,9 +19,13 @@ fail).
 
 Architectural notes (per AAP 0.2.2):
 
-  * The session is **Redis-backed** -- ``logout(request)`` deletes the
-    session row from Redis (Redis = caching + session only; not a task
-    broker; Celery jobs route through RabbitMQ elsewhere).
+  * The Django session is **PostgreSQL-backed** via the custom
+    ``plane.db.models.session`` engine (see ``SESSION_ENGINE`` in
+    ``apps/api/plane/settings/common.py``) -- ``logout(request)``
+    deletes the session row from the PostgreSQL ``sessions`` table.
+    Redis is used for caching and selected ephemeral auth data only;
+    it is NOT the session backend, and it is NOT a Celery broker
+    (Celery jobs route through RabbitMQ elsewhere).
   * No Celery / RabbitMQ involvement; no email / webhook fan-out.
   * ``User`` is loaded from PostgreSQL -- schema state assumes the migrator
     container has already run migrations.
@@ -67,7 +71,8 @@ class SignOutAuthEndpoint(View):
           for security forensics.
         * Persists the user row (``user.save()``).
         * Calls :func:`django.contrib.auth.logout` to delete the
-          Redis-backed Django session.
+          PostgreSQL-backed Django session row via the
+          ``plane.db.models.session`` engine.
         * Returns a 302 redirect to the app base host.
     """
 

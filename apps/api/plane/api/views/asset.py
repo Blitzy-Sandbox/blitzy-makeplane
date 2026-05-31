@@ -68,10 +68,14 @@ class UserAssetEndpoint(BaseAPIView):
 
     Used for user avatar and cover images.
 
-    HTTP methods + URL patterns:
-        POST    /api/v1/users/me/assets/
-        PATCH   /api/v1/users/me/assets/<uuid:asset_id>/
-        DELETE  /api/v1/users/me/assets/<uuid:asset_id>/
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/asset.py``):
+        POST    /api/v1/assets/user-assets/
+                    (name ``user-assets``)
+        PATCH   /api/v1/assets/user-assets/<uuid:asset_id>/
+                    (name ``user-assets-detail``)
+        DELETE  /api/v1/assets/user-assets/<uuid:asset_id>/
+                    (name ``user-assets-detail``)
 
     Request body (POST):
         name        (str, required) -- Original filename.
@@ -306,14 +310,18 @@ class UserServerAssetEndpoint(BaseAPIView):
 
     Identical contract to ``UserAssetEndpoint`` (POST/PATCH/DELETE on
     ``FileAsset`` rows for user avatars and covers) but mounted at the
-    ``server-assets`` path. Intended for trusted server-to-server
+    ``user-assets/server`` path. Intended for trusted server-to-server
     integrations where the calling system performs the S3 upload on
     behalf of a user.
 
-    HTTP methods + URL patterns:
-        POST    /api/v1/users/me/server-assets/
-        PATCH   /api/v1/users/me/server-assets/<uuid:asset_id>/
-        DELETE  /api/v1/users/me/server-assets/<uuid:asset_id>/
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/asset.py``):
+        POST    /api/v1/assets/user-assets/server/
+                    (name ``user-server-assets``)
+        PATCH   /api/v1/assets/user-assets/<uuid:asset_id>/server/
+                    (name ``user-server-assets-detail``)
+        DELETE  /api/v1/assets/user-assets/<uuid:asset_id>/server/
+                    (name ``user-server-assets-detail``)
 
     Request and response shape:
         Same as ``UserAssetEndpoint``.
@@ -473,7 +481,7 @@ class UserServerAssetEndpoint(BaseAPIView):
 
 
 class GenericAssetEndpoint(BaseAPIView):
-    """Upload, finalize, and remove workspace-scoped generic assets.
+    """Upload-presign, fetch-presign, and finalize workspace-scoped generic assets.
 
     These assets can later be bound to project entities such as issue
     attachments, page descriptions, comment descriptions, project covers,
@@ -481,10 +489,20 @@ class GenericAssetEndpoint(BaseAPIView):
     target-entity's endpoint; this endpoint only manages the underlying
     ``FileAsset`` row and its S3 lifecycle.
 
-    HTTP methods + URL patterns:
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/asset.py``):
         POST    /api/v1/workspaces/<slug>/assets/
+                    (name ``generic-asset``)
+        GET     /api/v1/workspaces/<slug>/assets/<uuid:asset_id>/
+                    (name ``generic-asset-detail``)
         PATCH   /api/v1/workspaces/<slug>/assets/<uuid:asset_id>/
-        DELETE  /api/v1/workspaces/<slug>/assets/<uuid:asset_id>/
+                    (name ``generic-asset-detail``)
+
+    Note:
+        The URL configuration registers only POST on the collection and
+        GET / PATCH on the detail route. DELETE is NOT registered for
+        this endpoint; soft-deletion of workspace-scoped assets is
+        handled by the binding entity's own endpoint.
 
     Request body (POST):
         name        (str, required) -- Original filename.
@@ -508,8 +526,9 @@ class GenericAssetEndpoint(BaseAPIView):
     Response shape:
         - POST: ``{asset_id, asset_url, upload_data: {url, fields}}``
           where ``upload_data`` is the presigned POST payload.
+        - GET: HTTP 302 redirect to the S3 presigned GET URL so the
+          client downloads the object directly from S3.
         - PATCH: HTTP 204 with empty body.
-        - DELETE: HTTP 204 with empty body.
 
     Authentication:
         ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
@@ -526,12 +545,11 @@ class GenericAssetEndpoint(BaseAPIView):
     Side effects:
         - POST: writes ``FileAsset`` row with ``is_uploaded=False``;
           generates an S3 presigned PUT URL.
+        - GET: read-only -- issues a fresh S3 presigned GET URL for the
+          underlying object and 302-redirects the client to it.
         - PATCH: sets ``is_uploaded=True``; enqueues
           ``get_asset_object_metadata`` via Celery+RabbitMQ to backfill
           metadata from S3.
-        - DELETE: soft-deletes via ``is_deleted=True`` +
-          ``deleted_at=timezone.now()``. The S3 object is reaped by the
-          ``file_asset`` Celery beat schedule (see tech spec section 4.4).
     """
 
     use_read_replica = True

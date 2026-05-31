@@ -9,9 +9,11 @@ flow for the public-space / tenant surface:
 
   * :class:`GiteaOauthInitiateSpaceEndpoint` -- ``GET /auth/spaces/gitea/``
     generates a CSRF ``state`` (``uuid.uuid4().hex``), stashes the space
-    host, optional sanitized ``next_path``, and state in the Redis-backed
-    session, and redirects the browser to Gitea's authorization endpoint
-    via :meth:`GiteaOAuthProvider.get_auth_url`.
+    host, optional sanitized ``next_path``, and state in the
+    PostgreSQL-backed Django session (via the
+    ``plane.db.models.session`` engine), and redirects the browser to
+    Gitea's authorization endpoint via
+    :meth:`GiteaOAuthProvider.get_auth_url`.
   * :class:`GiteaCallbackSpaceEndpoint` -- ``GET /auth/spaces/gitea/callback/``
     validates the returned ``state`` against the session value (CSRF
     defense), validates the authorization ``code``, exchanges it for a
@@ -45,11 +47,13 @@ Open-redirect prevention:
     the final redirect URL on callback.
 
 Session storage:
-    OAuth ``state``, ``host``, and (optional) sanitized ``next_path`` are
-    written to Django's Redis-backed session. Redis is used for caching
-    and session storage only -- Plane's Celery task queueing routes
-    through RabbitMQ, but OAuth itself does NOT enqueue any Celery task
-    here.
+    OAuth ``state``, ``host``, and (optional) sanitized ``next_path``
+    are written to the PostgreSQL-backed Django session via the
+    ``plane.db.models.session`` engine (see ``SESSION_ENGINE`` in
+    ``apps/api/plane/settings/common.py``). Redis is used for caching
+    and selected ephemeral auth data only -- it is NOT the Django
+    session backend, and Plane's Celery task queueing routes through
+    RabbitMQ. OAuth itself does NOT enqueue any Celery task here.
 
 Error codes:
     ``INSTANCE_NOT_CONFIGURED`` (initiate path),
@@ -99,7 +103,8 @@ class GiteaOauthInitiateSpaceEndpoint(View):
         with :meth:`AuthenticationException.get_error_dict` query params
         on failure.
 
-    Side effects (Redis-backed session writes):
+    Side effects (PostgreSQL-backed Django session writes via
+    ``plane.db.models.session``):
         * ``request.session["host"] = base_host(request, is_space=True)``
         * ``request.session["next_path"] = validate_next_path(next_path)``
           (only when ``next_path`` is present)
@@ -186,8 +191,9 @@ class GiteaCallbackSpaceEndpoint(View):
         :meth:`GiteaOAuthProvider.authenticate`.
 
     Side effects:
-        * On success: :func:`user_login` with ``is_space=True`` writes the
-          Django session to Redis-backed session storage.
+        * On success: :func:`user_login` with ``is_space=True`` writes
+          the Django session to the PostgreSQL-backed session store via
+          the ``plane.db.models.session`` engine.
         * No DB writes from this view directly; user-row writes happen
           inside :meth:`GiteaOAuthProvider.authenticate` when the Gitea
           account is first linked.

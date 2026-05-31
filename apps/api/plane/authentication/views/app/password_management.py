@@ -91,7 +91,10 @@ Error envelope contracts
 Architectural notes (per AAP section 0.2.2):
 
   * Password-reset email delivery: **Celery via RabbitMQ** (NOT Redis).
-  * Redis is used only for caching and session storage in Plane.
+  * Redis is used only for caching and selected ephemeral auth data in
+    Plane -- NOT for Django sessions. Django sessions are persisted to
+    PostgreSQL via the custom ``plane.db.models.session`` engine (see
+    ``SESSION_ENGINE`` in ``apps/api/plane/settings/common.py``).
   * Migrator container has already run schema migrations by import time;
     ``User`` queries assume the target revision.
 """

@@ -643,11 +643,12 @@ class ModuleDetailAPIEndpoint(BaseAPIView):
 class ModuleIssueListCreateAPIEndpoint(BaseAPIView):
     """List or bulk-add issues to a module.
 
-    HTTP methods + URL patterns:
-        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/issues/
-        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/issues/
-        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/work-items/
-        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/work-items/
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/module.py``):
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/module-issues/
+                  (name ``module-issues``)
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/module-issues/
+                  (name ``module-issues``)
 
     Request body (POST):
         issues (list[uuid], required) – Issue pks to associate with the
@@ -673,11 +674,6 @@ class ModuleIssueListCreateAPIEndpoint(BaseAPIView):
         - Dispatches ``issue_activity`` via Celery+RabbitMQ for each new
           association.
         - Fires ``module_issue`` webhook events if active.
-
-    Note:
-        The ``/work-items/`` alias is the modern, language-neutral path;
-        the older ``/issues/`` path is preserved for backwards
-        compatibility. Both share the same handler.
     """
 
     serializer_class = ModuleIssueSerializer
@@ -877,10 +873,10 @@ class ModuleIssueListCreateAPIEndpoint(BaseAPIView):
 class ModuleIssueDetailAPIEndpoint(BaseAPIView):
     """Remove an issue from a module.
 
-    HTTP methods + URL patterns:
-        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/issues/<uuid:issue_id>/
-        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/
-                work-items/<uuid:issue_id>/
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/module.py``):
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/module-issues/<uuid:issue_id>/
+                    (name ``module-issues-detail``)
 
     Response shape:
         HTTP 204 with empty body.
@@ -1051,14 +1047,21 @@ class ModuleIssueDetailAPIEndpoint(BaseAPIView):
 
 
 class ModuleArchiveUnarchiveAPIEndpoint(BaseAPIView):
-    """Archive or unarchive a module.
+    """List archived modules, archive a module, or unarchive a module.
 
-    HTTP methods + URL pattern:
-        POST    /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/archive/
-        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/archive/
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/module.py``):
+        POST    /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:pk>/archive/
+                    (name ``module-archive``)
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/archived-modules/
+                    (name ``module-archive-list``)
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/archived-modules/<uuid:pk>/unarchive/
+                    (name ``module-unarchive``)
 
     Response shape:
         - POST: ``{archived_at: <ISO timestamp>}``.
+        - GET: paginated list of archived modules (``archived_at IS NOT
+          NULL``) with the same rollup annotations as the list endpoint.
         - DELETE: HTTP 204 with empty body.
 
     Authentication:
@@ -1076,8 +1079,11 @@ class ModuleArchiveUnarchiveAPIEndpoint(BaseAPIView):
         may be archived; otherwise POST returns ``400 Bad Request``.
 
     Side effects:
-        Writes ``archived_at`` field; dispatches ``model_activity`` via
-        Celery+RabbitMQ for the audit feed.
+        - POST: writes the ``archived_at`` field on the module and
+          dispatches ``model_activity`` via Celery+RabbitMQ for the
+          audit feed.
+        - GET: read-only.
+        - DELETE: clears the ``archived_at`` field (unarchive).
     """
 
     permission_classes = [ProjectEntityPermission]

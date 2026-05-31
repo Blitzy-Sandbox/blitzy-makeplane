@@ -9,8 +9,9 @@ flow for the public-space / tenant surface:
 
   * :class:`GitHubOauthInitiateSpaceEndpoint` -- ``GET /auth/spaces/github/``
     generates a CSRF ``state`` (``uuid.uuid4().hex``), stashes the space
-    host and state in the Redis-backed session, and redirects the browser
-    to GitHub's authorization endpoint via
+    host and state in the PostgreSQL-backed Django session (via the
+    ``plane.db.models.session`` engine), and redirects the browser to
+    GitHub's authorization endpoint via
     :meth:`GitHubOAuthProvider.get_auth_url`.
   * :class:`GitHubCallbackSpaceEndpoint` -- ``GET /auth/spaces/github/callback/``
     validates the returned ``state`` against the session value (CSRF
@@ -35,10 +36,13 @@ Open-redirect prevention:
     ``base_host(request, is_space=True)``.
 
 Session storage (per AAP 0.2.2):
-    OAuth ``state`` and ``host`` are written to Django's Redis-backed
-    session. Redis is used for caching and session storage only -- Plane's
-    Celery task queueing routes through RabbitMQ, but OAuth itself does NOT
-    enqueue any Celery task here.
+    OAuth ``state`` and ``host`` are written to the PostgreSQL-backed
+    Django session via the ``plane.db.models.session`` engine (see
+    ``SESSION_ENGINE`` in ``apps/api/plane/settings/common.py``). Redis
+    is used for caching and selected ephemeral auth data only -- it is
+    NOT the Django session backend, and Plane's Celery task queueing
+    routes through RabbitMQ. OAuth itself does NOT enqueue any Celery
+    task here.
 
 Error codes:
     ``INSTANCE_NOT_CONFIGURED`` (initiate path),
@@ -86,7 +90,8 @@ class GitHubOauthInitiateSpaceEndpoint(View):
         :meth:`AuthenticationException.get_error_dict` query params on
         failure.
 
-    Side effects (Redis-backed session writes):
+    Side effects (PostgreSQL-backed Django session writes via
+    ``plane.db.models.session``):
         * ``request.session["host"] = base_host(request, is_space=True)``
         * ``request.session["state"] = uuid.uuid4().hex`` (CSRF token
           verified on callback).
@@ -159,19 +164,14 @@ class GitHubCallbackSpaceEndpoint(View):
         :meth:`GitHubOAuthProvider.authenticate`.
 
     Side effects:
-        * On success: :func:`user_login` with ``is_space=True`` writes the
-          Django session to Redis-backed session storage.
+        * On success: :func:`user_login` with ``is_space=True`` writes
+          the Django session to the PostgreSQL-backed session store via
+          the ``plane.db.models.session`` engine.
         * No DB writes from this view directly; user-row writes happen
           inside :meth:`GitHubOAuthProvider.authenticate` when the GitHub
           account is first linked.
 
-    # INTENT UNCLEAR: line 61 binds the LOCAL name ``base_host`` to
-    # ``request.session.get("host")`` (a string), shadowing the imported
-    # ``base_host`` function in this method's scope. Subsequent
-    # ``base_host(request=request, is_space=True)`` calls on the error /
-    # success paths invoke the local string as a callable, which would
-    # raise ``TypeError`` if reached. Behavior preserved verbatim per the
-    # no-logic-change rule (AAP 0.12.3).
+    # INTENT UNCLEAR: the ``base_host`` local rebound to ``request.session.get("host")`` shadows the imported function and would raise ``TypeError`` if invoked on the error/success paths; behavior preserved verbatim per AAP 0.12.3.
     """
 
     def get(self, request):

@@ -54,9 +54,12 @@ Every error path returns an HTTP 302 redirect to
 Architectural notes (per AAP section 0.2.2):
 
   * Session writes (``host``, ``next_path``, ``state``) and the session
-    refresh on login land in Redis-backed session storage. Redis =
-    caching + session only -- Plane does NOT use Redis as a task broker
-    (Celery jobs route through RabbitMQ).
+    refresh on login land in the PostgreSQL-backed Django session store
+    via the custom ``plane.db.models.session`` engine (see
+    ``SESSION_ENGINE`` in ``apps/api/plane/settings/common.py``). Redis
+    is used for caching and selected ephemeral auth data only -- it is
+    NOT the Django session backend, and Plane does NOT use Redis as a
+    task broker (Celery jobs route through RabbitMQ).
   * The migrator container has already run schema migrations by the time
     this module is imported.
   * No Celery / RabbitMQ enqueue from this module; provider integration
@@ -190,7 +193,8 @@ class GoogleCallbackEndpoint(View):
           for a Google ID token + access token, loads/creates the Plane
           :class:`User`, and runs the post-auth workflow.
         * Calls :func:`user_login` (``is_app=True``) -- refreshes the
-          Redis-backed session.
+          PostgreSQL-backed Django session via the
+          ``plane.db.models.session`` engine.
         * Reads ``request.session.get("next_path")`` for the redirect
           target.
 

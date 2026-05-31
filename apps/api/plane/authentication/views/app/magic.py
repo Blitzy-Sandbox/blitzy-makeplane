@@ -79,8 +79,11 @@ Error envelope contracts
 Architectural notes:
 
   * Magic-link email delivery: **Celery via RabbitMQ** (NOT Redis).
-  * Magic-code storage and Django session storage: **Redis** (cache /
-    session only, NOT queueing).
+  * Magic-code storage (one-time-code TTL data): **Redis** -- cache and
+    selected ephemeral auth artefacts only, NEVER queueing.
+  * Django session storage: **PostgreSQL** via the custom
+    ``plane.db.models.session`` engine (see ``SESSION_ENGINE`` in
+    ``apps/api/plane/settings/common.py``) -- NOT Redis.
   * Migrator container has already run schema migrations by import time;
     ``User`` / ``Profile`` queries assume the target revision.
 """
@@ -222,7 +225,8 @@ class MagicSignInEndpoint(View):
           guarantee a :class:`Profile` row exists (defensive for legacy
           accounts that may have skipped profile creation).
         * Calls :func:`user_login` (``is_app=True``) -- refreshes the
-          Redis-backed Django session.
+          PostgreSQL-backed Django session via the
+          ``plane.db.models.session`` engine.
 
     Error codes:
         ``MAGIC_SIGN_IN_EMAIL_CODE_REQUIRED``, ``USER_DOES_NOT_EXIST``,
@@ -338,7 +342,8 @@ class MagicSignUpEndpoint(View):
           stored magic-code entry and **creates** the :class:`User` (the
           provider handles account creation for sign-up).
         * Calls :func:`user_login` (``is_app=True``) -- refreshes the
-          Redis-backed Django session.
+          PostgreSQL-backed Django session via the
+          ``plane.db.models.session`` engine.
 
     Error codes:
         ``MAGIC_SIGN_UP_EMAIL_CODE_REQUIRED``, ``USER_ALREADY_EXIST``,

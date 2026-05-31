@@ -53,8 +53,12 @@ semantics; otherwise functionally mirror the app surface above):
 
 Async note (per AAP §0.2.2 architectural rule): magic-link generation and
 forgot-password endpoints enqueue email-sending tasks through **Celery via
-RabbitMQ**. Redis is used only for caching and session storage — not for task
-queueing. See ``apps/api/plane/bgtasks/magic_link_code_task.py`` and
+RabbitMQ**. Redis is used only for caching and selected ephemeral auth
+data (e.g. magic-code TTL storage) — not for task queueing and not as
+the Django session backend. Django sessions are persisted to PostgreSQL
+via the custom ``plane.db.models.session`` engine (see ``SESSION_ENGINE``
+in ``apps/api/plane/settings/common.py``). See
+``apps/api/plane/bgtasks/magic_link_code_task.py`` and
 ``apps/api/plane/bgtasks/forgot_password_task.py``.
 """
 
