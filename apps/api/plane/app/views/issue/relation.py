@@ -2,6 +2,34 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Issue-to-issue relationship graph HTTP endpoints.
+
+Exposes :class:`IssueRelationViewSet` which manages the directed graph
+of relationships between issues. Eight relation types are supported:
+
+* ``blocking`` / ``blocked_by`` -- one issue is blocked until another
+  is resolved. Stored as a single :class:`IssueRelation` row with
+  ``relation_type='blocked_by'``; the inverse direction is synthesized
+  on read.
+* ``duplicate`` -- two issues describe the same work. Symmetric --
+  forward and reverse rows are merged on read.
+* ``relates_to`` -- generic association. Symmetric on read.
+* ``start_after`` / ``start_before`` -- scheduling dependency on the
+  start side.
+* ``finish_after`` / ``finish_before`` -- scheduling dependency on the
+  finish side.
+
+Inverse types (``blocking``, ``start_after``, ``finish_after``) are
+stored by inverting the ``(issue_id, related_issue_id)`` pair so the
+database only carries the canonical direction;
+:func:`plane.utils.issue_relation_mapper.get_actual_relation` performs
+the mapping.
+
+Every create / delete enqueues
+``plane.bgtasks.issue_activities_task.issue_activity`` (Celery via
+RabbitMQ) for the issue timeline.
+"""
+
 # Python imports
 import json
 
@@ -35,11 +63,84 @@ from plane.utils.host import base_host
 
 
 class IssueRelationViewSet(BaseViewSet):
+    """Manage the directed graph of issue-to-issue relationships.
+
+    Eight relation types are supported: ``blocking``, ``blocked_by``,
+    ``duplicate``, ``relates_to``, ``start_after``, ``start_before``,
+    ``finish_after``, ``finish_before``.
+
+    HTTP methods + URL patterns:
+        GET  /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/issue-relation/
+              -- action: ``list`` -- returns the relation graph
+              grouped by type.
+        POST /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/issue-relation/
+              -- action: ``create`` -- bulk-creates relations.
+        POST /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/remove-relation/
+              -- action: ``remove_relation`` -- deletes one relation.
+
+    Request body:
+        - ``list``: none.
+        - ``create``:
+            * ``relation_type`` (str, required) -- one of ``blocking``,
+              ``blocked_by``, ``duplicate``, ``relates_to``,
+              ``start_after``, ``start_before``, ``finish_after``,
+              ``finish_before``.
+            * ``issues`` (list[UUID], required) -- the other side of
+              each relation.
+        - ``remove_relation``:
+            * ``related_issue`` (UUID, required) -- the issue on the
+              other side of the relation to delete.
+
+    Response shape:
+        - ``list``: dict keyed by relation type, each value a list of
+          serialized issue dicts with fields ``id``, ``name``,
+          ``state_id``, ``sort_order``, ``priority``, ``sequence_id``,
+          ``project_id``, ``label_ids``, ``assignee_ids``,
+          ``created_at``, ``updated_at``, ``created_by``, ``updated_by``,
+          ``relation_type``.
+        - ``create``: list of :class:`RelatedIssueSerializer` (when
+          ``relation_type in ['blocking', 'start_after', 'finish_after']``)
+          or :class:`IssueRelationSerializer` otherwise (HTTP 201).
+        - ``remove_relation``: HTTP 204 empty body.
+
+    Permissions:
+        permission_classes = [ProjectEntityPermission]
+
+    Direction flip:
+        Inverse types -- ``blocking``, ``start_after``, ``finish_after``
+        -- are stored as their canonical counterparts; on ``create`` the
+        ``(issue_id, related_issue_id)`` pair is swapped before insert
+        and ``relation_type`` is mapped via
+        :func:`plane.utils.issue_relation_mapper.get_actual_relation`.
+
+    Symmetric merge:
+        For ``duplicate`` and ``relates_to``, both directions are
+        merged into one bucket on read using the queryset union (``|``)
+        operator.
+
+    Side effects:
+        * ``create`` ``IssueRelation.objects.bulk_create(...,
+          batch_size=10, ignore_conflicts=True)`` -- duplicates within
+          the batch are silently dropped.
+        * Each create / delete enqueues
+          ``plane.bgtasks.issue_activities_task.issue_activity`` with
+          ``type="issue_relation.activity.{created|deleted}"``.
+    """
+
     serializer_class = IssueRelationSerializer
     model = IssueRelation
     permission_classes = [ProjectEntityPermission]
 
     def list(self, request, slug, project_id, issue_id):
+        """Return the issue's full relation graph grouped by relation type.
+
+        Builds eight subqueries (one per relation direction), then
+        annotates the master :class:`Issue` queryset (with
+        ``cycle_id``, ``link_count``, ``attachment_count``,
+        ``sub_issues_count``, ``label_ids``, ``assignee_ids``) and
+        slices it into per-type lists. ``duplicate`` and ``relates_to``
+        are unioned across both directions.
+        """
         issue_relations = (
             IssueRelation.objects.filter(Q(issue_id=issue_id) | Q(related_issue=issue_id))
             .filter(workspace__slug=self.kwargs.get("slug"))
@@ -207,6 +308,14 @@ class IssueRelationViewSet(BaseViewSet):
         return Response(response_data, status=status.HTTP_200_OK)
 
     def create(self, request, slug, project_id, issue_id):
+        """Bulk-create relations of ``relation_type`` between this issue and each id in ``issues``.
+
+        For inverse types (``blocking``, ``start_after``,
+        ``finish_after``) the ``(issue_id, related_issue_id)`` pair is
+        swapped before insert and ``relation_type`` is mapped via
+        :func:`get_actual_relation` so only the canonical direction is
+        stored. Returns HTTP 400 if ``relation_type`` is missing.
+        """
         relation_type = request.data.get("relation_type", None)
         if relation_type is None:
             return Response(
@@ -260,6 +369,11 @@ class IssueRelationViewSet(BaseViewSet):
             )
 
     def remove_relation(self, request, slug, project_id, issue_id):
+        """Delete the matching :class:`IssueRelation` row and enqueue a delete activity.
+
+        Matches the relation in either direction; enqueues
+        ``issue_relation.activity.deleted`` as a Celery task.
+        """
         related_issue = request.data.get("related_issue", None)
 
         issue_relations = IssueRelation.objects.filter(
