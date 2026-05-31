@@ -2,6 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for analytics endpoints.
+
+Maps the analytics endpoints from ``plane.app.views`` to workspace and
+project analytics, advanced analytics (stats, charts), saved analytics
+views, default analytics, project-stats, and export-analytics routes
+scoped under ``workspaces/<slug>/``.
+"""
+
 from django.urls import path
 
 
