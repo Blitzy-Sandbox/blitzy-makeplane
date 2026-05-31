@@ -2,6 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Public barrel module re-exporting the DRF serializer surface for the Plane web API.
+
+This package consolidates the foundational ``BaseSerializer`` / ``DynamicBaseSerializer``
+classes from ``.base`` together with the domain-specific serializers (users, workspaces,
+projects, states, views, cycles, file assets, issues, modules, API tokens, importers,
+pages, estimates, intakes, analytics, notifications, exporters, webhooks, favorites and
+draft issues) so callers can import any public symbol directly from ``plane.app.serializers``.
+"""
+
 from .base import BaseSerializer
 from .user import (
     UserSerializer,
