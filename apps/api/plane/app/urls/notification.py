@@ -2,6 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for notification endpoints.
+
+Maps the notification ViewSets from ``plane.app.views`` (list/detail,
+read/unread, archive/unarchive, unread polling, bulk mark-all-read,
+user notification preferences) to URL paths scoped under
+``workspaces/<slug>/users/notifications/``.
+"""
+
 from django.urls import path
 
 
