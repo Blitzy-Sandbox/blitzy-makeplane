@@ -2,6 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Aggregator for the external ``/api/v1/`` URL routing tree.
+
+Concatenates per-domain ``urlpatterns`` (asset, cycle, intake, label, member,
+module, project, state, user, work_item, invite, sticky in that order) into
+the package-level ``urlpatterns`` mounted at ``api/v1/`` by
+``apps/api/plane/urls.py``; the sibling ``estimate`` and ``schema`` modules
+are deliberately not aggregated here.
+"""
+
 from .asset import urlpatterns as asset_patterns
 from .cycle import urlpatterns as cycle_patterns
 from .intake import urlpatterns as intake_patterns
