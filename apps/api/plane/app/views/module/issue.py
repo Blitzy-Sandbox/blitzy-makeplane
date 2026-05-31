@@ -2,6 +2,38 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Module-to-issue membership HTTP endpoint for project modules.
+
+Defines :class:`ModuleIssueViewSet`, the DRF ``ModelViewSet`` subclass
+managing the :class:`plane.db.models.ModuleIssue` junction model that
+links :class:`plane.db.models.Issue` rows to a parent
+:class:`plane.db.models.Module`. Mounted at four URL patterns:
+
+* ``GET    /api/workspaces/<slug>/projects/<project_id>/modules/<module_id>/issues/``
+  -- list issues in the module.
+* ``POST   /api/workspaces/<slug>/projects/<project_id>/modules/<module_id>/issues/``
+  -- bulk-add issues to the module (``create_module_issues``).
+* ``POST   /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/modules/``
+  -- bidirectional: add an issue to multiple modules and/or remove an
+  issue from multiple modules (``create_issue_modules``).
+* ``DELETE /api/workspaces/<slug>/projects/<project_id>/modules/<module_id>/issues/<issue_id>/``
+  -- remove a single issue from the module.
+
+Invariant: an issue MAY belong to MULTIPLE modules simultaneously (unlike
+the cycle-issue relationship which enforces single-cycle membership).
+``bulk_create([...], ignore_conflicts=True)`` silently skips duplicate
+``(module_id, issue_id)`` pairs rather than moving them, supporting this
+many-to-many semantic.
+
+Mutations queue ``issue_activity`` Celery tasks (RabbitMQ-backed) for
+audit logging with ``module.activity.created`` / ``module.activity.deleted``
+event types. The ``list`` handler is gzip-compressed and supports
+filter-by-labels/assignees, ordering, group_by, and sub_group_by with
+grouped pagination via
+:class:`plane.utils.paginator.GroupedOffsetPaginator` /
+:class:`plane.utils.paginator.SubGroupedOffsetPaginator`.
+"""
+
 # Python imports
 import copy
 import json
@@ -43,6 +75,142 @@ from plane.utils.host import base_host
 
 
 class ModuleIssueViewSet(BaseViewSet):
+    """Manage the many-to-many module-issue membership for a project module.
+
+    Resource managed:
+        :class:`plane.db.models.ModuleIssue` -- the junction table that
+        links issues to modules. An issue may belong to MULTIPLE modules
+        simultaneously (unlike CycleIssue which is many-to-one); soft
+        deletes via ``deleted_at`` are used so historical activity
+        events can still resolve the module name.
+
+    HTTP methods + URL patterns:
+        GET    /api/workspaces/<slug>/projects/<project_id>/modules/<uuid:module_id>/issues/
+               -- list issues currently in the module, with grouping/sub-grouping
+               and gzip compression. Action: ``list``.
+        POST   /api/workspaces/<slug>/projects/<project_id>/modules/<uuid:module_id>/issues/
+               -- bulk add issues into the module. Action: ``create_module_issues``.
+        POST   /api/workspaces/<slug>/projects/<project_id>/issues/<uuid:issue_id>/modules/
+               -- bulk add or remove modules from a single issue.
+               Action: ``create_issue_modules``.
+        DELETE /api/workspaces/<slug>/projects/<project_id>/modules/<uuid:module_id>/issues/<uuid:issue_id>/
+               -- remove a single issue from the module. Action: ``destroy``.
+
+        The URL conf also wires ``retrieve`` / ``update`` / ``partial_update``
+        on the ``/modules/<module_id>/issues/<issue_id>/`` path, but this
+        class does NOT override those methods -- they fall through to the
+        DRF ``ModelViewSet`` defaults inherited from
+        :class:`plane.app.views.base.BaseViewSet`.
+
+    Request body (POST ``create_module_issues``):
+        issues (list[UUID], required): the issue UUIDs to add to the
+            URL module. Duplicate ``(module_id, issue_id)`` pairs are
+            silently skipped via ``ignore_conflicts=True``.
+
+    Request body (POST ``create_issue_modules``):
+        modules (list[UUID], optional): module UUIDs to add the URL
+            issue to. Each new membership is created via bulk_create
+            with ``ignore_conflicts=True``.
+        removed_modules (list[UUID], optional): module UUIDs to remove
+            the URL issue from. Each removal soft-deletes the matching
+            ``ModuleIssue`` row via ``.delete()`` (model's overridden
+            soft delete).
+
+    Response shape (GET list):
+        Paginated payload from
+        :class:`plane.utils.paginator.GroupedOffsetPaginator` (when
+        ``group_by`` is present), or
+        :class:`plane.utils.paginator.SubGroupedOffsetPaginator` (when
+        both ``group_by`` and ``sub_group_by`` are present), or the
+        default offset paginator otherwise. Each issue row carries
+        annotations: ``cycle_id`` (the issue's current cycle, if any),
+        ``link_count``, ``attachment_count``, ``sub_issues_count``, and
+        prefetched ``assignees`` / ``labels`` / ``issue_module__module``.
+
+        Query parameters:
+            * ``order_by`` -- default ``-created_at``; forwarded to
+              :func:`plane.utils.order_queryset.order_issue_queryset`.
+            * ``group_by`` -- field to group rows by (e.g. ``state``,
+              ``assignees``, ``labels``).
+            * ``sub_group_by`` -- secondary grouping field. Must differ
+              from ``group_by`` or HTTP 400 is returned.
+            * standard issue filters from
+              :func:`plane.utils.issue_filters.issue_filters` (legacy)
+              and ``ComplexFilterBackend`` / ``IssueFilterSet`` (new).
+
+    Response shape (POST ``create_module_issues``):
+        ``{"message": "success"}`` with HTTP 201.
+
+    Response shape (POST ``create_issue_modules``):
+        ``{"message": "success"}`` with HTTP 201.
+
+    Response shape (DELETE):
+        Empty body with HTTP 204.
+
+    Permissions:
+        permission_classes = [IsAuthenticated]
+            (inherited from :class:`plane.app.views.base.BaseViewSet`)
+
+        Per-method via the ``@allow_permission`` decorator:
+            * ``list``                  -- ROLE.ADMIN, ROLE.MEMBER
+            * ``create_module_issues``  -- ROLE.ADMIN, ROLE.MEMBER
+            * ``create_issue_modules``  -- ROLE.ADMIN, ROLE.MEMBER
+            * ``destroy``               -- ROLE.ADMIN, ROLE.MEMBER
+
+        GUEST role is intentionally excluded from module-issue
+        membership operations because it can affect module progress
+        metrics (which downstream UI / analytics consume).
+
+    Side effects:
+        * ``create_module_issues``: emits ``issue_activity.delay(
+          type="module.activity.created", ...)`` for EACH added issue,
+          even when bulk_create's ``ignore_conflicts=True`` silently
+          skipped the row (the activity is emitted from the requested
+          list, not from the actually-inserted set).
+        * ``create_issue_modules``: emits ``issue_activity.delay(
+          type="module.activity.created", ...)`` for each module in
+          ``modules``, and ``issue_activity.delay(
+          type="module.activity.deleted", ...)`` for each module in
+          ``removed_modules``. The deletion activity includes the
+          removed module's name in ``current_instance`` (with null
+          safety via a ternary expression).
+        * ``destroy``: emits ``issue_activity.delay(
+          type="module.activity.deleted", ...)`` then performs a model
+          ``.delete()`` (soft-delete via the ``ModuleIssue`` model's
+          overridden delete behavior -- sets ``deleted_at``).
+
+    Queryset filter logic (``get_queryset``):
+        Restricts to :class:`plane.db.models.Issue` rows joined through
+        the ``issue_module`` reverse relation (the ``ModuleIssue`` table)
+        where:
+
+        * ``project_id`` matches the URL kwarg.
+        * ``workspace__slug`` matches the URL kwarg.
+        * ``issue_module__module_id`` matches the URL kwarg.
+        * ``issue_module__deleted_at IS NULL`` -- excludes
+          soft-deleted ``ModuleIssue`` rows so a previously-removed
+          issue does not reappear in the list view.
+
+        ``.distinct()`` is applied because an issue with multiple
+        non-deleted ``ModuleIssue`` rows for the same module would
+        otherwise appear multiple times after the join. Note that the
+        queryset returns Issue rows (not ModuleIssue rows) -- the
+        serializer field is configured separately.
+
+    Class attributes:
+        * ``serializer_class = ModuleIssueSerializer``
+        * ``model = ModuleIssue``
+        * ``webhook_event = "module_issue"`` -- mutations trigger
+          workspace webhook delivery (per tech spec §5.2.10) with this
+          event name.
+        * ``bulk = True`` -- declares this viewset accepts bulk POST
+          payloads (handled in ``create_module_issues`` and
+          ``create_issue_modules``).
+        * ``filter_backends = (ComplexFilterBackend,)`` -- overrides the
+          ``BaseViewSet`` default ``(DjangoFilterBackend, SearchFilter)``.
+        * ``filterset_class = IssueFilterSet``
+    """
+
     serializer_class = ModuleIssueSerializer
     model = ModuleIssue
     webhook_event = "module_issue"
@@ -51,6 +219,12 @@ class ModuleIssueViewSet(BaseViewSet):
     filterset_class = IssueFilterSet
 
     def apply_annotations(self, issues):
+        """Annotate issue queryset with cycle/link/attachment/sub_issue counts and prefetch joins.
+
+        Adds ``cycle_id``, ``link_count``, ``attachment_count``, and
+        ``sub_issues_count`` annotations, then prefetches ``assignees``,
+        ``labels``, and ``issue_module__module`` for the rendered list.
+        """
         return (
             issues.annotate(
                 cycle_id=Subquery(
@@ -82,6 +256,7 @@ class ModuleIssueViewSet(BaseViewSet):
         )
 
     def get_queryset(self):
+        """Return distinct Issue queryset for the URL module, excluding soft-deleted ModuleIssue junction rows."""
         return (
             Issue.issue_objects.filter(
                 project_id=self.kwargs.get("project_id"),
@@ -94,6 +269,12 @@ class ModuleIssueViewSet(BaseViewSet):
     @method_decorator(gzip_page)
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def list(self, request, slug, project_id, module_id):
+        """List issues in the module with filtering, ordering, and optional grouping.
+
+        Output is paginated and gzip-compressed; supports ``group_by`` and
+        ``sub_group_by`` query parameters routed through the grouped
+        offset paginator.
+        """
         filters = issue_filters(request.query_params, "GET")
         issue_queryset = self.get_queryset()
 
@@ -209,6 +390,12 @@ class ModuleIssueViewSet(BaseViewSet):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     # create multiple issues inside a module
     def create_module_issues(self, request, slug, project_id, module_id):
+        """Bulk-add the request's ``issues`` UUIDs to the URL module.
+
+        Duplicate ``(module_id, issue_id)`` pairs are silently skipped via
+        ``ignore_conflicts=True`` (many-to-many ADD-ONLY semantic; unlike
+        the cycle-issue MOVE behavior).
+        """
         issues = request.data.get("issues", [])
         if not issues:
             return Response({"error": "Issues are required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -248,6 +435,12 @@ class ModuleIssueViewSet(BaseViewSet):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     # add multiple module inside an issue and remove multiple modules from an issue
     def create_issue_modules(self, request, slug, project_id, issue_id):
+        """Bidirectionally add and remove the URL issue from multiple modules.
+
+        Adds the issue to each UUID in ``request.data["modules"]`` and
+        removes it from each UUID in ``request.data["removed_modules"]``
+        in a single request, emitting per-module activity events.
+        """
         modules = request.data.get("modules", [])
         removed_modules = request.data.get("removed_modules", [])
         project = Project.objects.get(pk=project_id)
@@ -316,6 +509,12 @@ class ModuleIssueViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def destroy(self, request, slug, project_id, module_id, issue_id):
+        """Soft-delete the ``ModuleIssue`` junction row for ``(module_id, issue_id)``.
+
+        Emits a ``module.activity.deleted`` audit event via the
+        ``issue_activity`` Celery task (RabbitMQ-backed) before the
+        model's overridden soft-delete sets ``deleted_at``.
+        """
         module_issue = ModuleIssue.objects.filter(
             workspace__slug=slug,
             project_id=project_id,
