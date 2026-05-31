@@ -2,6 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for issue-domain endpoints.
+
+Maps the issue ViewSets from ``plane.app.views`` (CRUD, comments,
+reactions, attachments, labels, links, relations, sub-issues,
+subscribers, activity, archives, versions, bulk operations) to URL
+paths scoped under ``workspaces/<slug>/projects/<project_id>/issues/``.
+"""
+
 from django.urls import path
 
 from plane.app.views import (
