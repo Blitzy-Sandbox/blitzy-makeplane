@@ -2,6 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routes for the external ``/api/v1/`` cycle and cycle-issue surface.
+
+Binds workspace- and project-scoped cycle CRUD, cycle-issue association,
+issue-transfer, and archive/unarchive endpoints to the view classes in
+``plane.api.views.cycle``; all routes inherit ``X-Api-Key`` authentication
+and ``ApiKeyRateThrottle`` throttling from ``BaseAPIView``.
+"""
+
 from django.urls import path
 
 from plane.api.views.cycle import (
