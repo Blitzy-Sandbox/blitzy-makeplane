@@ -1,6 +1,20 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Issue, label, link, comment, attachment, activity, and relation serializers.
+
+Bound to :mod:`plane.api.views.issue`, this module is the largest serializer
+surface in :mod:`plane.api.serializers` and underpins the API-key-authenticated
+``/api/v1/`` REST surface for work-item CRUD, labels, links, comments,
+attachments, activity history, relations, search payloads, and embedded
+cycle/module views. Every public serializer inherits from
+:class:`plane.api.serializers.base.BaseSerializer` and supports ``?fields=``
+projection and ``?expand=`` relation embedding. Validation covers project
+scoping (``state``, ``parent``, ``estimate_point``, assignees, labels),
+HTML/binary content sanitisation via :mod:`plane.utils.content_validator`,
+and join-table maintenance (``IssueAssignee``, ``IssueLabel``) on create
+and update.
+"""
 
 # Django imports
 from django.utils import timezone
@@ -68,11 +82,25 @@ class IssueSerializer(BaseSerializer):
     )
 
     class Meta:
+        """DRF metadata for ``IssueSerializer``.
+
+        Serializes ``Issue`` with the raw description payloads
+        (``description_json`` / ``description_stripped``) excluded; audit
+        and scope columns are read-only.
+        """
+
         model = Issue
         read_only_fields = ["id", "workspace", "project", "updated_by", "updated_at"]
         exclude = ["description_json", "description_stripped"]
 
     def validate(self, data):
+        """Validate cross-field constraints and project scoping for Issue write payloads.
+
+        Enforces ``start_date <= target_date``, parses/sanitises ``description_html``
+        and ``description_binary``, narrows ``assignees`` / ``labels`` to active
+        project members, and verifies ``state``, ``parent``, and ``estimate_point``
+        belong to the request's project/workspace.
+        """
         if (
             data.get("start_date", None) is not None
             and data.get("target_date", None) is not None
@@ -149,6 +177,13 @@ class IssueSerializer(BaseSerializer):
         return data
 
     def create(self, validated_data):
+        """Create an ``Issue`` and seed its ``IssueAssignee`` / ``IssueLabel`` join rows.
+
+        Pops ``assignees`` and ``labels`` from validated data, resolves the default
+        ``IssueType`` for the project when not supplied, then bulk-creates the
+        membership rows. Falls back to the project's ``default_assignee`` when no
+        assignees are explicitly provided.
+        """
         assignees = validated_data.pop("assignees", None)
         labels = validated_data.pop("labels", None)
 
@@ -232,6 +267,12 @@ class IssueSerializer(BaseSerializer):
         return issue
 
     def update(self, instance, validated_data):
+        """Update an ``Issue`` and rewrite its ``IssueAssignee`` / ``IssueLabel`` rows.
+
+        Pops ``assignees`` and ``labels`` from validated data and replaces the
+        existing join rows (delete-then-bulk-create). ``updated_at`` is bumped
+        explicitly so the timestamp reflects relationship-only edits.
+        """
         assignees = validated_data.pop("assignees", None)
         labels = validated_data.pop("labels", None)
 
@@ -288,6 +329,12 @@ class IssueSerializer(BaseSerializer):
         return super().update(instance, validated_data)
 
     def to_representation(self, instance):
+        """Inject ``assignees`` / ``labels`` payloads honouring the ``?expand=`` query.
+
+        When ``assignees`` or ``labels`` is listed in ``self.expand`` the response
+        embeds the lite serializer payload; otherwise it returns plain UUID strings
+        from the related join tables.
+        """
         data = super().to_representation(instance)
         if "assignees" in self.fields:
             if "assignees" in self.expand:
@@ -329,6 +376,12 @@ class IssueLiteSerializer(BaseSerializer):
     """
 
     class Meta:
+        """DRF metadata for ``IssueLiteSerializer``.
+
+        Serializes a minimal ``Issue`` projection of ``id`` /
+        ``sequence_id`` / ``project_id`` — all read-only.
+        """
+
         model = Issue
         fields = ["id", "sequence_id", "project_id"]
         read_only_fields = fields
@@ -343,6 +396,8 @@ class LabelCreateUpdateSerializer(BaseSerializer):
     """
 
     class Meta:
+        """DRF metadata: serialize ``Label`` write payload; audit, scope, and identifier columns are read-only."""
+
         model = Label
         fields = [
             "name",
@@ -374,6 +429,8 @@ class LabelSerializer(BaseSerializer):
     """
 
     class Meta:
+        """DRF metadata: serialize ``Label`` with all fields; audit, scope, and identifier columns are read-only."""
+
         model = Label
         fields = "__all__"
         read_only_fields = [
@@ -397,6 +454,12 @@ class IssueLinkCreateSerializer(BaseSerializer):
     """
 
     class Meta:
+        """DRF metadata for ``IssueLinkCreateSerializer``.
+
+        Exposes ``title`` / ``url`` / ``issue_id`` for write; audit,
+        scope, and relation columns are read-only.
+        """
+
         model = IssueLink
         fields = ["title", "url", "issue_id"]
         read_only_fields = [
@@ -411,6 +474,7 @@ class IssueLinkCreateSerializer(BaseSerializer):
         ]
 
     def validate_url(self, value):
+        """Reject URLs that fail Django's ``URLValidator`` or use a non-HTTP(S) scheme."""
         # Check URL format
         validate_url = URLValidator()
         try:
@@ -426,6 +490,7 @@ class IssueLinkCreateSerializer(BaseSerializer):
 
     # Validation if url already exists
     def create(self, validated_data):
+        """Create an ``IssueLink`` and reject duplicate ``(url, issue_id)`` pairs."""
         if IssueLink.objects.filter(url=validated_data.get("url"), issue_id=validated_data.get("issue_id")).exists():
             raise serializers.ValidationError({"error": "URL already exists for this Issue"})
         return IssueLink.objects.create(**validated_data)
@@ -440,6 +505,8 @@ class IssueLinkUpdateSerializer(IssueLinkCreateSerializer):
     """
 
     class Meta(IssueLinkCreateSerializer.Meta):
+        """Extend :class:`IssueLinkCreateSerializer.Meta` to expose ``issue_id`` on update."""
+
         model = IssueLink
         fields = IssueLinkCreateSerializer.Meta.fields + [
             "issue_id",
@@ -447,6 +514,7 @@ class IssueLinkUpdateSerializer(IssueLinkCreateSerializer):
         read_only_fields = IssueLinkCreateSerializer.Meta.read_only_fields
 
     def update(self, instance, validated_data):
+        """Update an ``IssueLink`` and reject ``url`` values that collide with another link on the same issue."""
         if (
             IssueLink.objects.filter(url=validated_data.get("url"), issue_id=instance.issue_id)
             .exclude(pk=instance.id)
@@ -466,6 +534,8 @@ class IssueLinkSerializer(BaseSerializer):
     """
 
     class Meta:
+        """DRF metadata: serialize ``IssueLink`` with all fields; audit, scope, and relation columns are read-only."""
+
         model = IssueLink
         fields = "__all__"
         read_only_fields = [
@@ -597,6 +667,13 @@ class IssueRelationSerializer(BaseSerializer):
     priority = serializers.CharField(source="related_issue.priority", read_only=True)
 
     class Meta:
+        """DRF metadata for ``IssueRelationSerializer``.
+
+        Serializes ``IssueRelation`` with the related issue's
+        identifying columns flattened; audit and scope columns are
+        read-only.
+        """
+
         model = IssueRelation
         fields = [
             "id",
@@ -640,6 +717,13 @@ class RelatedIssueSerializer(BaseSerializer):
     priority = serializers.CharField(source="issue.priority", read_only=True)
 
     class Meta:
+        """DRF metadata for ``RelatedIssueSerializer``.
+
+        Serializes ``IssueRelation`` in reverse direction with the
+        source issue's identifying columns flattened; audit and scope
+        columns are read-only.
+        """
+
         model = IssueRelation
         fields = [
             "id",
@@ -675,6 +759,12 @@ class IssueAttachmentSerializer(BaseSerializer):
     """
 
     class Meta:
+        """DRF metadata for ``IssueAttachmentSerializer``.
+
+        Serializes ``FileAsset`` (issue attachments) with all fields;
+        audit, scope, and relation columns are read-only.
+        """
+
         model = FileAsset
         fields = "__all__"
         read_only_fields = [
@@ -696,6 +786,13 @@ class IssueCommentCreateSerializer(BaseSerializer):
     """
 
     class Meta:
+        """DRF metadata for ``IssueCommentCreateSerializer``.
+
+        Exposes ``comment_json`` / ``comment_html`` / ``access`` /
+        ``external_source`` / ``external_id`` for write; audit, scope,
+        relation, and derived columns are read-only.
+        """
+
         model = IssueComment
         fields = [
             "comment_json",
@@ -731,6 +828,13 @@ class IssueCommentSerializer(BaseSerializer):
     is_member = serializers.BooleanField(read_only=True)
 
     class Meta:
+        """DRF metadata for ``IssueCommentSerializer``.
+
+        Serializes ``IssueComment`` with ``comment_stripped`` and
+        ``comment_json`` excluded; audit, scope, and relation columns
+        are read-only.
+        """
+
         model = IssueComment
         read_only_fields = [
             "id",
@@ -745,6 +849,7 @@ class IssueCommentSerializer(BaseSerializer):
         exclude = ["comment_stripped", "comment_json"]
 
     def validate(self, data):
+        """Normalise ``comment_html`` by round-tripping through ``lxml.html`` to reject malformed markup."""
         try:
             if data.get("comment_html", None) is not None:
                 parsed = html.fromstring(data["comment_html"])
@@ -765,6 +870,8 @@ class IssueActivitySerializer(BaseSerializer):
     """
 
     class Meta:
+        """DRF metadata: serialize ``IssueActivity`` excluding ``created_by`` / ``updated_by``."""
+
         model = IssueActivity
         exclude = ["created_by", "updated_by"]
 
@@ -780,6 +887,8 @@ class CycleIssueSerializer(BaseSerializer):
     cycle = CycleSerializer(read_only=True)
 
     class Meta:
+        """DRF metadata: serialize the embedded ``cycle`` field only."""
+
         fields = ["cycle"]
 
 
@@ -794,6 +903,8 @@ class ModuleIssueSerializer(BaseSerializer):
     module = ModuleSerializer(read_only=True)
 
     class Meta:
+        """DRF metadata: serialize the embedded ``module`` field only."""
+
         fields = ["module"]
 
 
@@ -806,6 +917,8 @@ class LabelLiteSerializer(BaseSerializer):
     """
 
     class Meta:
+        """DRF metadata: serialize a minimal ``Label`` projection of ``id`` / ``name`` / ``color``."""
+
         model = Label
         fields = ["id", "name", "color"]
 
@@ -827,6 +940,12 @@ class IssueExpandSerializer(BaseSerializer):
     description = serializers.JSONField(source="description_json", read_only=True)
 
     def get_labels(self, obj):
+        """Return labels honouring the ``?expand=labels`` query.
+
+        When ``?expand=labels`` is in the request context, embeds
+        ``LabelLiteSerializer`` payloads from the prefetched
+        ``label_issue`` relation; otherwise returns bare label UUIDs.
+        """
         expand = self.context.get("expand", [])
         if "labels" in expand:
             # Use prefetched data
@@ -834,12 +953,26 @@ class IssueExpandSerializer(BaseSerializer):
         return [il.label_id for il in obj.label_issue.all()]
 
     def get_assignees(self, obj):
+        """Return assignees honouring the ``?expand=assignees`` query.
+
+        When ``?expand=assignees`` is in the request context, embeds
+        ``UserLiteSerializer`` payloads from the prefetched
+        ``issue_assignee`` relation; otherwise returns bare assignee UUIDs.
+        """
         expand = self.context.get("expand", [])
         if "assignees" in expand:
             return UserLiteSerializer([ia.assignee for ia in obj.issue_assignee.all()], many=True).data
         return [ia.assignee_id for ia in obj.issue_assignee.all()]
 
     class Meta:
+        """DRF metadata for ``IssueExpandSerializer``.
+
+        Serializes ``Issue`` with all fields plus computed ``labels`` /
+        ``assignees`` / ``cycle`` / ``module`` / ``state`` /
+        ``description`` projections; audit and scope columns are
+        read-only.
+        """
+
         model = Issue
         fields = "__all__"
         read_only_fields = [
