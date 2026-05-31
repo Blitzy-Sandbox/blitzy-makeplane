@@ -2,6 +2,30 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Cycle-to-issue membership HTTP endpoint for project cycles.
+
+Defines :class:`CycleIssueViewSet`, the DRF ``ModelViewSet`` subclass
+managing the :class:`plane.db.models.CycleIssue` junction model that
+links :class:`plane.db.models.Issue` rows to a parent
+:class:`plane.db.models.Cycle`. Mounted at:
+
+* ``/api/workspaces/<slug>/projects/<project_id>/cycles/<cycle_id>/cycle-issues/``
+* ``/api/workspaces/<slug>/projects/<project_id>/cycles/<cycle_id>/cycle-issues/<issue_id>/``
+
+Invariant: an issue belongs to at most one cycle at a time. When a POST
+``create`` references issues that already exist in a DIFFERENT cycle,
+their CycleIssue row's ``cycle_id`` is bulk-updated (not duplicated) to
+move them into the target cycle. Issues not yet in any cycle get a fresh
+CycleIssue row.
+
+Mutations queue ``issue_activity`` Celery tasks (RabbitMQ-backed) for
+audit logging. The ``list`` handler is gzip-compressed and supports
+filter-by-labels/assignees, ordering, group_by, and sub_group_by with
+grouped pagination via
+:class:`plane.utils.paginator.GroupedOffsetPaginator` /
+:class:`plane.utils.paginator.SubGroupedOffsetPaginator`.
+"""
+
 # Python imports
 import copy
 import json
@@ -38,6 +62,117 @@ from plane.utils.filters import IssueFilterSet
 
 
 class CycleIssueViewSet(BaseViewSet):
+    """Manage the many-to-many cycle-issue membership for a project cycle.
+
+    Resource managed:
+        :class:`plane.db.models.CycleIssue` -- the junction table that
+        links issues to cycles. Each issue belongs to at most one cycle
+        at a time (enforced by a unique constraint on
+        ``(cycle, issue)`` where ``deleted_at IS NULL``).
+
+    HTTP methods + URL patterns:
+        GET    /api/workspaces/<slug>/projects/<project_id>/cycles/<uuid:cycle_id>/cycle-issues/
+               -- list issues in the cycle, with grouping/sub-grouping
+               and gzip compression.
+        POST   /api/workspaces/<slug>/projects/<project_id>/cycles/<uuid:cycle_id>/cycle-issues/
+               -- bulk add or move issues into the cycle.
+        DELETE /api/workspaces/<slug>/projects/<project_id>/cycles/<uuid:cycle_id>/cycle-issues/<uuid:issue_id>/
+               -- remove a single issue from the cycle.
+
+        The URL conf also wires ``retrieve`` / ``update`` / ``partial_update``
+        on the ``/cycle-issues/<issue_id>/`` path, but this class does not
+        override those methods -- they fall through to the DRF
+        ``ModelViewSet`` defaults inherited from
+        :class:`plane.app.views.base.BaseViewSet`.
+
+    Request body (POST):
+        issues (list[UUID], required): the issues to add to the cycle.
+
+        Issues that are already in a DIFFERENT cycle are MOVED via a
+        bulk_update of ``CycleIssue.cycle_id`` (batch_size=100). Issues
+        not yet in any cycle get a fresh ``CycleIssue`` row via
+        bulk_create (batch_size=10).
+
+    Response shape (GET list):
+        Paginated payload from
+        :class:`plane.utils.paginator.GroupedOffsetPaginator` (when
+        ``group_by`` is present), or
+        :class:`plane.utils.paginator.SubGroupedOffsetPaginator` (when
+        both ``group_by`` and ``sub_group_by`` are present), or the
+        default offset paginator otherwise. Each issue row carries
+        annotations: ``cycle_id`` (the issue's current cycle),
+        ``link_count``, ``attachment_count``, ``sub_issues_count``, and
+        prefetched ``assignees`` / ``labels`` / ``issue_module__module`` /
+        ``issue_cycle__cycle``.
+
+        Query parameters:
+            * ``order_by`` -- default ``-created_at``; forwarded to
+              :func:`plane.utils.order_queryset.order_issue_queryset`.
+            * ``group_by`` -- field to group rows by (e.g. ``state``,
+              ``assignees``, ``labels``).
+            * ``sub_group_by`` -- secondary grouping field. Must differ
+              from ``group_by`` or HTTP 400 is returned.
+            * standard issue filters from
+              :func:`plane.utils.issue_filters.issue_filters` (legacy)
+              and ``ComplexFilterBackend`` / ``IssueFilterSet`` (new).
+              Filterset fields: ``issue__labels__id``,
+              ``issue__assignees__id``.
+
+    Response shape (POST):
+        ``{"message": "success"}`` with HTTP 201.
+
+    Response shape (DELETE):
+        Empty body with HTTP 204.
+
+    Permissions:
+        permission_classes = [IsAuthenticated]
+            (inherited from :class:`plane.app.views.base.BaseViewSet`)
+
+        Per-method via the ``@allow_permission`` decorator:
+            * ``list``    -- ROLE.ADMIN, ROLE.MEMBER
+            * ``create``  -- ROLE.ADMIN, ROLE.MEMBER
+            * ``destroy`` -- ROLE.ADMIN, ROLE.MEMBER
+
+        GUEST role is intentionally excluded from cycle-issue membership
+        operations because it can affect cycle progress metrics.
+
+    Completed-cycle gate:
+        ``create`` rejects with HTTP 400 if
+        ``cycle.end_date < timezone.now()`` -- issues cannot be added to a
+        cycle that has already ended. This preserves the integrity of the
+        cycle's ``progress_snapshot`` (written by a Celery task on cycle
+        completion).
+
+    Side effects:
+        * ``create`` emits ``issue_activity.delay(type="cycle.activity.created",
+          ...)`` with both the bulk_created rows (Django-serialized) and
+          the bulk_updated cycle moves recorded in ``current_instance``.
+        * ``destroy`` emits ``issue_activity.delay(type="cycle.activity.deleted",
+          ...)`` then performs a model ``.delete()`` (soft-delete via the
+          ``CycleIssue`` model's overridden delete behavior).
+
+    Queryset filter logic (``get_queryset``):
+        Restricts to ``CycleIssue`` rows where the requesting user is an
+        ACTIVE project member, the project is not archived, and
+        ``cycle_id`` matches the URL kwarg. Annotates ``sub_issues_count``
+        via a parent-issue Count subquery, ``select_related`` on
+        project/workspace/cycle/issue/state, and ``prefetch_related`` on
+        issue assignees/labels.
+
+    Class attributes:
+        * ``serializer_class = CycleIssueSerializer``
+        * ``model = CycleIssue``
+        * ``webhook_event = "cycle_issue"`` -- mutations trigger
+          workspace webhook delivery (per tech spec §5.2.10) with this
+          event name.
+        * ``bulk = True`` -- declares this viewset accepts bulk POST
+          payloads (handled in ``create``).
+        * ``filter_backends = (ComplexFilterBackend,)`` -- overrides the
+          ``BaseViewSet`` default ``(DjangoFilterBackend, SearchFilter)``.
+        * ``filterset_class = IssueFilterSet``
+        * ``filterset_fields = ["issue__labels__id", "issue__assignees__id"]``
+    """
+
     serializer_class = CycleIssueSerializer
     model = CycleIssue
     filter_backends = (ComplexFilterBackend,)
@@ -49,6 +184,13 @@ class CycleIssueViewSet(BaseViewSet):
     filterset_fields = ["issue__labels__id", "issue__assignees__id"]
 
     def get_queryset(self):
+        """Return the CycleIssue queryset for the URL's cycle.
+
+        Restricts to rows where the requesting user is an ACTIVE project
+        member, the project is not archived, and ``cycle_id`` matches the
+        URL kwarg. Annotates ``sub_issues_count`` via a parent-issue Count
+        subquery.
+        """
         return self.filter_queryset(
             super()
             .get_queryset()
@@ -75,6 +217,13 @@ class CycleIssueViewSet(BaseViewSet):
         )
 
     def apply_annotations(self, issues):
+        """Annotate the issue queryset with cycle membership and child counts.
+
+        Adds ``cycle_id`` (from the issue's current active CycleIssue row),
+        ``link_count``, ``attachment_count``, and ``sub_issues_count``
+        annotations; prefetches ``assignees`` / ``labels`` /
+        ``issue_module__module`` / ``issue_cycle__cycle``.
+        """
         return (
             issues.annotate(
                 cycle_id=Subquery(
@@ -108,6 +257,14 @@ class CycleIssueViewSet(BaseViewSet):
     @method_decorator(gzip_page)
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def list(self, request, slug, project_id, cycle_id):
+        """List issues in the cycle with gzip-compressed paginated output.
+
+        Supports filtering (via ``ComplexFilterBackend`` + legacy
+        ``issue_filters``), ordering, and optional ``group_by`` /
+        ``sub_group_by`` for grouped pagination via
+        :class:`plane.utils.paginator.GroupedOffsetPaginator` /
+        :class:`plane.utils.paginator.SubGroupedOffsetPaginator`.
+        """
         filters = issue_filters(request.query_params, "GET")
         issue_queryset = (
             Issue.issue_objects.filter(issue_cycle__cycle_id=cycle_id, issue_cycle__deleted_at__isnull=True)
@@ -222,6 +379,14 @@ class CycleIssueViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def create(self, request, slug, project_id, cycle_id):
+        """Bulk-add the request's ``issues`` UUIDs to the cycle.
+
+        Issues already in a DIFFERENT cycle are MOVED -- their CycleIssue
+        row's ``cycle_id`` is bulk-updated rather than duplicated, to
+        preserve the at-most-one-cycle-per-issue invariant. Issues not yet
+        in any cycle get a fresh ``CycleIssue`` row. Returns HTTP 400 if
+        the cycle has already ended (``cycle.end_date < now``).
+        """
         issues = request.data.get("issues", [])
 
         if not issues:
@@ -298,6 +463,12 @@ class CycleIssueViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def destroy(self, request, slug, project_id, cycle_id, issue_id):
+        """Remove a single issue from the cycle.
+
+        Emits a ``cycle.activity.deleted`` audit event via the
+        ``issue_activity`` Celery task (RabbitMQ-backed), then soft-deletes
+        the matching ``CycleIssue`` row.
+        """
         cycle_issue = CycleIssue.objects.filter(
             issue_id=issue_id,
             workspace__slug=slug,
