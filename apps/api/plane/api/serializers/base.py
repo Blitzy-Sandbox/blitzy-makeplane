@@ -2,6 +2,26 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Foundational base serializer for the ``/api/v1/`` API surface.
+
+Defines :class:`BaseSerializer`, the parent of every serializer in
+:mod:`plane.api.serializers`. The base layer adds two query-driven knobs
+that callers expose through the ``?fields=`` and ``?expand=`` query
+parameters on the ViewSet layer:
+
+* **Field projection** — passing ``fields=[...]`` prunes
+  :attr:`self.fields` to the requested subset (recursively, when nested
+  dicts are supplied).
+* **Relation expansion** — passing ``expand=[...]`` swaps bare IDs in named
+  relations with the embedded payload of a lite serializer
+  (``UserLiteSerializer``, ``WorkspaceLiteSerializer``,
+  ``ProjectLiteSerializer``, ``StateLiteSerializer``,
+  ``IssueLiteSerializer``, ``IssueSerializer``, ``EstimatePointSerializer``).
+
+Subclasses must inherit from :class:`BaseSerializer` to participate in this
+contract; they do not need to re-implement either mechanism.
+"""
+
 # Third party imports
 from rest_framework import serializers
 
@@ -17,6 +37,15 @@ class BaseSerializer(serializers.ModelSerializer):
     id = serializers.PrimaryKeyRelatedField(read_only=True)
 
     def __init__(self, *args, **kwargs):
+        """Pop the ``fields`` and ``expand`` kwargs and prune ``self.fields`` when ``fields`` is supplied.
+
+        ``fields`` (list or list-of-dicts) selects which fields appear on the
+        serialized payload. ``expand`` (list of relation names) flags which
+        relations are embedded as nested serializer payloads in
+        :meth:`to_representation`. Both kwargs are custom to Plane and must be
+        popped from ``kwargs`` before the call to :meth:`super().__init__` so
+        that DRF does not raise ``TypeError`` on unknown kwargs.
+        """
         # If 'fields' is provided in the arguments, remove it and store it separately.
         # This is done so as not to pass this custom argument up to the superclass.
         fields = kwargs.pop("fields", [])
@@ -70,6 +99,15 @@ class BaseSerializer(serializers.ModelSerializer):
         return self.fields
 
     def to_representation(self, instance):
+        """Embed lite-serializer payloads for relations listed in ``self.expand``.
+
+        For each name in ``self.expand`` that exists in ``self.fields`` and has a
+        mapping in the local ``expansion`` dictionary, replace the raw ID with
+        the full payload of the corresponding lite serializer (handling list
+        relations via ``many=True``). Names not in the expansion mapping fall
+        back to ``getattr(instance, f"{expand}_id", None)`` so callers always
+        get a consistent shape.
+        """
         response = super().to_representation(instance)
 
         # Ensure 'expand' is iterable before processing
