@@ -2,6 +2,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for search endpoints.
+
+Maps the search endpoints from ``plane.app.views`` to the global
+workspace search, project-scoped issue search, and entity-search
+(mention/autocomplete) routes scoped under ``workspaces/<slug>/``.
+"""
+
 from django.urls import path
 
 
