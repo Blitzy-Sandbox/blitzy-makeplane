@@ -2,6 +2,54 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Core Issue HTTP endpoints (CRUD, paginated/grouped listings, bulk operations, meta lookup).
+
+This module hosts the largest endpoint surface in the Plane backend.
+It exposes ten classes covering the full lifecycle of an issue:
+
+* :class:`IssueListEndpoint` -- grouped/sub-grouped listing (lightweight).
+* :class:`IssueViewSet` -- full CRUD with rich annotations + timeline + webhook fan-out.
+* :class:`IssuePaginatedViewSet` -- cursor-paginated v2 listing.
+* :class:`IssueDetailEndpoint` -- detail listing with annotation chain.
+* :class:`IssueDetailIdentifierEndpoint` -- resolves human-readable
+  ``<PROJECT>-<SEQUENCE>`` identifiers to issues.
+* :class:`IssueMetaEndpoint` -- minimal projection (sequence_id +
+  project_identifier).
+* :class:`ProjectUserDisplayPropertyEndpoint` -- per-user per-project
+  view preferences (filter / display state persistence).
+* :class:`BulkDeleteIssuesEndpoint` -- admin-only batch delete.
+* :class:`DeletedIssuesListViewSet` -- returns IDs of archived /
+  soft-deleted issues; uses the unfiltered ``Issue.all_objects``
+  manager.
+
+Write paths fan out to four Celery tasks (all via RabbitMQ; Redis is
+NOT used as a queue here):
+
+* :func:`plane.bgtasks.issue_activities_task.issue_activity` --
+  appends to the issue activity timeline.
+* :func:`plane.bgtasks.webhook_task.model_activity` -- delivers the
+  ``issue`` webhook event to subscribed endpoints
+  (HMAC-SHA256 signed; tech spec section 4.5).
+* :func:`plane.bgtasks.issue_description_version_task.issue_description_version_task`
+  -- snapshots the issue description to
+  :class:`IssueDescriptionVersion` on every description change.
+* :func:`plane.bgtasks.recent_visited_task.recent_visited_task` --
+  upserts the requesting user's :class:`UserRecentVisit` row when an
+  issue is retrieved.
+
+Issue manager selection is deliberate and varies by endpoint:
+
+* ``Issue.issue_objects`` -- default custom manager excluding archived
+  AND deleted (used by most endpoints).
+* ``Issue.objects`` -- Django default manager (excludes deleted only).
+* ``Issue.all_objects`` -- unfiltered (used by
+  :class:`DeletedIssuesListViewSet`).
+
+Epics (``Issue.type.is_epic=True``) are intentionally excluded from
+this surface via ``Q(type__isnull=True) | Q(type__is_epic=False)``;
+epics have a separate workspace-level listing.
+"""
+
 # Python imports
 import copy
 import json
@@ -78,11 +126,40 @@ from .. import BaseAPIView, BaseViewSet
 
 
 class IssueListEndpoint(BaseAPIView):
+    """Lightweight grouped/sub-grouped issue listing.
+
+    HTTP methods + URL patterns:
+        GET /api/workspaces/<slug>/projects/<project_id>/issues/list/
+
+    Query parameters:
+        issues (str, required, comma-separated): issue IDs to list.
+        expand (str, optional, comma-separated): nested expansions.
+        fields (str, optional, comma-separated): field projection.
+        order_by (str, optional, default ``-created_at``).
+        group_by (str, optional).
+        sub_group_by (str, optional): must differ from ``group_by``.
+        plus any :class:`IssueFilterSet` filter.
+
+    Response shape:
+        Paginated grouped or sub-grouped dict (see
+        :class:`GroupedOffsetPaginator` / :class:`SubGroupedOffsetPaginator`).
+
+    Permissions:
+        permission_classes -- not set; inherits ``[IsAuthenticated]``.
+        Per-method gate: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER,
+        ROLE.GUEST])``.
+
+    Class attributes:
+        ``filter_backends = (ComplexFilterBackend,)``,
+        ``filterset_class = IssueFilterSet``.
+    """
+
     filter_backends = (ComplexFilterBackend,)
     filterset_class = IssueFilterSet
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def get(self, request, slug, project_id):
+        """Return a paginated issue listing with optional grouping/sub-grouping and field projection."""
         issue_ids = request.GET.get("issues", False)
 
         if not issue_ids:
@@ -194,6 +271,114 @@ class IssueListEndpoint(BaseAPIView):
 
 
 class IssueViewSet(BaseViewSet):
+    """Full CRUD endpoint for issues (the largest endpoint surface in the backend).
+
+    HTTP methods + URL patterns:
+        GET    /api/workspaces/<slug>/projects/<project_id>/issues/
+                (action: ``list``)
+        POST   /api/workspaces/<slug>/projects/<project_id>/issues/
+                (action: ``create``)
+        GET    /api/workspaces/<slug>/projects/<project_id>/issues/<pk>/
+                (action: ``retrieve``)
+        PATCH  /api/workspaces/<slug>/projects/<project_id>/issues/<pk>/
+                (action: ``partial_update``)
+        DELETE /api/workspaces/<slug>/projects/<project_id>/issues/<pk>/
+                (action: ``destroy``)
+
+    Request body (POST / PATCH):
+        Fields validated by :class:`IssueCreateSerializer` (used on
+        create / update / partial_update -- see
+        :meth:`get_serializer_class`); ~30 fields including:
+            * ``name`` (str, required on POST).
+            * ``description_html`` (str, optional) -- rich HTML body.
+            * ``description_binary`` (bytes, optional) -- Y.Doc binary
+              snapshot (written by ``apps/live`` HocusPocus).
+            * ``description_stripped`` (str, optional) -- plain text.
+            * ``state_id`` (UUID, optional).
+            * ``priority`` (str enum: ``urgent``/``high``/``medium``/
+              ``low``/``none``).
+            * ``parent_id`` (UUID, optional) -- sub-issue parent.
+            * ``estimate_point_id`` (UUID, optional).
+            * ``start_date`` (date, optional) +
+              ``target_date`` (date, optional).
+            * ``cycle_id`` (UUID, optional) -- inline cycle assignment.
+            * ``module_ids`` (list[UUID], optional) -- inline module
+              assignment.
+            * ``assignee_ids`` (list[UUID], optional).
+            * ``label_ids`` (list[UUID], optional).
+
+    Response shape:
+        - ``list``: paginated (grouped or flat) via
+          :class:`GroupedOffsetPaginator` /
+          :class:`SubGroupedOffsetPaginator`.
+        - ``retrieve``: :class:`IssueDetailSerializer` with reactions,
+          links, and the ``is_subscribed`` annotation.
+        - ``create``: projected ``values(...)`` dict (HTTP 201).
+        - ``partial_update``: HTTP 204 on success.
+        - ``destroy``: HTTP 204.
+
+    Permissions:
+        permission_classes -- not set on the class; inherits
+        ``[IsAuthenticated]`` from :class:`BaseViewSet`.
+        Per-method gates (preserved verbatim from source):
+            * ``list``: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER,
+              ROLE.GUEST])``.
+            * ``create``: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER])``
+              -- guests CANNOT create issues here.
+            * ``retrieve``: ``@allow_permission(allowed_roles=[ROLE.ADMIN,
+              ROLE.MEMBER, ROLE.GUEST], creator=True, model=Issue)``
+              -- guests see only issues they created unless
+              ``project.guest_view_all_features`` is true.
+            * ``partial_update``: ``@allow_permission(allowed_roles=[
+              ROLE.ADMIN, ROLE.MEMBER], creator=True, model=Issue)``
+              -- guests CANNOT edit; members may edit issues they own.
+            * ``destroy``: ``@allow_permission([ROLE.ADMIN], creator=True,
+              model=Issue)`` -- admin-only delete (creators excluded
+              from elevation via ``creator=True``).
+
+    Serializer polymorphism:
+        :meth:`get_serializer_class` returns
+        :class:`IssueCreateSerializer` for ``create``/``update``/
+        ``partial_update`` and :class:`IssueSerializer` for all reads,
+        so write payloads accept a richer shape than the read response.
+
+    get_queryset filter logic:
+        ``Issue.issue_objects.filter(project_id, workspace__slug)``
+        with ``.distinct()``. ``issue_objects`` excludes archived AND
+        soft-deleted rows by default.
+
+    Annotations (via :meth:`apply_annotations`):
+        ``cycle_id``, ``link_count``, ``attachment_count``,
+        ``sub_issues_count``. The per-action overrides additionally
+        attach ``label_ids`` / ``assignee_ids`` / ``module_ids`` arrays
+        (filtered to active members / non-archived modules).
+
+    Side effects:
+        * ``create``/``partial_update``/``destroy`` enqueue
+          :func:`issue_activity` (Celery via RabbitMQ) for the issue
+          timeline.
+        * ``create``/``partial_update`` enqueue :func:`model_activity`
+          for the ``issue`` webhook event (HMAC-SHA256; tech spec
+          section 4.5).
+        * ``create`` and ``partial_update`` enqueue
+          :func:`issue_description_version_task` to snapshot the
+          description content into :class:`IssueDescriptionVersion`.
+        * ``retrieve`` enqueues :func:`recent_visited_task` to upsert
+          the user's :class:`UserRecentVisit`.
+        * ``destroy`` additionally hard-deletes related
+          :class:`UserRecentVisit` rows for the issue.
+
+    Class attributes:
+        * ``model = Issue``
+        * ``webhook_event = "issue"`` -- the webhook payload type.
+        * ``search_fields = ["name"]`` -- DRF search filter scope.
+        * ``filter_backends = (ComplexFilterBackend,)``
+        * ``filterset_class = IssueFilterSet``
+
+    Compression:
+        ``list`` is decorated with ``@method_decorator(gzip_page)``.
+    """
+
     model = Issue
     webhook_event = "issue"
     search_fields = ["name"]
@@ -201,9 +386,16 @@ class IssueViewSet(BaseViewSet):
     filterset_class = IssueFilterSet
 
     def get_serializer_class(self):
+        """Return the write or read serializer based on the current action.
+
+        :class:`IssueCreateSerializer` is returned for ``create`` /
+        ``update`` / ``partial_update``; :class:`IssueSerializer` is
+        returned for all read actions.
+        """
         return IssueCreateSerializer if self.action in ["create", "update", "partial_update"] else IssueSerializer
 
     def get_queryset(self):
+        """Return ``Issue.issue_objects`` (active, non-archived issues) scoped to the URL's workspace + project."""
         issues = Issue.issue_objects.filter(
             project_id=self.kwargs.get("project_id"),
             workspace__slug=self.kwargs.get("slug"),
@@ -212,6 +404,11 @@ class IssueViewSet(BaseViewSet):
         return issues
 
     def apply_annotations(self, issues):
+        """Annotate the queryset with the core issue rollups.
+
+        Adds ``cycle_id``, ``link_count``, ``attachment_count``, and
+        ``sub_issues_count`` via correlated subqueries.
+        """
         issues = (
             issues.annotate(
                 cycle_id=Subquery(
@@ -252,6 +449,11 @@ class IssueViewSet(BaseViewSet):
     @method_decorator(gzip_page)
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def list(self, request, slug, project_id):
+        """Return paginated issues with optional grouping and sorting.
+
+        Supports ``group_by``, ``sub_group_by``, ``order_by``, and
+        ``show_sub_issues`` query parameters. Response is gzipped.
+        """
         extra_filters = {}
         if request.GET.get("updated_at__gt", None) is not None:
             extra_filters = {"updated_at__gt": request.GET.get("updated_at__gt")}
@@ -391,6 +593,12 @@ class IssueViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def create(self, request, slug, project_id):
+        """Create a new issue and enqueue downstream Celery tasks.
+
+        Fans out ``issue.activity.created`` (via :func:`issue_activity`),
+        ``issue`` webhook (via :func:`model_activity`), and
+        :func:`issue_description_version_task` -- all Celery via RabbitMQ.
+        """
         project = Project.objects.get(pk=project_id)
 
         serializer = IssueCreateSerializer(
@@ -479,6 +687,12 @@ class IssueViewSet(BaseViewSet):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], creator=True, model=Issue)
     def retrieve(self, request, slug, project_id, pk=None):
+        """Return one issue with full annotations, reactions, and links.
+
+        Annotates ``is_subscribed`` for the requesting user and
+        enqueues :func:`recent_visited_task` to upsert their
+        :class:`UserRecentVisit` row.
+        """
         project = Project.objects.get(pk=project_id, workspace__slug=slug)
 
         issue = (
@@ -614,6 +828,14 @@ class IssueViewSet(BaseViewSet):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], creator=True, model=Issue)
     def partial_update(self, request, slug, project_id, pk=None):
+        """Patch the issue and fan out activity, webhook, and version tasks.
+
+        Enqueues ``issue.activity.updated`` and the ``issue`` webhook,
+        and snapshots the prior description via
+        :func:`issue_description_version_task` whenever ``description_html``
+        changes. The ``skip_activity`` request flag suppresses activity
+        / webhook emission for migration-style description updates.
+        """
         queryset = self.get_queryset()
         queryset = self.apply_annotations(queryset)
 
@@ -703,6 +925,11 @@ class IssueViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN], creator=True, model=Issue)
     def destroy(self, request, slug, project_id, pk=None):
+        """Delete the issue (admin-only) and clean up downstream rows.
+
+        Hard-deletes any related :class:`UserRecentVisit` rows and
+        enqueues an ``issue.activity.deleted`` Celery task.
+        """
         issue = Issue.objects.get(workspace__slug=slug, project_id=project_id, pk=pk)
 
         issue.delete()
@@ -729,8 +956,33 @@ class IssueViewSet(BaseViewSet):
 
 
 class ProjectUserDisplayPropertyEndpoint(BaseAPIView):
+    """Per-user per-project UI display preferences (filter/sort/display-mode persistence).
+
+    HTTP methods + URL patterns:
+        GET   /api/workspaces/<slug>/projects/<project_id>/user-properties/
+        PATCH /api/workspaces/<slug>/projects/<project_id>/user-properties/
+
+    Request body (PATCH):
+        Fields validated by :class:`ProjectUserPropertySerializer`
+        (display_filters, filters, display_properties dicts).
+
+    Response shape:
+        :class:`ProjectUserPropertySerializer` output.
+
+    Permissions:
+        permission_classes -- not set; inherits ``[IsAuthenticated]``.
+        Per-method gate: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER,
+        ROLE.GUEST])``.
+
+    Semantics:
+        The row is upserted -- PATCH creates the row if it does not
+        exist (``DoesNotExist`` fallback); GET also creates one via
+        ``get_or_create``.
+    """
+
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def patch(self, request, slug, project_id):
+        """Upsert the per-user-per-project :class:`ProjectUserProperty` row and apply the partial payload."""
         try:
             issue_property = ProjectUserProperty.objects.get(
                 user=request.user, 
@@ -753,14 +1005,49 @@ class ProjectUserDisplayPropertyEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def get(self, request, slug, project_id):
+        """Fetch (or create with defaults) the requesting user's :class:`ProjectUserProperty` row for the project."""
         issue_property, _ = ProjectUserProperty.objects.get_or_create(user=request.user, project_id=project_id)
         serializer = ProjectUserPropertySerializer(issue_property)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class BulkDeleteIssuesEndpoint(BaseAPIView):
+    """Admin-only bulk delete endpoint for issues.
+
+    HTTP methods + URL patterns:
+        DELETE /api/workspaces/<slug>/projects/<project_id>/bulk-delete-issues/
+
+    Request body:
+        issue_ids (list[UUID], required): the issues to delete.
+
+    Response shape:
+        Success: ``{"message": "<N> issues were deleted"}`` (HTTP 200).
+        Empty list: HTTP 400 ``{"error": "Issue IDs are required"}``.
+
+    Permissions:
+        permission_classes -- not set; inherits ``[IsAuthenticated]``.
+        Per-method gate: ``@allow_permission([ROLE.ADMIN])`` -- admins
+        only.
+
+    Side effects (executed in this order):
+        1. Delete all :class:`CycleIssue` rows referencing the issues.
+        2. Delete all :class:`ModuleIssue` rows referencing the issues.
+        3. Delete the issues themselves
+           (``Issue.issue_objects.filter(...).delete()``).
+
+    Note:
+        This endpoint does NOT enqueue per-issue activity tasks;
+        operators should treat bulk deletions as audit-loggable
+        out-of-band.
+    """
+
     @allow_permission([ROLE.ADMIN])
     def delete(self, request, slug, project_id):
+        """Delete cycle / module FK rows then the issues themselves.
+
+        Returns ``{"message": "<N> issues were deleted"}`` on success
+        or HTTP 400 if ``issue_ids`` is empty.
+        """
         issue_ids = request.data.get("issue_ids", [])
 
         if not len(issue_ids):
@@ -786,8 +1073,42 @@ class BulkDeleteIssuesEndpoint(BaseAPIView):
 
 
 class DeletedIssuesListViewSet(BaseAPIView):
+    """List the IDs of archived OR soft-deleted issues (uses the unfiltered ``Issue.all_objects`` manager).
+
+    HTTP methods + URL patterns:
+        GET /api/workspaces/<slug>/projects/<project_id>/deleted-issues/
+
+    Query parameters:
+        updated_at__gt (str ISO datetime, optional): only return issues
+            updated after this timestamp (used by sync clients for
+            incremental refresh).
+
+    Response shape:
+        Flat list of issue ``id`` UUIDs (HTTP 200).
+
+    Permissions:
+        permission_classes -- not set; inherits ``[IsAuthenticated]``.
+        Per-method gate: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER,
+        ROLE.GUEST])``.
+
+    Manager selection:
+        Uses ``Issue.all_objects`` (the unfiltered manager) so both
+        archived AND soft-deleted rows are returned. Filtered by
+        ``Q(archived_at__isnull=False) | Q(deleted_at__isnull=False)``.
+
+    Note:
+        Despite the ``...ViewSet`` suffix this class extends
+        :class:`BaseAPIView`, not a DRF ViewSet -- the URL is registered
+        as a plain ``as_view()``.
+    """
+
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def get(self, request, slug, project_id):
+        """Return IDs of archived or soft-deleted issues.
+
+        Optionally filtered to those updated after ``updated_at__gt``
+        (used by sync clients for incremental refresh).
+        """
         filters = {}
         if request.GET.get("updated_at__gt", None) is not None:
             filters = {"updated_at__gt": request.GET.get("updated_at__gt")}
@@ -802,7 +1123,45 @@ class DeletedIssuesListViewSet(BaseAPIView):
 
 
 class IssuePaginatedViewSet(BaseViewSet):
+    """Cursor-paginated v2 issue listing (large-result-set variant).
+
+    HTTP methods + URL patterns:
+        GET /api/workspaces/<slug>/projects/<project_id>/v2/issues/
+
+    Query parameters:
+        cursor (str, optional): pagination cursor returned by the
+            previous page.
+        description (str ``"true"``/``"false"``, optional, default
+            ``"false"``): include ``description_html`` in the projection.
+        updated_at__gt (str ISO datetime, optional): incremental refresh
+            filter.
+        plus any :class:`IssueFilterSet` filter.
+
+    Response shape:
+        ``{"results": [<values dict per issue>], "next_cursor": str, ...}``
+        -- the per-row shape is the projection of the values list
+        (id, name, state_id, sort_order, priority, sequence_id,
+        project_id, etc.) with ``created_at`` and ``updated_at``
+        converted to the requesting user's ``user_timezone``.
+
+    Permissions:
+        permission_classes -- not set; inherits ``[IsAuthenticated]``.
+        Per-method gate on ``list``:
+        ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])``.
+
+    Annotations (via :meth:`get_queryset`):
+        Same set as :class:`IssueViewSet.apply_annotations`
+        (``cycle_id``, ``link_count``, ``attachment_count``,
+        ``sub_issues_count``); the ``list`` action additionally annotates
+        ``label_ids``, ``assignee_ids``, ``module_ids``.
+
+    Pagination engine:
+        :func:`plane.utils.global_paginator.paginate` -- opaque cursor
+        encoded from the ordering fields.
+    """
+
     def get_queryset(self):
+        """Return the annotated active-issue queryset scoped to the URL's workspace + project."""
         workspace_slug = self.kwargs.get("slug")
         project_id = self.kwargs.get("project_id")
 
@@ -841,6 +1200,11 @@ class IssuePaginatedViewSet(BaseViewSet):
         )
 
     def process_paginated_result(self, fields, results, timezone):
+        """Project the paginated queryset to ``fields`` and shift datetimes.
+
+        Applies ``.values(*fields)`` then converts ``created_at`` /
+        ``updated_at`` to the user's ``timezone``.
+        """
         paginated_data = results.values(*fields)
 
         # converting the datetime fields in paginated data
@@ -851,6 +1215,7 @@ class IssuePaginatedViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def list(self, request, slug, project_id):
+        """Return cursor-paginated issues with annotations and timezone-converted datetimes."""
         cursor = request.GET.get("cursor", None)
         is_description_required = request.GET.get("description", "false")
         updated_at = request.GET.get("updated_at__gt", None)
@@ -961,10 +1326,41 @@ class IssuePaginatedViewSet(BaseViewSet):
 
 
 class IssueDetailEndpoint(BaseAPIView):
+    """Detail-mode paginated issue listing with the full annotation chain.
+
+    HTTP methods + URL patterns:
+        GET /api/workspaces/<slug>/projects/<project_id>/issues-detail/
+
+    Query parameters:
+        Same filters as :class:`IssueViewSet.list` plus cursor /
+        grouping options.
+
+    Response shape:
+        Paginated detail rows produced by
+        :class:`IssueListDetailSerializer` (HTTP 200).
+
+    Permissions:
+        permission_classes -- not set; inherits ``[IsAuthenticated]``.
+        Per-method gate: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER,
+        ROLE.GUEST])``. Guests see only issues they created unless
+        ``project.guest_view_all_features`` is true (enforced inline by
+        a permission subquery filter).
+
+    Class attributes:
+        ``filter_backends = (ComplexFilterBackend,)``,
+        ``filterset_class = IssueFilterSet``.
+    """
+
     filter_backends = (ComplexFilterBackend,)
     filterset_class = IssueFilterSet
 
     def apply_annotations(self, issues):
+        """Annotate the queryset with the full detail-rendering set.
+
+        Adds ``cycle_id``, ``link_count``, ``attachment_count``, and
+        ``sub_issues_count``, then prefetches ``issue_assignee``,
+        ``label_issue``, and ``issue_module`` relations.
+        """
         return (
             issues.annotate(
                 cycle_id=Subquery(
@@ -1014,6 +1410,7 @@ class IssueDetailEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def get(self, request, slug, project_id):
+        """Return paginated detail-mode issues with full annotations and a guest-aware permission subquery filter."""
         filters = issue_filters(request.query_params, "GET")
 
         # check for the project member role, if the role is 5 then check for the guest_view_all_features
@@ -1092,10 +1489,38 @@ class IssueDetailEndpoint(BaseAPIView):
 
 
 class IssueBulkUpdateDateEndpoint(BaseAPIView):
+    """Bulk update ``start_date`` / ``target_date`` on many issues in one request, with cross-issue date validation.
+
+    HTTP methods + URL patterns:
+        POST /api/workspaces/<slug>/projects/<project_id>/issue-dates/
+
+    Request body:
+        updates (list[dict], required): each dict carries
+            ``id`` (UUID), ``start_date`` (date, optional),
+            ``target_date`` (date, optional).
+
+    Response shape:
+        Success: ``{"message": "Issues updated successfully"}`` (HTTP 200).
+        Invalid pair: ``{"message": "Start date cannot exceed target date"}``
+            (HTTP 400).
+
+    Permissions:
+        permission_classes -- not set; inherits ``[IsAuthenticated]``.
+        Per-method gate on ``post``:
+        ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER])`` -- guests cannot
+        bulk-edit dates.
+
+    Side effects:
+        Enqueues ``issue.activity.updated`` Celery activity tasks for
+        each modified ``start_date`` / ``target_date`` change.
+
+    Validation:
+        :meth:`validate_dates` enforces that ``start_date <= target_date``
+        before applying the update.
+    """
+
     def validate_dates(self, current_start, current_target, new_start, new_target):
-        """
-        Validate that start date is before target date.
-        """
+        """Validate that start date is before target date."""
         from datetime import datetime
 
         start = new_start or current_start
@@ -1113,6 +1538,11 @@ class IssueBulkUpdateDateEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def post(self, request, slug, project_id):
+        """Bulk-update ``start_date`` / ``target_date`` on the supplied issues.
+
+        Each pair is validated via :meth:`validate_dates` before the
+        bulk ``Issue.objects.bulk_update(...)`` call.
+        """
         updates = request.data.get("updates", [])
 
         issue_ids = [update["id"] for update in updates]
@@ -1172,8 +1602,28 @@ class IssueBulkUpdateDateEndpoint(BaseAPIView):
 
 
 class IssueMetaEndpoint(BaseAPIView):
+    """Minimal issue metadata projection used by lightweight UI surfaces.
+
+    Returns ``sequence_id`` + ``project_identifier`` only -- consumed by
+    tab titles, breadcrumbs, and similar low-payload contexts.
+
+    HTTP methods + URL patterns:
+        GET /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/meta/
+
+    Response shape:
+        ``{"sequence_id": int, "project_identifier": str}`` (HTTP 200).
+
+    Permissions:
+        permission_classes -- not set; inherits ``[IsAuthenticated]``.
+        Per-method gate: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER,
+        ROLE.GUEST], level="PROJECT")`` -- note the explicit
+        ``level="PROJECT"`` kwarg restricting the check to project-level
+        membership.
+    """
+
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="PROJECT")
     def get(self, request, slug, project_id, issue_id):
+        """Return ``{"sequence_id": int, "project_identifier": str}`` for the issue."""
         issue = Issue.issue_objects.only("sequence_id", "project__identifier").get(
             id=issue_id, project_id=project_id, workspace__slug=slug
         )
@@ -1187,12 +1637,51 @@ class IssueMetaEndpoint(BaseAPIView):
 
 
 class IssueDetailIdentifierEndpoint(BaseAPIView):
+    """Resolve a human-readable ``<PROJECT_IDENTIFIER>-<ISSUE_SEQUENCE>`` URL to an issue.
+
+    HTTP methods + URL patterns:
+        GET /api/workspaces/<slug>/work-items/<project_identifier>-<issue_identifier>/
+
+    URL kwargs:
+        project_identifier (str): the project's short identifier
+            (e.g. ``PROJ``).
+        issue_identifier (str): the issue's ``sequence_id`` -- must be
+            a strict integer string (validated by
+            :meth:`strict_str_to_int`); leading/trailing whitespace and
+            decimal points cause HTTP 400.
+
+    Response shape:
+        Full issue detail (same as :class:`IssueViewSet.retrieve`) or
+        HTTP 400 on invalid identifier / HTTP 404 if no match /
+        HTTP 403 if the requester is not a project member.
+
+    Permissions:
+        permission_classes -- not set; inherits ``[IsAuthenticated]``.
+        No ``@allow_permission`` decorator -- IsAuthenticated only;
+        member-level access is enforced inline by an explicit
+        :class:`ProjectMember` lookup in :meth:`get`.
+
+    Side effects:
+        On success enqueues :func:`recent_visited_task` to upsert the
+        requesting user's :class:`UserRecentVisit` row.
+    """
+
     def strict_str_to_int(self, s):
+        """Convert ``s`` to int, accepting only strict digit strings.
+
+        Optionally allows a leading ``-``. Raises :class:`ValueError`
+        for any other input (whitespace, decimals, mixed characters).
+        """
         if not s.isdigit() and not (s.startswith("-") and s[1:].isdigit()):
             raise ValueError("Invalid integer string")
         return int(s)
 
     def get(self, request, slug, project_identifier, issue_identifier):
+        """Resolve the issue by ``<project_identifier>-<issue_identifier>``.
+
+        ``issue_identifier`` is the issue's ``sequence_id`` (integer string).
+        Returns the full issue detail or HTTP 400/403/404 on failures.
+        """
         # Check if the issue identifier is a valid integer
         try:
             issue_identifier = self.strict_str_to_int(issue_identifier)
