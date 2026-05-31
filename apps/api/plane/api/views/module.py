@@ -2,6 +2,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Module endpoints for the external ``/api/v1/`` API.
+
+Modules are sprint-like groupings of work-items within a project. This
+file exposes CRUD over ``Module`` rows, bulk add/remove of issues to a
+module, and archive/unarchive of completed or cancelled modules.
+
+Authentication is via the ``X-Api-Key`` header (see
+``plane.api.middleware.api_authentication.APIKeyAuthentication``).
+"""
+
 # Python imports
 import json
 
@@ -74,7 +84,57 @@ from plane.utils.openapi import (
 
 
 class ModuleListCreateAPIEndpoint(BaseAPIView):
-    """Module List and Create Endpoint"""
+    """List or create modules within a project.
+
+    HTTP methods + URL pattern:
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/
+
+    Request body (POST) — see ``ModuleCreateSerializer``:
+        name            (str, required)
+        description     (str, optional)
+        description_text (object, optional) – Plane ProseMirror JSON.
+        description_html (str, optional)
+        start_date      (date, optional, ISO ``YYYY-MM-DD``)
+        target_date     (date, optional, ISO ``YYYY-MM-DD``)
+        status          (str, optional)     – One of ``backlog``,
+            ``planned``, ``in-progress``, ``paused``, ``completed``,
+            ``cancelled``.
+        lead            (uuid, optional)    – User pk for the module
+            lead.
+        members         (list[uuid], optional) – User pks of module
+            members.
+        view_props      (object, optional)  – Per-user view preferences.
+        external_id     (str, optional)
+        external_source (str, optional)
+
+    Response shape:
+        - GET: paginated array via ``ModuleSerializer`` with the
+          annotations ``total_issues``, ``completed_issues``,
+          ``cancelled_issues``, ``started_issues``, ``unstarted_issues``,
+          ``backlog_issues`` (issue counts per state group) and
+          ``members_list``.
+        - POST: created module via ``ModuleSerializer``.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectEntityPermission`` — SAFE methods require project
+        membership; mutations require project ``ADMIN`` or ``MEMBER``.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Constraints on POST:
+        Returns ``409 Conflict`` on duplicate ``(external_id,
+        external_source)`` with the existing module's id.
+
+    Side effects on POST:
+        Writes ``Module`` row + creator ``ModuleMember`` link; dispatches
+        ``model_activity`` via Celery+RabbitMQ; fires ``module`` webhook
+        events.
+    """
 
     serializer_class = ModuleSerializer
     model = Module
@@ -83,6 +143,21 @@ class ModuleListCreateAPIEndpoint(BaseAPIView):
     use_read_replica = True
 
     def get_queryset(self):
+        """Return modules in the project with issue-count annotations.
+
+        Annotations attached:
+
+        - ``total_issues`` – total ``ModuleIssue`` count (``distinct``).
+        - ``completed_issues`` – issues in a ``completed`` state.
+        - ``cancelled_issues`` – issues in a ``cancelled`` state.
+        - ``started_issues`` – issues in a ``started`` state.
+        - ``unstarted_issues`` – issues in an ``unstarted`` state.
+        - ``backlog_issues`` – issues in a ``backlog`` state.
+        - ``members_list`` – ``ArrayAgg`` of member user pks.
+
+        ``select_related("project", "workspace", "lead", "created_by")``
+        and ``distinct()`` (m2m joins would otherwise duplicate rows).
+        """
         return (
             Module.objects.filter(project_id=self.kwargs.get("project_id"))
             .filter(workspace__slug=self.kwargs.get("slug"))
@@ -190,10 +265,11 @@ class ModuleListCreateAPIEndpoint(BaseAPIView):
         },
     )
     def post(self, request, slug, project_id):
-        """Create module
+        """Create a module under the URL's project.
 
-        Create a new project module with specified name, description, and timeline.
-        Automatically assigns the creator as module lead and tracks activity.
+        Returns ``409 Conflict`` on duplicate ``(external_id,
+        external_source)``. Dispatches ``model_activity`` via
+        Celery+RabbitMQ and fires module webhooks.
         """
         project = Project.objects.get(pk=project_id, workspace__slug=slug)
         serializer = ModuleCreateSerializer(
@@ -262,7 +338,7 @@ class ModuleListCreateAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, project_id):
-        """List or retrieve modules
+        """List or retrieve modules.
 
         Retrieve all modules in a project or get details of a specific module.
         Returns paginated results with module statistics and member information.
@@ -277,7 +353,43 @@ class ModuleListCreateAPIEndpoint(BaseAPIView):
 
 
 class ModuleDetailAPIEndpoint(BaseAPIView):
-    """Module Detail Endpoint"""
+    """Retrieve, partially update, or delete a single module.
+
+    HTTP methods + URL pattern:
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:pk>/
+        PATCH   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:pk>/
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:pk>/
+
+    Request body (PATCH) — partial ``ModuleSerializer`` payload.
+
+    Response shape:
+        - GET: module via ``ModuleSerializer`` (with annotations).
+        - PATCH: updated module via ``ModuleSerializer``.
+        - DELETE: HTTP 204 with empty body.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectEntityPermission`` — SAFE methods require project
+        membership; mutations require project ``ADMIN`` or ``MEMBER``.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Constraints:
+        - PATCH on an archived module (``archived_at IS NOT NULL``) only
+          permits modification of ``sort_order``; other fields return
+          ``400 Bad Request``.
+        - PATCH returns ``409 Conflict`` on duplicate ``(external_id,
+          external_source)``.
+        - DELETE is restricted to project ``ADMIN`` users or the module's
+          ``lead``; other roles return ``403 Forbidden``.
+
+    Side effects on PATCH / DELETE:
+        Dispatches ``model_activity`` via Celery+RabbitMQ; fires module
+        webhooks.
+    """
 
     model = Module
     permission_classes = [ProjectEntityPermission]
@@ -286,6 +398,7 @@ class ModuleDetailAPIEndpoint(BaseAPIView):
     use_read_replica = True
 
     def get_queryset(self):
+        """Return the single module with the same annotations as the list endpoint."""
         return (
             Module.objects.filter(project_id=self.kwargs.get("project_id"))
             .filter(workspace__slug=self.kwargs.get("slug"))
@@ -400,10 +513,11 @@ class ModuleDetailAPIEndpoint(BaseAPIView):
         },
     )
     def patch(self, request, slug, project_id, pk):
-        """Update module
+        """Update the module partially.
 
-        Modify an existing module's properties like name, description, status, or timeline.
-        Tracks all changes in model activity logs for audit purposes.
+        Archived modules only permit ``sort_order`` changes; other fields
+        return ``400``. Returns ``409 Conflict`` on duplicate
+        ``(external_id, external_source)``.
         """
         module = Module.objects.get(pk=pk, project_id=project_id, workspace__slug=slug)
 
@@ -466,10 +580,7 @@ class ModuleDetailAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, project_id, pk):
-        """Retrieve module
-
-        Retrieve details of a specific module.
-        """
+        """Retrieve the module with its issue-count annotations."""
         queryset = self.get_queryset().filter(archived_at__isnull=True).get(pk=pk)
         data = ModuleSerializer(queryset, fields=self.fields, expand=self.expand).data
         return Response(data, status=status.HTTP_200_OK)
@@ -488,11 +599,7 @@ class ModuleDetailAPIEndpoint(BaseAPIView):
         },
     )
     def delete(self, request, slug, project_id, pk):
-        """Delete module
-
-        Permanently remove a module and all its associated issue relationships.
-        Only admins or the module creator can perform this action.
-        """
+        """Hard-delete the module. Restricted to project ``ADMIN`` or the module's ``lead``."""
         module = Module.objects.get(workspace__slug=slug, project_id=project_id, pk=pk)
         if module.created_by_id != request.user.id and (
             not ProjectMember.objects.filter(
@@ -534,7 +641,44 @@ class ModuleDetailAPIEndpoint(BaseAPIView):
 
 
 class ModuleIssueListCreateAPIEndpoint(BaseAPIView):
-    """Module Work Item List and Create Endpoint"""
+    """List or bulk-add issues to a module.
+
+    HTTP methods + URL patterns:
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/issues/
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/issues/
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/work-items/
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/work-items/
+
+    Request body (POST):
+        issues (list[uuid], required) – Issue pks to associate with the
+            module. Issues already linked are silently de-duplicated.
+
+    Response shape:
+        - GET: paginated array of issues in the module via
+          ``IssueSerializer``.
+        - POST: array of created ``ModuleIssue`` rows.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectEntityPermission`` — SAFE methods require project
+        membership; mutations require project ``ADMIN`` or ``MEMBER``.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Side effects on POST:
+        - Writes ``ModuleIssue`` rows for issues not already associated.
+        - Dispatches ``issue_activity`` via Celery+RabbitMQ for each new
+          association.
+        - Fires ``module_issue`` webhook events if active.
+
+    Note:
+        The ``/work-items/`` alias is the modern, language-neutral path;
+        the older ``/issues/`` path is preserved for backwards
+        compatibility. Both share the same handler.
+    """
 
     serializer_class = ModuleIssueSerializer
     model = ModuleIssue
@@ -543,6 +687,7 @@ class ModuleIssueListCreateAPIEndpoint(BaseAPIView):
     use_read_replica = True
 
     def get_queryset(self):
+        """Filter issues to those associated with the URL's module."""
         return (
             ModuleIssue.objects.annotate(
                 sub_issues_count=Issue.issue_objects.filter(parent=OuterRef("issue"))
@@ -592,11 +737,7 @@ class ModuleIssueListCreateAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, project_id, module_id):
-        """List module work items
-
-        Retrieve all work items assigned to a module with detailed information.
-        Returns paginated results including assignees, labels, and attachments.
-        """
+        """List issues associated with the module."""
         order_by = request.GET.get("order_by", "created_at")
         issues = (
             Issue.issue_objects.filter(issue_module__module_id=module_id, issue_module__deleted_at__isnull=True)
@@ -660,10 +801,10 @@ class ModuleIssueListCreateAPIEndpoint(BaseAPIView):
         },
     )
     def post(self, request, slug, project_id, module_id):
-        """Add module work items
+        """Bulk-add issues to the module.
 
-        Assign multiple work items to a module or move them from another module.
-        Automatically handles bulk creation and updates with activity tracking.
+        De-duplicates against existing ``ModuleIssue`` rows. Dispatches
+        ``issue_activity`` via Celery for each new association.
         """
         issues = request.data.get("issues", [])
         if not len(issues):
@@ -734,10 +875,30 @@ class ModuleIssueListCreateAPIEndpoint(BaseAPIView):
 
 
 class ModuleIssueDetailAPIEndpoint(BaseAPIView):
-    """
-    This viewset automatically provides `list`, `create`, `retrieve`,
-    `update` and `destroy` actions related to module work items.
+    """Remove an issue from a module.
 
+    HTTP methods + URL patterns:
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/issues/<uuid:issue_id>/
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/
+                work-items/<uuid:issue_id>/
+
+    Response shape:
+        HTTP 204 with empty body.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectEntityPermission`` — mutations require project ``ADMIN``
+        or ``MEMBER``.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Side effects:
+        Hard-deletes the ``ModuleIssue`` row; dispatches ``issue_activity``
+        via Celery+RabbitMQ for the activity feed; fires
+        ``module_issue`` webhook events.
     """
 
     serializer_class = ModuleIssueSerializer
@@ -749,6 +910,7 @@ class ModuleIssueDetailAPIEndpoint(BaseAPIView):
     permission_classes = [ProjectEntityPermission]
 
     def get_queryset(self):
+        """Filter ``ModuleIssue`` rows scoped to the URL's module within an active project."""
         return (
             ModuleIssue.objects.annotate(
                 sub_issues_count=Issue.issue_objects.filter(parent=OuterRef("issue"))
@@ -798,7 +960,7 @@ class ModuleIssueDetailAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, project_id, module_id, issue_id):
-        """List module work items
+        """List module work items.
 
         Retrieve all work items assigned to a module with detailed information.
         Returns paginated results including assignees, labels, and attachments.
@@ -862,10 +1024,10 @@ class ModuleIssueDetailAPIEndpoint(BaseAPIView):
         },
     )
     def delete(self, request, slug, project_id, module_id, issue_id):
-        """Remove module work item
+        """Remove the issue from the module.
 
-        Remove a work item from a module while keeping the work item in the project.
-        Records the removal activity for tracking purposes.
+        Hard-deletes the ``ModuleIssue`` association row and dispatches
+        ``issue_activity`` via Celery for the audit feed.
         """
         module_issue = ModuleIssue.objects.get(
             workspace__slug=slug,
@@ -889,10 +1051,40 @@ class ModuleIssueDetailAPIEndpoint(BaseAPIView):
 
 
 class ModuleArchiveUnarchiveAPIEndpoint(BaseAPIView):
+    """Archive or unarchive a module.
+
+    HTTP methods + URL pattern:
+        POST    /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/archive/
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/archive/
+
+    Response shape:
+        - POST: ``{archived_at: <ISO timestamp>}``.
+        - DELETE: HTTP 204 with empty body.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectEntityPermission`` — mutations require project ``ADMIN``
+        or ``MEMBER``.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Constraints:
+        Only modules whose ``status`` is ``completed`` or ``cancelled``
+        may be archived; otherwise POST returns ``400 Bad Request``.
+
+    Side effects:
+        Writes ``archived_at`` field; dispatches ``model_activity`` via
+        Celery+RabbitMQ for the audit feed.
+    """
+
     permission_classes = [ProjectEntityPermission]
     use_read_replica = True
 
     def get_queryset(self):
+        """Return archived modules (``archived_at IS NOT NULL``) with the list endpoint's annotations."""
         return (
             Module.objects.filter(project_id=self.kwargs.get("project_id"))
             .filter(workspace__slug=self.kwargs.get("slug"))
@@ -1004,7 +1196,7 @@ class ModuleArchiveUnarchiveAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, project_id):
-        """List archived modules
+        """List archived modules.
 
         Retrieve all modules that have been archived in the project.
         Returns paginated results with module statistics.
@@ -1032,10 +1224,10 @@ class ModuleArchiveUnarchiveAPIEndpoint(BaseAPIView):
         },
     )
     def post(self, request, slug, project_id, pk):
-        """Archive module
+        """Archive the module by setting ``archived_at``.
 
-        Move a completed module to archived status for historical tracking.
-        Only modules with completed status can be archived.
+        Only modules in ``completed`` or ``cancelled`` status may be
+        archived; otherwise returns ``400 Bad Request``.
         """
         module = Module.objects.get(pk=pk, project_id=project_id, workspace__slug=slug)
         if module.status not in ["completed", "cancelled"]:
@@ -1066,11 +1258,7 @@ class ModuleArchiveUnarchiveAPIEndpoint(BaseAPIView):
         },
     )
     def delete(self, request, slug, project_id, pk):
-        """Unarchive module
-
-        Restore an archived module to active status, making it available for regular use.
-        The module will reappear in active module lists and become fully functional.
-        """
+        """Unarchive the module by clearing ``archived_at``."""
         module = Module.objects.get(pk=pk, project_id=project_id, workspace__slug=slug)
         module.archived_at = None
         module.save()
