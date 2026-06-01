@@ -160,6 +160,25 @@ class WorkspaceViewViewSet(BaseViewSet):
         :meth:`list` override further restricts the queryset to the
         user's own views when the caller is a workspace GUEST
         (``WorkspaceMember.role == 5``).
+
+    Side effects (retrieve):
+        ``recent_visited_task`` Celery task is dispatched via RabbitMQ
+        (worker module :mod:`plane.bgtasks.recent_visited_task`).
+
+    Cross-references:
+        * Serializer: ``IssueViewSerializer`` in
+          ``apps/api/plane/app/serializers/view.py``.
+        * Models: ``IssueView`` in
+          ``apps/api/plane/db/models/view.py``;
+          ``WorkspaceMember`` in
+          ``apps/api/plane/db/models/workspace.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * Celery task:
+          ``apps/api/plane/bgtasks/recent_visited_task.py`` (queued
+          via RabbitMQ).
+        * URL registration:
+          ``apps/api/plane/app/urls/views.py``.
     """
 
     serializer_class = IssueViewSerializer
@@ -328,6 +347,24 @@ class WorkspaceViewIssuesViewSet(BaseViewSet):
         applying annotations so the count-only query path stays cheap;
         annotations and prefetches are applied to the row-fetch path
         only.
+
+    Request body:
+        None (GET only); all parameters are supplied as query string.
+
+    Cross-references:
+        * Serializer: ``ViewIssueListSerializer`` in
+          ``apps/api/plane/app/serializers/view.py``.
+        * Models: ``Issue``, ``IssueLink``, ``IssueAssignee`` in
+          ``apps/api/plane/db/models/issue.py``;
+          ``CycleIssue`` in ``apps/api/plane/db/models/cycle.py``;
+          ``FileAsset`` in ``apps/api/plane/db/models/asset.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * Filter helpers:
+          ``apps/api/plane/utils/issue_filters.py``,
+          ``apps/api/plane/utils/filters.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/views.py``.
     """
 
     filter_backends = (ComplexFilterBackend,)
@@ -532,6 +569,27 @@ class IssueViewViewSet(BaseViewSet):
         :meth:`list` further restricts the queryset to the caller's own
         views when the caller is a project GUEST (``role == 5``) and the
         project's ``guest_view_all_features`` flag is False.
+
+    Side effects (retrieve):
+        ``recent_visited_task`` Celery task is dispatched via RabbitMQ
+        (worker module :mod:`plane.bgtasks.recent_visited_task`).
+
+    Cross-references:
+        * Serializer: ``IssueViewSerializer`` in
+          ``apps/api/plane/app/serializers/view.py``.
+        * Models: ``IssueView`` in
+          ``apps/api/plane/db/models/view.py``;
+          ``ProjectMember`` in
+          ``apps/api/plane/db/models/project.py``;
+          ``UserFavorite`` in
+          ``apps/api/plane/db/models/favorite.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * Celery task:
+          ``apps/api/plane/bgtasks/recent_visited_task.py`` (queued
+          via RabbitMQ).
+        * URL registration:
+          ``apps/api/plane/app/urls/views.py``.
     """
 
     serializer_class = IssueViewSerializer

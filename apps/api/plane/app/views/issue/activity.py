@@ -70,7 +70,10 @@ class IssueActivityEndpoint(BaseAPIView):
         :class:`plane.app.serializers.IssueCommentSerializer` rows only.
 
     Permissions:
-        permission_classes = [ProjectEntityPermission]
+        ``permission_classes = [ProjectEntityPermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/issue/activity.py`). Defined in
+        :class:`plane.app.permissions.project.ProjectEntityPermission`.
         Per-method gate: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])``
         -- guests can read the timeline of issues they are otherwise allowed
         to view; project-level visibility is enforced by
@@ -92,6 +95,17 @@ class IssueActivityEndpoint(BaseAPIView):
         Activities are append-only and WRITTEN by Celery tasks (RabbitMQ)
         in :mod:`plane.bgtasks.issue_activities_task`. This endpoint never
         writes; there is no POST / PATCH / DELETE handler.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectEntityPermission``,
+          ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueActivitySerializer``,
+          ``plane.app.serializers.IssueCommentSerializer``.
+        - Models: ``plane.db.models.IssueActivity``, ``plane.db.models.IssueComment``,
+          ``plane.db.models.IntakeIssue``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task``
+          writes the rows this endpoint reads.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     permission_classes = [ProjectEntityPermission]

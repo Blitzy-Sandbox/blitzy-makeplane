@@ -144,6 +144,9 @@ class CycleIssueViewSet(BaseViewSet):
         completion).
 
     Side effects:
+        All ``.delay()`` enqueues below go through Celery via RabbitMQ
+        (Redis is caching / session only per the architectural context).
+
         * ``create`` emits ``issue_activity.delay(type="cycle.activity.created",
           ...)`` with both the bulk_created rows (Django-serialized) and
           the bulk_updated cycle moves recorded in ``current_instance``.
@@ -171,6 +174,21 @@ class CycleIssueViewSet(BaseViewSet):
           ``BaseViewSet`` default ``(DjangoFilterBackend, SearchFilter)``.
         * ``filterset_class = IssueFilterSet``
         * ``filterset_fields = ["issue__labels__id", "issue__assignees__id"]``
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Serializer: :class:`plane.app.serializers.CycleIssueSerializer`
+          (``apps/api/plane/app/serializers/cycle.py``)
+        * Models: :class:`plane.db.models.Cycle`,
+          :class:`plane.db.models.CycleIssue`,
+          :class:`plane.db.models.Issue`
+          (``apps/api/plane/db/models/``)
+        * Celery task: :func:`plane.bgtasks.issue_activities_task.issue_activity`
+          (``apps/api/plane/bgtasks/issue_activities_task.py``)
+        * Filter backend: :class:`plane.utils.filters.ComplexFilterBackend`
+          (``apps/api/plane/utils/filters.py``)
+        * URL: ``apps/api/plane/app/urls/cycle.py``
     """
 
     serializer_class = CycleIssueSerializer
@@ -386,6 +404,10 @@ class CycleIssueViewSet(BaseViewSet):
         preserve the at-most-one-cycle-per-issue invariant. Issues not yet
         in any cycle get a fresh ``CycleIssue`` row. Returns HTTP 400 if
         the cycle has already ended (``cycle.end_date < now``).
+
+        Side effects: enqueues ``issue_activity.delay(type="cycle.activity.created",
+        ...)`` (Celery via RabbitMQ) with the bulk_created rows and
+        bulk_updated cycle moves recorded in ``current_instance``.
         """
         issues = request.data.get("issues", [])
 

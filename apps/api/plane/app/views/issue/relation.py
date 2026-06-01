@@ -104,7 +104,10 @@ class IssueRelationViewSet(BaseViewSet):
         - ``remove_relation``: HTTP 204 empty body.
 
     Permissions:
-        permission_classes = [ProjectEntityPermission]
+        ``permission_classes = [ProjectEntityPermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/issue/relation.py`). Defined in
+        :class:`plane.app.permissions.project.ProjectEntityPermission`.
 
     Direction flip:
         Inverse types -- ``blocking``, ``start_after``, ``finish_after``
@@ -118,13 +121,21 @@ class IssueRelationViewSet(BaseViewSet):
         merged into one bucket on read using the queryset union (``|``)
         operator.
 
-    Side effects:
+    Side effects (Celery via RabbitMQ -- NOT Redis):
         * ``create`` ``IssueRelation.objects.bulk_create(...,
           batch_size=10, ignore_conflicts=True)`` -- duplicates within
           the batch are silently dropped.
-        * Each create / delete enqueues
-          ``plane.bgtasks.issue_activities_task.issue_activity`` with
+        * Each create / delete enqueues ``issue_activity.delay(...)``
+          (Celery via RabbitMQ) with
           ``type="issue_relation.activity.{created|deleted}"``.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectEntityPermission``.
+        - Serializers: ``plane.app.serializers.IssueRelationSerializer``,
+          ``plane.app.serializers.RelatedIssueSerializer``.
+        - Models: ``plane.db.models.IssueRelation``, ``plane.db.models.Issue``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     serializer_class = IssueRelationSerializer

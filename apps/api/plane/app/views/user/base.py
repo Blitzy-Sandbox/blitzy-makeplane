@@ -143,6 +143,34 @@ class UserEndpoint(BaseViewSet):
     Read replica:
         ``use_read_replica = True`` -- read-heavy operations are routed to the
         PostgreSQL read replica via ``ReadReplicaControlMixin``.
+
+    Side effects (email change / deactivate):
+        ``send_email_update_magic_code``,
+        ``send_email_update_confirmation``, and
+        ``user_deactivation_email`` Celery tasks are dispatched via
+        RabbitMQ (worker modules
+        :mod:`plane.bgtasks.user_email_update_task` and
+        :mod:`plane.bgtasks.user_deactivation_email_task`).
+
+    Cross-references:
+        * Serializers: ``UserSerializer``, ``UserMeSerializer``,
+          ``UserMeSettingsSerializer`` in
+          ``apps/api/plane/app/serializers/user.py``.
+        * Models: ``User``, ``Account``, ``Profile`` in
+          ``apps/api/plane/db/models/user.py`` and
+          ``apps/api/plane/db/models/social_connection.py``;
+          ``Instance``, ``InstanceAdmin`` in
+          ``apps/api/plane/license/models/`` (license module).
+        * Permissions: inherited DRF ``IsAuthenticated``; no custom
+          permission file.
+        * Throttle: ``EmailVerificationThrottle`` in
+          ``apps/api/plane/authentication/rate_limit.py``.
+        * Celery tasks:
+          ``apps/api/plane/bgtasks/user_email_update_task.py``,
+          ``apps/api/plane/bgtasks/user_deactivation_email_task.py``
+          (queued via RabbitMQ).
+        * URL registration:
+          ``apps/api/plane/app/urls/user.py``.
     """
 
     serializer_class = UserSerializer
@@ -232,10 +260,12 @@ class UserEndpoint(BaseViewSet):
         return None
 
     def generate_email_verification_code(self, request):
-        """Generate and send a magic code to the new email address for verification.
+        """Generate and send a magic code to the new email address for verification (Celery via RabbitMQ).
 
         Rate limited to 3 requests per hour per user (enforced by EmailVerificationThrottle).
         Additional per-email cooldown of 60 seconds prevents rapid repeated requests.
+        The magic-code email is dispatched through Celery via RabbitMQ via
+        :func:`plane.bgtasks.user_email_update_task.send_email_update_magic_code`.
         """
         user = self.get_object()
         new_email = request.data.get("email", "").strip().lower()
@@ -271,10 +301,13 @@ class UserEndpoint(BaseViewSet):
             )
 
     def update_email(self, request):
-        """Verify the magic code and update the user's email address.
+        """Verify the magic code and update the user's email address (Celery via RabbitMQ).
 
         This endpoint verifies the code and updates the existing user record
         without creating a new user, ensuring the user ID remains unchanged.
+        On success, dispatches ``send_email_update_confirmation`` Celery
+        tasks (RabbitMQ) to both the old and new email addresses via
+        :mod:`plane.bgtasks.user_email_update_task`.
         """
         user = self.get_object()
         new_email = request.data.get("email", "").strip().lower()
@@ -492,11 +525,17 @@ class UserSessionEndpoint(BaseAPIView):
     HTTP method + URL:
         ``GET /api/users/session/`` -> ``get``.
 
+    Request body:
+        None (GET only).
+
     Permissions:
-        ``[AllowAny]`` -- explicit override of ``BaseAPIView``'s default
-        ``[IsAuthenticated]`` so this endpoint can return ``{"is_authenticated":
-        false}`` instead of a 401 when the caller has no session. This is the
-        only view in the module that is publicly reachable.
+        ``permission_classes = [AllowAny]`` (declared on the class
+        attribute; see ``apps/api/plane/app/views/user/base.py``) --
+        explicit override of ``BaseAPIView``'s default
+        ``[IsAuthenticated]`` so this endpoint can return
+        ``{"is_authenticated": false}`` instead of a 401 when the
+        caller has no session. This is the only view in the module
+        that is publicly reachable.
 
     Response shape:
         - Authenticated -> ``{"is_authenticated": true, "user": <UserMeSerializer
@@ -504,7 +543,15 @@ class UserSessionEndpoint(BaseAPIView):
         - Unauthenticated -> ``{"is_authenticated": false}``.
 
     The view reads the session cookie (Redis-backed session store) but does
-    not enqueue any Celery task or write to the database.
+    not enqueue any Celery task or write to the database. Redis here is
+    used for session storage and caching only; task queueing flows
+    through Celery via RabbitMQ.
+
+    Cross-references:
+        * Serializer: ``UserMeSerializer`` in
+          ``apps/api/plane/app/serializers/user.py``.
+        * Model: ``User`` in ``apps/api/plane/db/models/user.py``.
+        * URL registration: ``apps/api/plane/app/urls/user.py``.
     """
 
     permission_classes = [AllowAny]
@@ -599,6 +646,16 @@ class UserActivityEndpoint(BaseAPIView, BasePaginator):
         is explicitly scoped to the authenticated user; cross-workspace
         activity is visible only because the user could only have been the
         actor inside workspaces they belong to.
+
+    Request body:
+        None (GET only); pagination uses query parameters.
+
+    Cross-references:
+        * Serializer: ``IssueActivitySerializer`` in
+          ``apps/api/plane/app/serializers/issue.py``.
+        * Model: ``IssueActivity`` in
+          ``apps/api/plane/db/models/issue.py``.
+        * URL registration: ``apps/api/plane/app/urls/user.py``.
     """
 
     def get(self, request):
@@ -638,6 +695,16 @@ class AccountEndpoint(BaseAPIView):
     Filter logic:
         Every query filters ``Account.objects.filter(user=request.user)``, so a
         user may only inspect or remove their own linked accounts.
+
+    Request body:
+        None (GET and DELETE are body-less).
+
+    Cross-references:
+        * Serializer: ``AccountSerializer`` in
+          ``apps/api/plane/app/serializers/user.py``.
+        * Model: ``Account`` in
+          ``apps/api/plane/db/models/social_connection.py``.
+        * URL registration: ``apps/api/plane/app/urls/user.py``.
     """
 
     def get(self, request, pk=None):

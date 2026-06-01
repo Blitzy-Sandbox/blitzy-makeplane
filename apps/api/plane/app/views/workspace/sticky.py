@@ -54,6 +54,14 @@ class WorkspaceStickyViewSet(BaseViewSet):
     Queryset:
         Filtered by ``workspace__slug`` and ``owner_id=request.user.id``;
         each user only ever sees their own stickies.
+
+    Cross-references:
+        - Serializer: ``apps/api/plane/app/serializers/workspace.py``
+          (``StickySerializer``).
+        - Model: ``apps/api/plane/db/models/sticky.py`` (``Sticky``).
+        - Permission helper: ``apps/api/plane/app/permissions/base.py``
+          (``allow_permission`` decorator, ``ROLE`` enum).
+        - URL registration: ``apps/api/plane/app/urls/workspace.py``.
     """
 
     serializer_class = StickySerializer

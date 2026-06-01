@@ -131,6 +131,9 @@ class IssueListEndpoint(BaseAPIView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/projects/<project_id>/issues/list/
 
+    Request body:
+        None (GET only). All inputs are URL kwargs or query parameters.
+
     Query parameters:
         issues (str, required, comma-separated): issue IDs to list.
         expand (str, optional, comma-separated): nested expansions.
@@ -152,6 +155,18 @@ class IssueListEndpoint(BaseAPIView):
     Class attributes:
         ``filter_backends = (ComplexFilterBackend,)``,
         ``filterset_class = IssueFilterSet``.
+
+    Side effects (Celery via RabbitMQ -- NOT Redis):
+        Enqueues ``recent_visited_task.delay(...)`` when ``issue_id`` is
+        a singleton (records the visit for recent-items features).
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueSerializer``.
+        - Models: ``plane.db.models.Issue``, ``plane.db.models.CycleIssue``,
+          ``plane.db.models.IssueLink``, ``plane.db.models.FileAsset``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.recent_visited_task``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     filter_backends = (ComplexFilterBackend,)
@@ -353,17 +368,16 @@ class IssueViewSet(BaseViewSet):
         attach ``label_ids`` / ``assignee_ids`` / ``module_ids`` arrays
         (filtered to active members / non-archived modules).
 
-    Side effects:
+    Side effects (Celery via RabbitMQ -- NOT Redis):
         * ``create``/``partial_update``/``destroy`` enqueue
-          :func:`issue_activity` (Celery via RabbitMQ) for the issue
-          timeline.
-        * ``create``/``partial_update`` enqueue :func:`model_activity`
+          ``issue_activity.delay(...)`` for the issue timeline.
+        * ``create``/``partial_update`` enqueue ``model_activity.delay(...)``
           for the ``issue`` webhook event (HMAC-SHA256; tech spec
           section 4.5).
         * ``create`` and ``partial_update`` enqueue
-          :func:`issue_description_version_task` to snapshot the
+          ``issue_description_version_task.delay(...)`` to snapshot the
           description content into :class:`IssueDescriptionVersion`.
-        * ``retrieve`` enqueues :func:`recent_visited_task` to upsert
+        * ``retrieve`` enqueues ``recent_visited_task.delay(...)`` to upsert
           the user's :class:`UserRecentVisit`.
         * ``destroy`` additionally hard-deletes related
           :class:`UserRecentVisit` rows for the issue.
@@ -377,6 +391,23 @@ class IssueViewSet(BaseViewSet):
 
     Compression:
         ``list`` is decorated with ``@method_decorator(gzip_page)``.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueCreateSerializer``,
+          ``plane.app.serializers.IssueSerializer``,
+          ``plane.app.serializers.IssueDetailSerializer``,
+          ``plane.app.serializers.IssueFlatSerializer``.
+        - Models: ``plane.db.models.Issue``, ``plane.db.models.CycleIssue``,
+          ``plane.db.models.IssueLink``, ``plane.db.models.FileAsset``,
+          ``plane.db.models.UserRecentVisit``,
+          ``plane.db.models.IssueDescriptionVersion``.
+        - Celery tasks (via RabbitMQ):
+            ``plane.bgtasks.issue_activities_task.issue_activity``,
+            ``plane.bgtasks.webhook_task.model_activity``,
+            ``plane.bgtasks.issue_description_version_task``,
+            ``plane.bgtasks.recent_visited_task``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     model = Issue
@@ -1078,6 +1109,9 @@ class DeletedIssuesListViewSet(BaseAPIView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/projects/<project_id>/deleted-issues/
 
+    Request body:
+        None (GET only). All inputs are URL kwargs or query parameters.
+
     Query parameters:
         updated_at__gt (str ISO datetime, optional): only return issues
             updated after this timestamp (used by sync clients for
@@ -1100,6 +1134,11 @@ class DeletedIssuesListViewSet(BaseAPIView):
         Despite the ``...ViewSet`` suffix this class extends
         :class:`BaseAPIView`, not a DRF ViewSet -- the URL is registered
         as a plain ``as_view()``.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Models: ``plane.db.models.Issue`` (uses ``all_objects`` manager).
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
@@ -1127,6 +1166,9 @@ class IssuePaginatedViewSet(BaseViewSet):
 
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/projects/<project_id>/v2/issues/
+
+    Request body:
+        None (GET only). All inputs are URL kwargs or query parameters.
 
     Query parameters:
         cursor (str, optional): pagination cursor returned by the
@@ -1158,6 +1200,12 @@ class IssuePaginatedViewSet(BaseViewSet):
     Pagination engine:
         :func:`plane.utils.global_paginator.paginate` -- opaque cursor
         encoded from the ordering fields.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Models: ``plane.db.models.Issue``, ``plane.db.models.CycleIssue``,
+          ``plane.db.models.IssueLink``, ``plane.db.models.FileAsset``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     def get_queryset(self):
@@ -1331,6 +1379,9 @@ class IssueDetailEndpoint(BaseAPIView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/projects/<project_id>/issues-detail/
 
+    Request body:
+        None (GET only). All inputs are URL kwargs or query parameters.
+
     Query parameters:
         Same filters as :class:`IssueViewSet.list` plus cursor /
         grouping options.
@@ -1349,6 +1400,13 @@ class IssueDetailEndpoint(BaseAPIView):
     Class attributes:
         ``filter_backends = (ComplexFilterBackend,)``,
         ``filterset_class = IssueFilterSet``.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueListDetailSerializer``.
+        - Models: ``plane.db.models.Issue``, ``plane.db.models.CycleIssue``,
+          ``plane.db.models.IssueLink``, ``plane.db.models.FileAsset``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     filter_backends = (ComplexFilterBackend,)
@@ -1510,13 +1568,20 @@ class IssueBulkUpdateDateEndpoint(BaseAPIView):
         ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER])`` -- guests cannot
         bulk-edit dates.
 
-    Side effects:
-        Enqueues ``issue.activity.updated`` Celery activity tasks for
-        each modified ``start_date`` / ``target_date`` change.
+    Side effects (Celery via RabbitMQ -- NOT Redis):
+        Enqueues ``issue_activity.delay(type="issue.activity.updated", ...)``
+        Celery tasks for each modified ``start_date`` / ``target_date``
+        change (one task per modified field per issue).
 
     Validation:
         :meth:`validate_dates` enforces that ``start_date <= target_date``
         before applying the update.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Models: ``plane.db.models.Issue``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     def validate_dates(self, current_start, current_target, new_start, new_target):
@@ -1613,12 +1678,20 @@ class IssueMetaEndpoint(BaseAPIView):
     Response shape:
         ``{"sequence_id": int, "project_identifier": str}`` (HTTP 200).
 
+    Request body:
+        None (GET only). All inputs are URL kwargs.
+
     Permissions:
         permission_classes -- not set; inherits ``[IsAuthenticated]``.
         Per-method gate: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER,
         ROLE.GUEST], level="PROJECT")`` -- note the explicit
         ``level="PROJECT"`` kwarg restricting the check to project-level
         membership.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Models: ``plane.db.models.Issue``, ``plane.db.models.Project``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="PROJECT")
@@ -1642,6 +1715,9 @@ class IssueDetailIdentifierEndpoint(BaseAPIView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/work-items/<project_identifier>-<issue_identifier>/
 
+    Request body:
+        None (GET only). All inputs are URL kwargs.
+
     URL kwargs:
         project_identifier (str): the project's short identifier
             (e.g. ``PROJ``).
@@ -1661,9 +1737,17 @@ class IssueDetailIdentifierEndpoint(BaseAPIView):
         member-level access is enforced inline by an explicit
         :class:`ProjectMember` lookup in :meth:`get`.
 
-    Side effects:
-        On success enqueues :func:`recent_visited_task` to upsert the
-        requesting user's :class:`UserRecentVisit` row.
+    Side effects (Celery via RabbitMQ -- NOT Redis):
+        On success enqueues ``recent_visited_task.delay(...)`` to upsert
+        the requesting user's :class:`UserRecentVisit` row.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectMember`` lookup.
+        - Serializers: ``plane.app.serializers.IssueDetailSerializer``.
+        - Models: ``plane.db.models.Issue``, ``plane.db.models.Project``,
+          ``plane.db.models.ProjectMember``, ``plane.db.models.UserRecentVisit``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.recent_visited_task``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     def strict_str_to_int(self, s):

@@ -279,6 +279,15 @@ class GPTIntegrationEndpoint(BaseAPIView):
         Synchronous proxy -- long-running upstream calls block the
         request thread. Upstream errors are logged via ``log_exception``
         and rewritten to a generic 500 to avoid leaking provider state.
+
+    Cross-references:
+        - Permissions: ``plane.app.views.base.BaseAPIView`` and
+          ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.ProjectLiteSerializer``,
+          ``plane.app.serializers.WorkspaceLiteSerializer``.
+        - Models: ``plane.db.models.Project``, ``plane.db.models.Workspace``.
+        - Configuration: ``plane.license.utils.instance_value.get_configuration_value``.
+        - URL registration: ``apps/api/plane/app/urls/external.py``.
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
@@ -351,6 +360,13 @@ class WorkspaceGPTIntegrationEndpoint(BaseAPIView):
     :class:`GPTIntegrationEndpoint`; the difference is workspace scoping
     (no ``project_id`` URL kwarg) and a lighter response payload (no
     project/workspace detail).
+
+    Cross-references:
+        - Permissions: ``plane.app.views.base.BaseAPIView`` and
+          ``plane.app.permissions.allow_permission``.
+        - Models: ``plane.db.models.Workspace``.
+        - Configuration: ``plane.license.utils.instance_value.get_configuration_value``.
+        - URL registration: ``apps/api/plane/app/urls/external.py``.
     """
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
@@ -389,6 +405,9 @@ class UnsplashEndpoint(BaseAPIView):
 
     HTTP methods + URL patterns:
         GET    /api/unsplash/
+
+    Request body:
+        None (GET only). Inputs are passed as query parameters listed below.
 
     Query parameters:
         query    (str, optional): Search term. When omitted, the endpoint
@@ -432,6 +451,13 @@ class UnsplashEndpoint(BaseAPIView):
         Proxying here prevents leaking the Unsplash access key to the
         browser. The endpoint passes the upstream status code through
         unchanged so client-side rate-limit handling stays accurate.
+
+    Cross-references:
+        - Permissions: ``plane.app.views.base.BaseAPIView`` (inherits
+          ``permission_classes = [IsAuthenticated]``).
+        - Configuration: ``plane.license.utils.instance_value.get_configuration_value``
+          and ``plane.license.models.InstanceConfiguration``.
+        - URL registration: ``apps/api/plane/app/urls/external.py``.
     """
 
     def get(self, request):

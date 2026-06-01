@@ -83,6 +83,21 @@ class ExportIssuesEndpoint(BaseAPIView):
         type="issue_exports").select_related("workspace", "initiated_by")``.
         Ordering defaults to ``-created_at``; overridable via
         ``?order_by=<field>``.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Serializers: :class:`plane.app.serializers.ExporterHistorySerializer`,
+          :class:`plane.app.serializers.UserLiteSerializer`
+          (``apps/api/plane/app/serializers/exporter.py``,
+          ``apps/api/plane/app/serializers/user.py``)
+        * Models: :class:`plane.db.models.ExporterHistory`,
+          :class:`plane.db.models.Project`
+          (``apps/api/plane/db/models/exporter.py``,
+          ``apps/api/plane/db/models/project.py``)
+        * Celery task: :func:`plane.bgtasks.export_task.issue_export_task`
+          (``apps/api/plane/bgtasks/export_task.py``)
+        * URL: ``apps/api/plane/app/urls/exporter.py``
     """
 
     model = ExporterHistory

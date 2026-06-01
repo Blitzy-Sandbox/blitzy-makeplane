@@ -124,6 +124,27 @@ class WorkspaceDraftIssueViewSet(BaseViewSet):
         ``DraftIssueCycle`` and aggregates ``label_ids``, ``assignee_ids``,
         ``module_ids`` (each filtered to exclude soft-deleted associations
         and inactive project memberships).
+
+    Cross-references:
+        * Serializers: ``DraftIssueCreateSerializer``,
+          ``DraftIssueDetailSerializer``, ``DraftIssueSerializer``,
+          ``IssueCreateSerializer`` in
+          ``apps/api/plane/app/serializers/draft.py`` and
+          ``apps/api/plane/app/serializers/issue.py``.
+        * Models: ``DraftIssue``, ``DraftIssueCycle``,
+          ``DraftIssueModule`` in ``apps/api/plane/db/models/draft.py``;
+          ``Issue``, ``CycleIssue``, ``ModuleIssue`` in
+          ``apps/api/plane/db/models/issue.py``,
+          ``apps/api/plane/db/models/cycle.py``,
+          ``apps/api/plane/db/models/module.py``;
+          ``FileAsset`` in ``apps/api/plane/db/models/asset.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * Celery task:
+          ``apps/api/plane/bgtasks/issue_activities_task.py`` (queued
+          via RabbitMQ).
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     model = DraftIssue

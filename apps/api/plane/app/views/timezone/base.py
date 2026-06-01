@@ -67,9 +67,11 @@ class TimezoneEndpoint(APIView):
         211-213).
 
     Permissions:
-        ``permission_classes = [AllowAny]`` -- the endpoint is
-        intentionally public so unauthenticated onboarding clients can
-        populate timezone pickers before sign-in.
+        ``permission_classes = [AllowAny]`` (declared on the class
+        attribute; see
+        ``apps/api/plane/app/views/timezone/base.py``) -- the endpoint
+        is intentionally public so unauthenticated onboarding clients
+        can populate timezone pickers before sign-in.
 
     Throttling:
         ``throttle_classes = [AuthenticationThrottle]`` -- a custom DRF
@@ -93,6 +95,12 @@ class TimezoneEndpoint(APIView):
         timezone-activation mixin that ``BaseAPIView`` provides --
         responses are static per-request and the requester's local
         timezone is irrelevant to the returned data.
+
+    Cross-references:
+        * Throttle: ``AuthenticationThrottle`` in
+          ``apps/api/plane/authentication/rate_limit.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/timezone.py``.
     """
 
     permission_classes = [AllowAny]

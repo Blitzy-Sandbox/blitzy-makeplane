@@ -82,18 +82,24 @@ class IssueAttachmentEndpoint(BaseAPIView):
               -- so any project member can delete an attachment they
               created, but only project admins can delete others'.
 
-    Side effects:
+    Side effects (Celery via RabbitMQ -- NOT Redis):
         * POST creates a :class:`FileAsset` row with
           ``entity_type=FileAsset.EntityTypeContext.ISSUE_ATTACHMENT``
-          and enqueues a Celery activity task
-          (``type="attachment.activity.created"``).
+          and enqueues ``issue_activity.delay(type="attachment.activity.created", ...)``.
         * DELETE hard-deletes the underlying storage asset
           (``asset.delete(save=False)``) and the FileAsset row, and
-          enqueues ``type="attachment.activity.deleted"``.
+          enqueues ``issue_activity.delay(type="attachment.activity.deleted", ...)``.
 
     Note:
         Newer clients should use :class:`IssueAttachmentV2Endpoint`
         (presigned S3 POST flow per tech spec section 5.2.9).
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueAttachmentSerializer``.
+        - Models: ``plane.db.models.FileAsset``, ``plane.db.models.Issue``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     serializer_class = IssueAttachmentSerializer
@@ -222,24 +228,35 @@ class IssueAttachmentV2Endpoint(BaseAPIView):
         ROLE.GUEST])`` on POST/GET/PATCH; ``@allow_permission([ROLE.ADMIN],
         creator=True, model=FileAsset)`` on DELETE (creator-or-admin).
 
-    Side effects:
+    Side effects (Celery via RabbitMQ -- NOT Redis):
         * ``POST`` creates a FileAsset row with
           ``entity_type=FileAsset.EntityTypeContext.ISSUE_ATTACHMENT``;
           no S3 write occurs server-side -- the presigned URL allows the
           client to upload directly.
-        * ``PATCH`` enqueues ``issue_activity`` Celery task
-          (``type="attachment.activity.created"``) only the first time
-          the asset is marked uploaded; also enqueues
-          :func:`plane.bgtasks.storage_metadata_task.get_asset_object_metadata`
+        * ``PATCH`` enqueues ``issue_activity.delay`` (Celery via
+          RabbitMQ) with ``type="attachment.activity.created"`` only the
+          first time the asset is marked uploaded; also enqueues
+          ``get_asset_object_metadata.delay(...)`` (Celery via RabbitMQ)
+          via :func:`plane.bgtasks.storage_metadata_task.get_asset_object_metadata`
           when ``storage_metadata`` is empty (backfill of S3 ETag/size).
         * ``DELETE`` performs a SOFT delete (``is_deleted=True,
-          deleted_at=now()``) and enqueues
+          deleted_at=now()``) and enqueues ``issue_activity.delay`` with
           ``type="attachment.activity.deleted"``. The S3 object is
           reaped later by :func:`plane.bgtasks.file_asset_task` (Beat).
 
     Idempotency:
         ``PATCH`` is safe to retry -- the ``attachment.activity.created``
         event is enqueued only when ``is_uploaded`` was ``False``.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueAttachmentSerializer``.
+        - Models: ``plane.db.models.FileAsset``, ``plane.db.models.Issue``.
+        - Celery tasks (via RabbitMQ):
+            ``plane.bgtasks.issue_activities_task.issue_activity``,
+            ``plane.bgtasks.storage_metadata_task.get_asset_object_metadata``,
+            ``plane.bgtasks.file_asset_task`` (Beat-driven reaper).
+        - URL registration: ``apps/api/plane/app/urls/asset.py`` / ``issue.py``.
     """
 
     serializer_class = IssueAttachmentSerializer
@@ -306,6 +323,8 @@ class IssueAttachmentV2Endpoint(BaseAPIView):
     def delete(self, request, slug, project_id, issue_id, pk):
         """Soft-delete the FileAsset (``is_deleted=True``) and enqueue an ``attachment.activity.deleted`` Celery task.
 
+        The activity task is dispatched via Celery through RabbitMQ
+        (NOT Redis -- Redis is caching/session only in this codebase).
         The underlying S3 object is reaped later by the asset cleanup
         Celery Beat job.
         """

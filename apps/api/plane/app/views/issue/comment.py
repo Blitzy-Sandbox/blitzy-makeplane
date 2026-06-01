@@ -89,18 +89,26 @@ class IssueCommentViewSet(BaseViewSet):
         workspace / issue, and annotates ``is_member`` (Exists on
         :class:`ProjectMember`).
 
-    Side effects:
-        * POST/PATCH/DELETE enqueue
-          ``plane.bgtasks.issue_activities_task.issue_activity`` with
+    Side effects (Celery via RabbitMQ -- NOT Redis):
+        * POST/PATCH/DELETE enqueue ``issue_activity.delay(...)`` with
           ``type="comment.activity.{created|updated|deleted}"``.
-        * POST/PATCH additionally enqueue
-          ``plane.bgtasks.webhook_task.model_activity`` for the
-          ``issue_comment`` webhook event (see ``webhook_event``
+        * POST/PATCH additionally enqueue ``model_activity.delay(...)``
+          for the ``issue_comment`` webhook event (see ``webhook_event``
           attribute).
         * ``partial_update`` sets ``edited_at = now()`` ONLY when
           ``comment_html`` is in the request body and actually differs
           from the existing value -- preserving the original
           ``edited_at`` on no-op or non-content updates.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueCommentSerializer``.
+        - Models: ``plane.db.models.IssueComment``, ``plane.db.models.Issue``,
+          ``plane.db.models.ProjectMember``.
+        - Celery tasks (via RabbitMQ):
+            ``plane.bgtasks.issue_activities_task.issue_activity``,
+            ``plane.bgtasks.webhook_task.model_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     serializer_class = IssueCommentSerializer
@@ -288,9 +296,8 @@ class CommentReactionViewSet(BaseViewSet):
         400 ``"Reaction already exists for the user"`` when the user
         re-adds the same reaction.
 
-    Side effects:
-        Each create/destroy enqueues
-        ``plane.bgtasks.issue_activities_task.issue_activity`` with
+    Side effects (Celery via RabbitMQ -- NOT Redis):
+        Each create/destroy enqueues ``issue_activity.delay(...)`` with
         ``type="comment_reaction.activity.{created|deleted}"`` for the
         comment timeline. The ``issue_id`` field on the activity payload
         is ``None`` because comment reactions are scoped to a comment,
@@ -300,6 +307,13 @@ class CommentReactionViewSet(BaseViewSet):
         Filters by ``workspace__slug``, ``project_id``, ``comment_id``
         from the URL, restricted to active project members; ordered by
         ``-created_at``.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.CommentReactionSerializer``.
+        - Models: ``plane.db.models.CommentReaction``, ``plane.db.models.IssueComment``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     serializer_class = CommentReactionSerializer

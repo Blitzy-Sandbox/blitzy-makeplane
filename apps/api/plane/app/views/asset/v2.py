@@ -644,12 +644,18 @@ class StaticFileAssetEndpoint(BaseAPIView):
         ``GET assets/v2/static/<uuid:asset_id>/``  (name ``static-file-asset``)
 
     Permission:
-        ``permission_classes = [AllowAny]`` — explicitly overrides the
-        :class:`BaseAPIView` default of ``[IsAuthenticated]``. This is the
-        **security boundary for public asset reads**: unauthenticated
-        callers can only retrieve avatars, covers, workspace logos, and
-        project covers. The entity-type allowlist check inside :meth:`get`
-        is the second guardrail enforcing that boundary.
+        ``permission_classes = [AllowAny]`` — declared on the class
+        attribute (see ``apps/api/plane/app/views/asset/v2.py``).
+        Explicitly overrides the :class:`BaseAPIView` default of
+        ``[IsAuthenticated]``. This is the **security boundary for
+        public asset reads**:
+        unauthenticated callers can only retrieve avatars, covers,
+        workspace logos, and project covers. The entity-type allowlist
+        check inside :meth:`get` is the second guardrail enforcing that
+        boundary.
+
+    Request body:
+        None (GET only) -- ``asset_id`` is supplied as the URL kwarg.
 
     Response shape:
         ``GET``: HTTP 302 ``HttpResponseRedirect`` to a presigned S3 GET
@@ -658,6 +664,14 @@ class StaticFileAssetEndpoint(BaseAPIView):
 
     Side effects:
         None — read-only.
+
+    Cross-references:
+        * Permission: :class:`rest_framework.permissions.AllowAny`
+        * Model: :class:`plane.db.models.FileAsset`
+          (``apps/api/plane/db/models/asset.py``)
+        * S3 helper: :class:`plane.settings.storage.S3Storage`
+          (``apps/api/plane/settings/storage.py``)
+        * URL: ``apps/api/plane/app/urls/asset.py``
     """
 
     permission_classes = [AllowAny]
@@ -1091,6 +1105,9 @@ class AssetCheckEndpoint(BaseAPIView):
     HTTP methods and URL pattern (from ``plane/app/urls/asset.py``):
         ``GET assets/v2/workspaces/<str:slug>/check/<uuid:asset_id>/``  (name ``asset-check``)
 
+    Request body:
+        None (GET only) -- ``slug`` and ``asset_id`` are supplied as URL kwargs.
+
     Response shape:
         HTTP 200 with ``{"exists": <bool>}``.
 
@@ -1100,6 +1117,13 @@ class AssetCheckEndpoint(BaseAPIView):
 
     Side effects:
         None — read-only existence probe.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Model: :class:`plane.db.models.FileAsset`
+          (``apps/api/plane/db/models/asset.py``)
+        * URL: ``apps/api/plane/app/urls/asset.py``
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
@@ -1270,6 +1294,9 @@ class WorkspaceAssetDownloadEndpoint(BaseAPIView):
     HTTP methods and URL pattern (from ``plane/app/urls/asset.py``):
         ``GET assets/v2/workspaces/<str:slug>/download/<uuid:asset_id>/``  (name ``workspace-asset-download``)
 
+    Request body:
+        None (GET only) -- ``slug`` and ``asset_id`` are supplied as URL kwargs.
+
     Response shape:
         HTTP 302 ``HttpResponseRedirect`` to a presigned download URL with
         ``disposition="attachment"`` and the original filename from
@@ -1283,6 +1310,15 @@ class WorkspaceAssetDownloadEndpoint(BaseAPIView):
 
     Side effects:
         None — read-only.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Model: :class:`plane.db.models.FileAsset`
+          (``apps/api/plane/db/models/asset.py``)
+        * S3 helper: :class:`plane.settings.storage.S3Storage`
+          (``apps/api/plane/settings/storage.py``)
+        * URL: ``apps/api/plane/app/urls/asset.py``
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
@@ -1322,6 +1358,10 @@ class ProjectAssetDownloadEndpoint(BaseAPIView):
         ``GET assets/v2/workspaces/<str:slug>/projects/<uuid:project_id>/download/<uuid:asset_id>/``
         (URL name ``project-asset-download``)
 
+    Request body:
+        None (GET only) -- ``slug``, ``project_id``, and ``asset_id`` are
+        supplied as URL kwargs.
+
     Response shape:
         HTTP 302 ``HttpResponseRedirect`` to a presigned download URL with
         ``disposition="attachment"`` and the original filename; HTTP 404
@@ -1336,6 +1376,15 @@ class ProjectAssetDownloadEndpoint(BaseAPIView):
 
     Side effects:
         None — read-only.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Model: :class:`plane.db.models.FileAsset`
+          (``apps/api/plane/db/models/asset.py``)
+        * S3 helper: :class:`plane.settings.storage.S3Storage`
+          (``apps/api/plane/settings/storage.py``)
+        * URL: ``apps/api/plane/app/urls/asset.py``
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="PROJECT")

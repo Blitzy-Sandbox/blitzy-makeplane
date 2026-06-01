@@ -66,6 +66,19 @@ class WorkspaceFavoriteEndpoint(BaseAPIView):
         DELETE uses ``favorite.delete(soft=False)`` — favorites are removed
         permanently, not soft-deleted, so previously-favorited items do not
         linger in the user's history.
+
+    Cross-references:
+        * Serializer: ``UserFavoriteSerializer`` in
+          ``apps/api/plane/app/serializers/favorite.py``.
+        * Model: ``UserFavorite`` in
+          ``apps/api/plane/db/models/favorite.py``;
+          ``Workspace`` in ``apps/api/plane/db/models/workspace.py``;
+          ``ProjectMember`` in
+          ``apps/api/plane/db/models/project.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     use_read_replica = True
@@ -169,6 +182,16 @@ class WorkspaceFavoriteGroupEndpoint(BaseAPIView):
     Permissions:
         ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")``
         — guests cannot read favorite groups.
+
+    Cross-references:
+        * Serializer: ``UserFavoriteSerializer`` in
+          ``apps/api/plane/app/serializers/favorite.py``.
+        * Model: ``UserFavorite`` in
+          ``apps/api/plane/db/models/favorite.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")

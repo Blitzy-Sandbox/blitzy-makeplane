@@ -42,7 +42,9 @@ class WorkspaceCyclesEndpoint(BaseAPIView):
         archived, draft, and soft-deleted ``CycleIssue`` rows.
 
     Permissions:
-        permission_classes = [WorkspaceViewerPermission] -- any active
+        ``permission_classes = [WorkspaceViewerPermission]`` (declared
+        on the class attribute; see
+        ``apps/api/plane/app/views/workspace/cycle.py``) -- any active
         workspace member.
 
     Performance:
@@ -51,6 +53,16 @@ class WorkspaceCyclesEndpoint(BaseAPIView):
         ``issue_cycle__deleted_at`` and
         ``issue_cycle__issue__deleted_at`` so soft-deleted associations are
         not double-counted.
+
+    Cross-references:
+        * Serializer: ``CycleSerializer`` in
+          ``apps/api/plane/app/serializers/cycle.py``.
+        * Models: ``Cycle``, ``CycleIssue`` in
+          ``apps/api/plane/db/models/cycle.py``.
+        * Permissions: ``WorkspaceViewerPermission`` in
+          ``apps/api/plane/app/permissions/workspace.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     permission_classes = [WorkspaceViewerPermission]

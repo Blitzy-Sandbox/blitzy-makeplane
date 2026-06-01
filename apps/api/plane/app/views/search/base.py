@@ -109,6 +109,23 @@ class GlobalSearchEndpoint(BaseAPIView):
         ``project_projectmember__member=request.user`` + ``is_active=True``, and
         (d) archive exclusion via ``project__archived_at__isnull=True``. Issue
         and intake results are capped at 100 rows.
+
+    Request body:
+        None (GET only); all parameters are supplied as query string.
+
+    Cross-references:
+        * Models: ``Workspace``, ``WorkspaceMember`` in
+          ``apps/api/plane/db/models/workspace.py``;
+          ``Project``, ``ProjectMember`` in
+          ``apps/api/plane/db/models/project.py``;
+          ``Issue`` in ``apps/api/plane/db/models/issue.py``;
+          ``Cycle`` in ``apps/api/plane/db/models/cycle.py``;
+          ``Module`` in ``apps/api/plane/db/models/module.py``;
+          ``IssueView`` in ``apps/api/plane/db/models/view.py``;
+          ``Page`` in ``apps/api/plane/db/models/page.py``;
+          ``Intake`` in ``apps/api/plane/db/models/intake.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/search.py``.
     """
 
     def filter_workspaces(self, query, _slug, _project_id, _workspace_search):
@@ -455,6 +472,21 @@ class SearchEndpoint(BaseAPIView):
         Project visibility for the ``project`` query_type accepts either active
         membership OR ``network=2`` (workspace-public projects) so that the
         picker surfaces projects a user can browse but has not joined.
+
+    Request body:
+        None (GET only); all parameters are supplied as query string.
+
+    Cross-references:
+        * Models: ``Project``, ``ProjectMember`` in
+          ``apps/api/plane/db/models/project.py``;
+          ``Issue`` in ``apps/api/plane/db/models/issue.py``;
+          ``Cycle`` in ``apps/api/plane/db/models/cycle.py``;
+          ``Module`` in ``apps/api/plane/db/models/module.py``;
+          ``Page`` in ``apps/api/plane/db/models/page.py``;
+          ``WorkspaceMember`` in
+          ``apps/api/plane/db/models/workspace.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/search.py``.
     """
 
     def get(self, request, slug):

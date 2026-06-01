@@ -74,6 +74,14 @@ class ApiTokenEndpoint(BaseAPIView):
         detail GET and PATCH endpoints omit the ``is_service`` filter so a
         user inspecting or renaming their own service token by ID is still
         permitted.
+
+    Cross-references:
+        * Serializers: :class:`plane.app.serializers.APITokenSerializer`,
+          :class:`plane.app.serializers.APITokenReadSerializer`
+          (``apps/api/plane/app/serializers/api.py``)
+        * Model: :class:`plane.db.models.APIToken`
+          (``apps/api/plane/db/models/api.py``)
+        * URL: ``apps/api/plane/app/urls/api.py``
     """
 
     def post(self, request: Request) -> Response:

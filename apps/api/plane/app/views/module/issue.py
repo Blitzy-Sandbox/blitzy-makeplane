@@ -161,7 +161,7 @@ class ModuleIssueViewSet(BaseViewSet):
         membership operations because it can affect module progress
         metrics (which downstream UI / analytics consume).
 
-    Side effects:
+    Side effects (Celery via RabbitMQ -- NOT Redis):
         * ``create_module_issues``: emits ``issue_activity.delay(
           type="module.activity.created", ...)`` for EACH added issue,
           even when bulk_create's ``ignore_conflicts=True`` silently
@@ -209,6 +209,15 @@ class ModuleIssueViewSet(BaseViewSet):
         * ``filter_backends = (ComplexFilterBackend,)`` -- overrides the
           ``BaseViewSet`` default ``(DjangoFilterBackend, SearchFilter)``.
         * ``filterset_class = IssueFilterSet``
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.ModuleIssueSerializer``,
+          ``plane.app.serializers.IssueSerializer``.
+        - Models: ``plane.db.models.ModuleIssue``, ``plane.db.models.Issue``,
+          ``plane.db.models.Module``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/module.py``.
     """
 
     serializer_class = ModuleIssueSerializer

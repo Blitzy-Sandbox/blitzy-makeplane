@@ -107,7 +107,9 @@ class BaseViewSet(TimezoneMixin, ReadReplicaControlMixin, ModelViewSet, BasePagi
 
     Defaults applied by this base (subclasses MAY override):
 
-    * ``permission_classes = [IsAuthenticated]``
+    * ``permission_classes = [IsAuthenticated]`` -- declared on the
+      class attribute (see ``apps/api/plane/app/views/base.py``); see
+      :class:`rest_framework.permissions.IsAuthenticated`.
     * ``filter_backends = (DjangoFilterBackend, SearchFilter)``
     * ``authentication_classes = [BaseSessionAuthentication]``
     * ``filterset_fields = []``, ``search_fields = []``,
@@ -131,6 +133,38 @@ class BaseViewSet(TimezoneMixin, ReadReplicaControlMixin, ModelViewSet, BasePagi
       resolved URL name is ``"project"``.
     * ``fields`` -- the ``?fields=a,b,c`` query string as a list.
     * ``expand`` -- the ``?expand=a,b,c`` query string as a list.
+
+    HTTP methods + URL patterns:
+        N/A -- abstract base class; not directly routed. Concrete
+        subclasses register on URL routers (see
+        ``apps/api/plane/app/urls/*.py``) and inherit the standard
+        ``ModelViewSet`` actions (``list``, ``create``, ``retrieve``,
+        ``update``, ``partial_update``, ``destroy``).
+
+    Request body:
+        N/A -- abstract base class. Concrete subclasses bind a
+        ``serializer_class`` whose ``Meta.fields`` defines the per-action
+        request schema.
+
+    Response shape:
+        N/A -- abstract base class. Concrete subclasses return the
+        output of their bound ``serializer_class``.
+
+    Cross-references:
+        - Mixins: ``apps/api/plane/utils/timezone_converter.py``
+          (``TimezoneMixin``),
+          ``apps/api/plane/db/router.py`` (``ReadReplicaControlMixin``),
+          ``apps/api/plane/utils/paginator.py`` (``BasePaginator``).
+        - DRF defaults inherited: ``rest_framework.viewsets.ModelViewSet``,
+          ``rest_framework.permissions.IsAuthenticated``,
+          ``rest_framework.filters.SearchFilter``,
+          ``django_filters.rest_framework.DjangoFilterBackend``.
+        - Custom session auth: ``apps/api/plane/authentication/session.py``
+          (``BaseSessionAuthentication``).
+        - Exception logging: ``apps/api/plane/utils/exception_logger.py``
+          (``log_exception``).
+        - Concrete subclasses: every ViewSet under
+          ``apps/api/plane/app/views/**`` and ``apps/api/plane/api/views/**``.
     """
 
     model = None
@@ -208,9 +242,24 @@ class BaseViewSet(TimezoneMixin, ReadReplicaControlMixin, ModelViewSet, BasePagi
     def dispatch(self, request, *args, **kwargs):
         """Delegate to the parent ``dispatch`` and emit a DEBUG-mode query-count log line.
 
-        Wraps ``super().dispatch(...)`` in a try/except so any exception
-        raised below the DRF stack is funnelled through
-        :meth:`handle_exception` instead of bubbling out of the view.
+        On the happy path: forwards to ``super().dispatch(...)`` and, when
+        ``settings.DEBUG`` is set, prints ``"<METHOD> - <PATH> of Queries:
+        <N>"`` where ``N`` is ``len(connection.queries)`` before
+        returning the wrapped response.
+
+        On an unhandled exception from the DRF stack: invokes
+        :meth:`handle_exception` for its side effects (notably ``log_exception``
+        and DEBUG-mode traceback print) but, as written, then returns the
+        original ``exc`` object rather than the ``Response`` produced by
+        :meth:`handle_exception`. Returning a raw exception from
+        ``dispatch`` will surface to the WSGI layer rather than be
+        rendered as a JSON response.
+
+        # INTENT UNCLEAR: the ``except Exception`` branch assigns
+        # ``response = self.handle_exception(exc)`` and then
+        # ``return exc`` (not ``response``); this docstring records the
+        # observed behavior rather than guessing the intended one. See
+        # finding F4 in the CP19 code review report.
         """
         try:
             response = super().dispatch(request, *args, **kwargs)
@@ -270,6 +319,39 @@ class BaseAPIView(TimezoneMixin, ReadReplicaControlMixin, APIView, BasePaginator
     The ``filter_queryset`` helper is exposed so subclasses can apply the
     declared filter backends on demand (``APIView`` does not call this
     automatically the way ``ModelViewSet`` does).
+
+    HTTP methods + URL patterns:
+        N/A -- abstract base class; not directly routed. Subclasses bind
+        to specific URL patterns and declare their own ``get`` / ``post``
+        / ``patch`` / ``delete`` handlers.
+
+    Request body:
+        N/A -- abstract base class. Concrete subclasses define their own
+        request schemas.
+
+    Response shape:
+        N/A -- abstract base class. Concrete subclasses define their own
+        response payloads.
+
+    Permissions:
+        ``permission_classes = [IsAuthenticated]`` -- declared on the
+        class attribute (see ``apps/api/plane/app/views/base.py``); see
+        :class:`rest_framework.permissions.IsAuthenticated`. Concrete
+        subclasses MAY override this attribute.
+
+    Cross-references:
+        - Mixins: ``apps/api/plane/utils/timezone_converter.py``
+          (``TimezoneMixin``),
+          ``apps/api/plane/db/router.py`` (``ReadReplicaControlMixin``),
+          ``apps/api/plane/utils/paginator.py`` (``BasePaginator``).
+        - DRF defaults inherited: ``rest_framework.views.APIView``,
+          ``rest_framework.permissions.IsAuthenticated``,
+          ``rest_framework.filters.SearchFilter``,
+          ``django_filters.rest_framework.DjangoFilterBackend``.
+        - Custom session auth: ``apps/api/plane/authentication/session.py``
+          (``BaseSessionAuthentication``).
+        - Concrete subclasses: every ``*Endpoint`` class under
+          ``apps/api/plane/app/views/**`` and ``apps/api/plane/api/views/**``.
     """
 
     permission_classes = [IsAuthenticated]

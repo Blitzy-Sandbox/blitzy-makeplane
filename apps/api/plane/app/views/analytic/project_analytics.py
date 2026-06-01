@@ -90,6 +90,9 @@ class ProjectAdvanceAnalyticsEndpoint(ProjectAdvanceAnalyticsBaseView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/projects/<uuid:project_id>/advance-analytics/
 
+    Request body:
+        None (GET only) -- all inputs come from URL kwargs and query parameters.
+
     Query parameters:
         cycle_id (UUID, optional): When supplied, the base queryset
             switches to ``Issue.issue_objects.filter(id__in=<CycleIssue
@@ -120,6 +123,17 @@ class ProjectAdvanceAnalyticsEndpoint(ProjectAdvanceAnalyticsBaseView):
         ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER])`` -- project-level
         admin or member (no explicit ``level=`` kwarg; defaults to
         project scope per :func:`plane.app.permissions.base.allow_permission`).
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Filter helper: :func:`plane.utils.date_utils.get_analytics_filters`
+          (``apps/api/plane/utils/date_utils.py``)
+        * Models read: :class:`plane.db.models.Issue`,
+          :class:`plane.db.models.CycleIssue`,
+          :class:`plane.db.models.ModuleIssue`
+          (``apps/api/plane/db/models/``)
+        * URL: ``apps/api/plane/app/urls/analytic.py``
     """
 
     def get_filtered_counts(self, queryset: QuerySet) -> Dict[str, int]:
@@ -196,6 +210,9 @@ class ProjectAdvanceAnalyticsStatsEndpoint(ProjectAdvanceAnalyticsBaseView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/projects/<uuid:project_id>/advance-analytics-stats/
 
+    Request body:
+        None (GET only) -- all inputs come from URL kwargs and query parameters.
+
     Query parameters:
         type (str, optional, default=``"work-items"``): Only
             ``"work-items"`` is recognized; any other value returns 400.
@@ -230,6 +247,18 @@ class ProjectAdvanceAnalyticsStatsEndpoint(ProjectAdvanceAnalyticsBaseView):
     Permissions:
         ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER])`` -- project-level
         admin or member.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Filter helper: :func:`plane.utils.date_utils.get_analytics_filters`
+          (``apps/api/plane/utils/date_utils.py``)
+        * Models read: :class:`plane.db.models.Issue`,
+          :class:`plane.db.models.User`,
+          :class:`plane.db.models.CycleIssue`,
+          :class:`plane.db.models.ModuleIssue`
+          (``apps/api/plane/db/models/``)
+        * URL: ``apps/api/plane/app/urls/analytic.py``
     """
 
     def get_project_issues_stats(self) -> QuerySet:
@@ -339,6 +368,9 @@ class ProjectAdvanceAnalyticsChartEndpoint(ProjectAdvanceAnalyticsBaseView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/projects/<uuid:project_id>/advance-analytics-charts/
 
+    Request body:
+        None (GET only) -- all inputs come from URL kwargs and query parameters.
+
     Query parameters:
         type (str, optional, default=``"projects"``): One of
             ``"custom-work-items"`` (delegates to
@@ -394,6 +426,19 @@ class ProjectAdvanceAnalyticsChartEndpoint(ProjectAdvanceAnalyticsBaseView):
     Permissions:
         ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])``
         -- project-level admin, member, or guest can view charts.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Chart builder: :func:`plane.utils.build_chart.build_analytics_chart`
+          (``apps/api/plane/utils/build_chart.py``)
+        * Models read: :class:`plane.db.models.Issue`,
+          :class:`plane.db.models.Project`, :class:`plane.db.models.Cycle`,
+          :class:`plane.db.models.Module`,
+          :class:`plane.db.models.CycleIssue`,
+          :class:`plane.db.models.ModuleIssue`
+          (``apps/api/plane/db/models/``)
+        * URL: ``apps/api/plane/app/urls/analytic.py``
     """
 
     def work_item_completion_chart(self, project_id, cycle_id=None, module_id=None) -> Dict[str, Any]:

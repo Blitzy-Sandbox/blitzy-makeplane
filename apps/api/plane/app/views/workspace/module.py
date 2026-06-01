@@ -42,7 +42,9 @@ class WorkspaceModulesEndpoint(BaseAPIView):
         archived, draft, and soft-deleted ``ModuleIssue`` rows.
 
     Permissions:
-        permission_classes = [WorkspaceViewerPermission] — any active
+        ``permission_classes = [WorkspaceViewerPermission]`` (declared
+        on the class attribute; see
+        ``apps/api/plane/app/views/workspace/module.py``) — any active
         workspace member.
 
     Performance:
@@ -50,6 +52,16 @@ class WorkspaceModulesEndpoint(BaseAPIView):
         and ``prefetch_related("members", "link_module")`` keeps the row
         count low. Each per-state ``Count`` uses ``distinct=True`` to avoid
         double-counting when the inner join fans out.
+
+    Cross-references:
+        * Serializer: ``ModuleSerializer`` in
+          ``apps/api/plane/app/serializers/module.py``.
+        * Models: ``Module``, ``ModuleLink``, ``ModuleIssue`` in
+          ``apps/api/plane/db/models/module.py``.
+        * Permissions: ``WorkspaceViewerPermission`` in
+          ``apps/api/plane/app/permissions/workspace.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     permission_classes = [WorkspaceViewerPermission]

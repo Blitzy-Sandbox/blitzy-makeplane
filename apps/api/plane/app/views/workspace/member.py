@@ -373,6 +373,9 @@ class WorkspaceMemberUserEndpoint(BaseAPIView):
     HTTP methods + URL pattern:
         GET /api/workspaces/<str:slug>/workspace-members/me/
 
+    Request body:
+        None (GET only).
+
     Response shape:
         ``WorkspaceMemberMeSerializer`` — annotated with a non-null
         ``draft_issue_count`` (coalesced to 0 when the user has no
@@ -385,6 +388,16 @@ class WorkspaceMemberUserEndpoint(BaseAPIView):
 
     Read replica:
         ``use_read_replica = True``.
+
+    Cross-references:
+        * Serializer: ``WorkspaceMemberMeSerializer`` in
+          ``apps/api/plane/app/serializers/workspace.py``.
+        * Models: ``WorkspaceMember`` in
+          ``apps/api/plane/db/models/workspace.py``;
+          ``DraftIssue`` in
+          ``apps/api/plane/db/models/draft.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     use_read_replica = True
@@ -413,6 +426,9 @@ class WorkspaceProjectMemberEndpoint(BaseAPIView):
     HTTP methods + URL pattern:
         GET /api/workspaces/<str:slug>/project-members/
 
+    Request body:
+        None (GET only).
+
     Response shape:
         ``dict[str, list[ProjectMemberRoleSerializer]]`` — keyed by
         project id, listing the project members of every project the
@@ -420,8 +436,20 @@ class WorkspaceProjectMemberEndpoint(BaseAPIView):
         badges without a per-project round-trip).
 
     Permissions:
-        ``permission_classes = [WorkspaceEntityPermission]`` — any active
+        ``permission_classes = [WorkspaceEntityPermission]`` (declared
+        on the class attribute; see
+        ``apps/api/plane/app/views/workspace/member.py``) — any active
         workspace member.
+
+    Cross-references:
+        * Serializer: ``ProjectMemberRoleSerializer`` in
+          ``apps/api/plane/app/serializers/project.py``.
+        * Model: ``ProjectMember`` in
+          ``apps/api/plane/db/models/project.py``.
+        * Permissions: ``WorkspaceEntityPermission`` in
+          ``apps/api/plane/app/permissions/workspace.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     serializer_class = ProjectMemberRoleSerializer

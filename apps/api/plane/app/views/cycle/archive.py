@@ -176,6 +176,20 @@ class CycleArchiveUnarchiveEndpoint(BaseAPIView):
           it always computes distributions live from the cycle's current
           issues (unlike :class:`CycleAnalyticsEndpoint` which prefers
           the snapshot when present).
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Burndown helper: :func:`plane.utils.analytics_plot.burndown_plot`
+          (``apps/api/plane/utils/analytics_plot.py``)
+        * Models: :class:`plane.db.models.Cycle`,
+          :class:`plane.db.models.Issue`,
+          :class:`plane.db.models.UserFavorite`,
+          :class:`plane.db.models.Label`,
+          :class:`plane.db.models.User`,
+          :class:`plane.db.models.Project`
+          (``apps/api/plane/db/models/``)
+        * URL: ``apps/api/plane/app/urls/cycle.py``
     """
 
     def get_queryset(self):

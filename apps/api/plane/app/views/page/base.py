@@ -254,7 +254,10 @@ class PageViewSet(BaseViewSet):
               ``entity_name="issue"``.
 
     Permissions:
-        permission_classes = [ProjectPagePermission]
+        ``permission_classes = [ProjectPagePermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/page/base.py`). Defined in
+        :class:`plane.app.permissions.page.ProjectPagePermission`.
             -- defined in :mod:`plane.app.permissions.page`. Enforces:
             (1) the requesting user is an active project member;
             (2) for private pages, the user is the owner OR a
@@ -263,7 +266,7 @@ class PageViewSet(BaseViewSet):
                 GUEST when the project has
                 ``guest_view_all_features``).
 
-    Side effects:
+    Side effects (Celery via RabbitMQ -- NOT Redis):
         * ``create`` queues
           ``page_transaction.delay(new_description_html, old=None,
           page_id)`` for activity logging.
@@ -307,6 +310,21 @@ class PageViewSet(BaseViewSet):
         * ``search_fields = ["name"]`` -- enables ``?search=<q>`` via
           DRF's ``SearchFilter`` (inherited from
           :class:`BaseViewSet`).
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectPagePermission``,
+          ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.PageSerializer``,
+          ``plane.app.serializers.PageDetailSerializer``,
+          ``plane.app.serializers.PageLogSerializer``,
+          ``plane.app.serializers.SubPageSerializer``.
+        - Models: ``plane.db.models.Page``, ``plane.db.models.ProjectPage``,
+          ``plane.db.models.PageLog``, ``plane.db.models.UserFavorite``,
+          ``plane.db.models.UserRecentVisit``.
+        - Celery tasks (via RabbitMQ):
+            ``plane.bgtasks.page_transaction_task.page_transaction``,
+            ``plane.bgtasks.recent_visited_task``.
+        - URL registration: ``apps/api/plane/app/urls/page.py``.
     """
 
     serializer_class = PageSerializer
@@ -907,7 +925,10 @@ class PagesDescriptionViewSet(BaseViewSet):
             content rejected by the validator).
 
     Permissions:
-        permission_classes = [ProjectPagePermission]
+        ``permission_classes = [ProjectPagePermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/page/base.py`). Defined in
+        :class:`plane.app.permissions.page.ProjectPagePermission`.
             -- same as :class:`PageViewSet`. The page itself is
             additionally guarded in the view bodies by the
             ``Q(owned_by=user) | Q(access=0)`` filter (public OR
@@ -946,7 +967,7 @@ class PagesDescriptionViewSet(BaseViewSet):
         * If ``page.archived_at IS NOT NULL`` -- PATCH rejects with
           PAGE_ARCHIVED error.
 
-    Side effects (PATCH):
+    Side effects (PATCH -- Celery via RabbitMQ, NOT Redis):
         * On successful save, queues
           ``page_transaction.delay(new_html, old_html, page_id)`` --
           but ONLY when the request supplied ``description_html``
@@ -960,6 +981,17 @@ class PagesDescriptionViewSet(BaseViewSet):
           :class:`plane.app.views.page.version.PageVersionEndpoint`.
         * Celery workers (RabbitMQ-backed) execute both tasks
           asynchronously after the HTTP response is returned.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectPagePermission``.
+        - Serializers: ``plane.app.serializers.PageBinaryUpdateSerializer``.
+        - Models: ``plane.db.models.Page``, ``plane.db.models.PageVersion``.
+        - Celery tasks (via RabbitMQ):
+            ``plane.bgtasks.page_transaction_task.page_transaction``,
+            ``plane.bgtasks.page_version_task.track_page_version``.
+        - URL registration: ``apps/api/plane/app/urls/page.py``.
+        - Cross-system contract: ``apps/live/src/extensions/database.ts``
+          (PATCHes this endpoint via the 10s debounced persistence).
     """
 
     permission_classes = [ProjectPagePermission]
@@ -1085,8 +1117,10 @@ class PageDuplicateEndpoint(BaseAPIView):
         ``name``, all project IDs).
 
     Permissions:
-        permission_classes = [ProjectPagePermission]
-            -- defined in :mod:`plane.app.permissions.page`.
+        ``permission_classes = [ProjectPagePermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/page/base.py`). Defined in
+        :class:`plane.app.permissions.page.ProjectPagePermission`.
 
         Additional gate inside :meth:`post`:
             If the source page has ``access == Page.PRIVATE_ACCESS``
@@ -1094,7 +1128,7 @@ class PageDuplicateEndpoint(BaseAPIView):
             duplicate is rejected with HTTP 403
             ``{"error": "Permission denied"}``.
 
-    Side effects:
+    Side effects (Celery via RabbitMQ -- NOT Redis):
         * Creates a fresh row in :class:`Page` with a new primary
           key, ``" (Copy)"``-suffixed name, ``description_binary =
           None``, and the requesting user as
@@ -1124,6 +1158,16 @@ class PageDuplicateEndpoint(BaseAPIView):
         * S3 asset copy is asynchronous; the response returns
           before the new objects are available, so consumers must
           refresh after a delay to see embedded image previews.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectPagePermission``.
+        - Serializers: ``plane.app.serializers.PageDetailSerializer``.
+        - Models: ``plane.db.models.Page``, ``plane.db.models.ProjectPage``,
+          ``plane.db.models.FileAsset``.
+        - Celery tasks (via RabbitMQ):
+            ``plane.bgtasks.page_transaction_task.page_transaction``,
+            ``plane.bgtasks.copy_s3_object.copy_s3_objects_of_description_and_assets``.
+        - URL registration: ``apps/api/plane/app/urls/page.py``.
     """
 
     permission_classes = [ProjectPagePermission]

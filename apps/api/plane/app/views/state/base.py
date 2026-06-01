@@ -113,6 +113,18 @@ class StateViewSet(BaseViewSet):
         project, excludes triage states, eager-loads ``project`` and
         ``workspace``, and applies ``.distinct()`` to dedupe the membership
         join.
+
+    Cross-references:
+        * Serializer: ``StateSerializer`` in
+          ``apps/api/plane/app/serializers/state.py``.
+        * Model: ``State``, ``StateGroup`` in
+          ``apps/api/plane/db/models/state.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * Cache invalidation: ``invalidate_cache`` in
+          ``apps/api/plane/utils/cache.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/state.py``.
     """
 
     serializer_class = StateSerializer
@@ -323,6 +335,16 @@ class IntakeStateEndpoint(BaseAPIView):
         :class:`plane.db.models.state.TriageStateManager`) implicitly
         filters ``group=triage`` so this endpoint cannot accidentally
         return a non-triage state.
+
+    Cross-references:
+        * Serializer: ``StateSerializer`` in
+          ``apps/api/plane/app/serializers/state.py``.
+        * Model: ``State`` (``triage_objects`` manager) in
+          ``apps/api/plane/db/models/state.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/state.py``.
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])

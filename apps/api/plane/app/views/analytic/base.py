@@ -67,6 +67,9 @@ class AnalyticsEndpoint(BaseAPIView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/analytics/
 
+    Request body:
+        None (GET only) -- all inputs are query parameters listed below.
+
     Query parameters:
         x_axis (str, required): One of
             :data:`plane.utils.analytics_plot.VALID_ANALYTICS_FIELDS`
@@ -102,6 +105,17 @@ class AnalyticsEndpoint(BaseAPIView):
     Permissions:
         ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")``
         -- workspace admins and members only.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Filter helper: :func:`plane.utils.issue_filters.issue_filters`
+          (``apps/api/plane/utils/issue_filters.py``)
+        * Plot helper: :func:`plane.utils.analytics_plot.build_graph_plot`
+          (``apps/api/plane/utils/analytics_plot.py``)
+        * Model read: :class:`plane.db.models.Issue`
+          (``apps/api/plane/db/models/issue.py``)
+        * URL: ``apps/api/plane/app/urls/analytic.py``
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
@@ -270,13 +284,24 @@ class AnalyticViewViewset(BaseViewSet):
         :class:`plane.db.models.AnalyticView` row.
 
     Permissions:
-        ``permission_classes = [WorkSpaceAdminPermission]`` -- only
-        workspace admins can create, update, or delete saved analytic
-        definitions.
+        ``permission_classes = [WorkSpaceAdminPermission]`` -- declared on
+        the class attribute (see
+        ``apps/api/plane/app/views/analytic/base.py``). Only workspace
+        admins can create, update, or delete saved analytic definitions.
+        See :class:`plane.app.permissions.workspace.WorkSpaceAdminPermission`.
 
     Queryset filter logic:
         :meth:`get_queryset` constrains to ``workspace__slug =
         kwargs["slug"]`` so saved views never cross workspace boundaries.
+
+    Cross-references:
+        * Permission: :class:`plane.app.permissions.workspace.WorkSpaceAdminPermission`
+          (``apps/api/plane/app/permissions/workspace.py``)
+        * Serializer: :class:`plane.app.serializers.AnalyticViewSerializer`
+          (``apps/api/plane/app/serializers/analytic.py``)
+        * Model: :class:`plane.db.models.AnalyticView`
+          (``apps/api/plane/db/models/analytic.py``)
+        * URL: ``apps/api/plane/app/urls/analytic.py``
     """
 
     permission_classes = [WorkSpaceAdminPermission]
@@ -302,6 +327,9 @@ class SavedAnalyticEndpoint(BaseAPIView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/saved-analytic-view/<uuid:analytic_id>/
 
+    Request body:
+        None (GET only) -- all inputs come from URL kwargs and query parameters.
+
     Query parameters:
         segment (str, optional): Override the saved ``query_dict["segment"]``;
             must NOT equal ``x_axis`` and must be a member of
@@ -321,6 +349,15 @@ class SavedAnalyticEndpoint(BaseAPIView):
 
     Permissions:
         ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")``.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Plot helper: :func:`plane.utils.analytics_plot.build_graph_plot`
+          (``apps/api/plane/utils/analytics_plot.py``)
+        * Model: :class:`plane.db.models.AnalyticView`
+          (``apps/api/plane/db/models/analytic.py``)
+        * URL: ``apps/api/plane/app/urls/analytic.py``
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
@@ -390,14 +427,21 @@ class ExportAnalyticsEndpoint(BaseAPIView):
         the Celery worker (RabbitMQ-backed; Redis is cache/session only
         per architectural context). The HTTP response returns
         immediately; CSV delivery is asynchronous.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Celery task: :func:`plane.bgtasks.analytic_plot_export.analytic_export_task`
+          (``apps/api/plane/bgtasks/analytic_plot_export.py``)
+        * URL: ``apps/api/plane/app/urls/analytic.py``
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug):
         """Validate the chart dimensions and enqueue the CSV export task.
 
-        Enqueues :func:`analytic_export_task` to email the rendered CSV
-        to ``request.user.email``.
+        Enqueues :func:`analytic_export_task` (Celery via RabbitMQ) to
+        email the rendered CSV to ``request.user.email``.
         """
         x_axis = request.data.get("x_axis", False)
         y_axis = request.data.get("y_axis", False)
@@ -431,6 +475,9 @@ class DefaultAnalyticsEndpoint(BaseAPIView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/default-analytics/
 
+    Request body:
+        None (GET only) -- all inputs are query parameters listed below.
+
     Query parameters:
         Issue filter parameters parsed by
         :func:`plane.utils.issue_filters.issue_filters` (e.g., ``project``,
@@ -462,6 +509,17 @@ class DefaultAnalyticsEndpoint(BaseAPIView):
     Permissions:
         ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST],
         level="WORKSPACE")`` -- guests can also view the dashboard.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Filter helper: :func:`plane.utils.issue_filters.issue_filters`
+          (``apps/api/plane/utils/issue_filters.py``)
+        * Models read: :class:`plane.db.models.Issue`,
+          :class:`plane.db.models.User`
+          (``apps/api/plane/db/models/issue.py``,
+          ``apps/api/plane/db/models/user.py``)
+        * URL: ``apps/api/plane/app/urls/analytic.py``
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
@@ -614,6 +672,9 @@ class ProjectStatsEndpoint(BaseAPIView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/project-stats/
 
+    Request body:
+        None (GET only) -- all inputs are query parameters listed below.
+
     Query parameters:
         fields (str, optional): Comma-separated subset of
             ``{"total_issues", "completed_issues", "total_members",
@@ -634,6 +695,16 @@ class ProjectStatsEndpoint(BaseAPIView):
     Permissions:
         ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST],
         level="WORKSPACE")``.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Models read: :class:`plane.db.models.Project`,
+          :class:`plane.db.models.Issue`, :class:`plane.db.models.Cycle`,
+          :class:`plane.db.models.Module`,
+          :class:`plane.db.models.ProjectMember`
+          (``apps/api/plane/db/models/``)
+        * URL: ``apps/api/plane/app/urls/analytic.py``
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")

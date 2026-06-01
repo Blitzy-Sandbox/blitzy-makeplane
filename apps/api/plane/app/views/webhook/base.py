@@ -197,8 +197,23 @@ class WebhookSecretRegenerateEndpoint(BaseAPIView):
     no separate "show secret" endpoint, so the previous secret is
     invalidated and unrecoverable as soon as ``webhook.save()`` commits.
 
+    Request body:
+        None (the action is taken on the URL-identified webhook).
+
     Permissions: workspace admin only — ``@allow_permission(
     allowed_roles=[ROLE.ADMIN], level="WORKSPACE")``.
+
+    Cross-references:
+        * Serializer: ``WebhookSerializer`` in
+          ``apps/api/plane/app/serializers/webhook.py``.
+        * Model: ``Webhook`` in
+          ``apps/api/plane/db/models/webhook.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * Celery task (delivery worker that consumes the rotated
+          secret): ``apps/api/plane/bgtasks/webhook_task.py`` (queued
+          via RabbitMQ).
+        * URL registration: ``apps/api/plane/app/urls/webhook.py``.
     """
 
     @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
@@ -230,8 +245,23 @@ class WebhookLogsEndpoint(BaseAPIView):
     ``plane.bgtasks.webhook_task`` after each attempted delivery,
     including failed attempts during the 5-retry exponential backoff.
 
+    Request body:
+        None (GET only); ``webhook_id`` is supplied as a URL parameter.
+
     Permissions: workspace admin only — ``@allow_permission(
     allowed_roles=[ROLE.ADMIN], level="WORKSPACE")``.
+
+    Cross-references:
+        * Serializer: ``WebhookLogSerializer`` in
+          ``apps/api/plane/app/serializers/webhook.py``.
+        * Model: ``WebhookLog`` in
+          ``apps/api/plane/db/models/webhook.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * Celery task (delivery worker that writes these logs):
+          ``apps/api/plane/bgtasks/webhook_task.py`` (queued via
+          RabbitMQ).
+        * URL registration: ``apps/api/plane/app/urls/webhook.py``.
     """
 
     @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")

@@ -66,17 +66,28 @@ class IssueVersionEndpoint(BaseAPIView):
           ``created_at`` / ``updated_at`` are converted to the
           requesting user's ``user_timezone``).
 
+    Request body:
+        None (GET only). All inputs are URL kwargs or query parameters.
+
     Permissions:
         permission_classes -- not set on the class; inherits
         ``[IsAuthenticated]`` from :class:`BaseAPIView`.
         Per-method gate: ``@allow_permission(allowed_roles=[ROLE.ADMIN,
         ROLE.MEMBER, ROLE.GUEST])``.
 
-    Write path:
+    Write path (Celery via RabbitMQ -- NOT Redis):
         Versions are NEVER created via this endpoint. Rows are written
-        by Celery tasks triggered when the live-server collaboration
-        layer persists Y.Doc snapshots (see
+        by Celery tasks (via RabbitMQ) triggered when the live-server
+        collaboration layer persists Y.Doc snapshots (see
         ``plane.bgtasks.issue_version_sync``).
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueVersionDetailSerializer``.
+        - Models: ``plane.db.models.IssueVersion``, ``plane.db.models.Issue``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_version_sync``
+          (writes the rows this endpoint reads).
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     def process_paginated_result(self, fields, results, timezone):
@@ -171,6 +182,9 @@ class WorkItemDescriptionVersionEndpoint(BaseAPIView):
         Per-method gate: ``@allow_permission(allowed_roles=[ROLE.ADMIN,
         ROLE.MEMBER, ROLE.GUEST])``.
 
+    Request body:
+        None (GET only). All inputs are URL kwargs or query parameters.
+
     Guest restriction:
         If the requesting user is a project guest
         (``role=ROLE.GUEST.value``) AND
@@ -178,11 +192,19 @@ class WorkItemDescriptionVersionEndpoint(BaseAPIView):
         not the issue's creator, the response is HTTP 403 with
         ``{"error": "You are not allowed to view this issue"}``.
 
-    Write path:
+    Write path (Celery via RabbitMQ -- NOT Redis):
         Rows are written by
         :func:`plane.bgtasks.issue_description_version_task.issue_description_version_task`
         (Celery via RabbitMQ) when the ``apps/live`` HocusPocus server
         persists a Y.Doc -- see tech spec section 5.2.5.4.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueDescriptionVersionDetailSerializer``.
+        - Models: ``plane.db.models.IssueDescriptionVersion``, ``plane.db.models.Issue``,
+          ``plane.db.models.ProjectMember``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_description_version_task``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     def process_paginated_result(self, fields, results, timezone):

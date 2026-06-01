@@ -195,6 +195,9 @@ class CycleViewSet(BaseViewSet):
               themselves created)
 
     Side effects:
+        All ``.delay()`` enqueues below go through Celery via RabbitMQ
+        (Redis is caching / session only per the architectural context).
+
         * ``create`` queues ``model_activity.delay(model_name="cycle",
           ...)`` -- emits an audit row and a ``cycle`` webhook delivery
           via the workspace's configured webhooks (per tech spec §5.2.10).
@@ -236,6 +239,23 @@ class CycleViewSet(BaseViewSet):
         Architectural note: this aggregation is heavy -- read replicas
         help when ``use_read_replica = True`` is configured on the
         viewset (currently inherited as ``False`` from BaseViewSet).
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Serializers: :class:`plane.app.serializers.CycleSerializer`,
+          :class:`plane.app.serializers.CycleWriteSerializer`
+          (``apps/api/plane/app/serializers/cycle.py``)
+        * Models: :class:`plane.db.models.Cycle`,
+          :class:`plane.db.models.UserFavorite`,
+          :class:`plane.db.models.UserRecentVisit`,
+          :class:`plane.db.models.Project`
+          (``apps/api/plane/db/models/``)
+        * Celery tasks: :func:`plane.bgtasks.issue_activities_task.issue_activity`,
+          :func:`plane.bgtasks.issue_activities_task.model_activity`,
+          :func:`plane.bgtasks.recent_visited_task.recent_visited_task`
+          (``apps/api/plane/bgtasks/``)
+        * URL: ``apps/api/plane/app/urls/cycle.py``
     """
 
     serializer_class = CycleSerializer
@@ -455,7 +475,7 @@ class CycleViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def create(self, request, slug, project_id):
-        """Create a cycle and queue a ``model_activity`` Celery audit event.
+        """Create a cycle and queue a ``model_activity`` Celery audit event (Celery via RabbitMQ).
 
         ``start_date`` and ``end_date`` MUST both be null or both set; ``owned_by``
         is assigned to the requesting user.
@@ -525,7 +545,7 @@ class CycleViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def partial_update(self, request, slug, project_id, pk):
-        """Patch a cycle.
+        """Patch a cycle and queue a ``model_activity`` Celery audit event (Celery via RabbitMQ).
 
         Archived cycles reject all changes (HTTP 400); completed cycles accept only
         ``sort_order`` updates.
@@ -607,7 +627,8 @@ class CycleViewSet(BaseViewSet):
     def retrieve(self, request, slug, project_id, pk):
         """Retrieve a single non-archived cycle with ``sub_issues`` annotation.
 
-        Queues a ``recent_visited_task`` Celery event for UserRecentVisit logging.
+        Queues a ``recent_visited_task`` Celery event (Celery via RabbitMQ)
+        for UserRecentVisit logging.
         """
         queryset = self.get_queryset().filter(archived_at__isnull=True).filter(pk=pk)
         data = (
@@ -678,8 +699,8 @@ class CycleViewSet(BaseViewSet):
     def destroy(self, request, slug, project_id, pk):
         """Hard-delete a cycle (ADMIN or cycle creator only).
 
-        Queues an ``issue_activity`` audit event, then cascade-deletes related
-        UserFavorite and UserRecentVisit rows.
+        Queues an ``issue_activity`` audit event (Celery via RabbitMQ),
+        then cascade-deletes related UserFavorite and UserRecentVisit rows.
         """
         cycle = Cycle.objects.get(workspace__slug=slug, project_id=project_id, pk=pk)
 
@@ -1088,6 +1109,10 @@ class CycleProgressEndpoint(BaseAPIView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/progress/
 
+    Request body:
+        None (GET only) -- ``slug``, ``project_id``, and ``cycle_id`` are
+        supplied as URL kwargs.
+
     Response shape:
         ``{
             "backlog_estimate_points": float,
@@ -1130,6 +1155,15 @@ class CycleProgressEndpoint(BaseAPIView):
     Error cases:
         Cycle not found in the URL workspace+project: HTTP 404
         ``{"error": "Cycle not found"}``.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Models: :class:`plane.db.models.Cycle`,
+          :class:`plane.db.models.Issue`
+          (``apps/api/plane/db/models/cycle.py``,
+          ``apps/api/plane/db/models/issue.py``)
+        * URL: ``apps/api/plane/app/urls/cycle.py``
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
@@ -1276,6 +1310,10 @@ class CycleAnalyticsEndpoint(BaseAPIView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/analytics/
 
+    Request body:
+        None (GET only) -- ``slug``, ``project_id``, and ``cycle_id`` are
+        supplied as URL kwargs.
+
     Query parameters:
         type (str, optional, default=``"issues"``):
             * ``"issues"`` -- aggregate Count() of issues per assignee /
@@ -1347,6 +1385,18 @@ class CycleAnalyticsEndpoint(BaseAPIView):
           label_distribution are computed via Count() aggregations,
           plus the completion chart via ``burndown_plot`` with
           ``plot_type="issues"``.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Burndown helper: :func:`plane.utils.analytics_plot.burndown_plot`
+          (``apps/api/plane/utils/analytics_plot.py``)
+        * Cycle transfer helper: :func:`plane.utils.cycle_transfer_issues.transfer_cycle_issues`
+          (``apps/api/plane/utils/cycle_transfer_issues.py``)
+        * Models: :class:`plane.db.models.Cycle`,
+          :class:`plane.db.models.Issue`
+          (``apps/api/plane/db/models/``)
+        * URL: ``apps/api/plane/app/urls/cycle.py``
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])

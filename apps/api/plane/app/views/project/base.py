@@ -208,6 +208,39 @@ class ProjectViewSet(BaseViewSet):
         * Workspace ``Member`` -- projects where they are an active
           member OR projects with ``network=2`` (public).
         * Workspace ``Admin`` -- all projects in the workspace.
+
+    Side effects (POST / PATCH / DELETE):
+        ``recent_visited_task``, ``model_activity``, and
+        ``webhook_activity`` Celery tasks are dispatched via RabbitMQ
+        (worker modules
+        :mod:`plane.bgtasks.recent_visited_task`,
+        :mod:`plane.bgtasks.issue_activities_task`, and
+        :mod:`plane.bgtasks.webhook_task`).
+
+    Cross-references:
+        * Serializers: ``ProjectListSerializer``,
+          ``ProjectSerializer``, ``DeployBoardSerializer`` in
+          ``apps/api/plane/app/serializers/project.py``.
+        * Models: ``Project``, ``ProjectMember``, ``ProjectIdentifier``,
+          ``ProjectUserProperty``, ``ProjectFavorite`` in
+          ``apps/api/plane/db/models/project.py``;
+          ``DeployBoard`` in
+          ``apps/api/plane/db/models/deploy_board.py``;
+          ``WorkspaceMember`` in
+          ``apps/api/plane/db/models/workspace.py``;
+          ``UserFavorite`` in
+          ``apps/api/plane/db/models/favorite.py``.
+        * Permissions: ``ProjectBasePermission`` in
+          ``apps/api/plane/app/permissions/project.py``;
+          ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * Celery tasks:
+          ``apps/api/plane/bgtasks/recent_visited_task.py``,
+          ``apps/api/plane/bgtasks/issue_activities_task.py``,
+          ``apps/api/plane/bgtasks/webhook_task.py`` (all queued via
+          RabbitMQ).
+        * URL registration:
+          ``apps/api/plane/app/urls/project.py``.
     """
 
     serializer_class = ProjectListSerializer
@@ -659,6 +692,16 @@ class ProjectArchiveUnarchiveEndpoint(BaseAPIView):
     Side effects:
         On archive, related :class:`UserFavorite` rows for this
         project are deleted so it disappears from favorite lists.
+
+    Cross-references:
+        * Models: ``Project`` in
+          ``apps/api/plane/db/models/project.py``;
+          ``UserFavorite`` in
+          ``apps/api/plane/db/models/favorite.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/project.py``.
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
@@ -686,6 +729,11 @@ class ProjectIdentifierEndpoint(BaseAPIView):
         GET    /api/workspaces/<slug>/project-identifiers/
         DELETE /api/workspaces/<slug>/project-identifiers/
 
+    Request body:
+        - GET: None. ``name`` is supplied as a query parameter.
+        - DELETE: ``{"name": str (required)}`` JSON body identifying the
+          identifier row to delete (trimmed + uppercased).
+
     Query / body field (both methods):
         name (str, required): Proposed identifier; trimmed and
             uppercased before lookup.
@@ -711,6 +759,12 @@ class ProjectIdentifierEndpoint(BaseAPIView):
         cleans up identifier rows that were reserved but never bound
         to a created project; identifiers still in use cannot be
         deleted (HTTP 400).
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Models: ``plane.db.models.ProjectIdentifier``, ``plane.db.models.Project``,
+          ``plane.db.models.Workspace``.
+        - URL registration: ``apps/api/plane/app/urls/project.py``.
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
@@ -774,6 +828,12 @@ class ProjectUserViewsEndpoint(BaseAPIView):
         :class:`ProjectMember` of the target project. No
         ``@allow_permission`` decorator is applied because this
         endpoint operates on the requester's OWN membership row.
+
+    Cross-references:
+        * Models: ``Project``, ``ProjectMember`` in
+          ``apps/api/plane/db/models/project.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/project.py``.
     """
 
     def post(self, request, slug, project_id):
@@ -836,6 +896,15 @@ class ProjectFavoritesViewSet(BaseViewSet):
         ``user=request.user`` with related ``project``,
         ``project.project_lead``, ``project.default_assignee``,
         ``workspace``, and ``workspace.owner`` eager-loaded.
+
+    Cross-references:
+        * Model: ``UserFavorite`` in
+          ``apps/api/plane/db/models/favorite.py``;
+          ``Project`` in ``apps/api/plane/db/models/project.py``.
+        * Permissions: ``ProjectBasePermission`` in
+          ``apps/api/plane/app/permissions/project.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/project.py``.
     """
 
     model = UserFavorite
@@ -908,10 +977,20 @@ class DeployBoardViewSet(BaseViewSet):
         :class:`plane.app.serializers.DeployBoardSerializer` output.
 
     Permissions:
-        permission_classes = [ProjectMemberPermission] -- any active
-        project member can manage the deploy board (the
+        ``permission_classes = [ProjectMemberPermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/project/base.py`). Defined in
+        :class:`plane.app.permissions.project.ProjectMemberPermission`.
+        Any active project member can manage the deploy board (the
         anonymous-readable surface itself is served separately by
         :mod:`plane.space`).
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectMemberPermission``.
+        - Serializers: ``plane.app.serializers.DeployBoardSerializer``.
+        - Models: ``plane.db.models.DeployBoard``, ``plane.db.models.Project``,
+          ``plane.db.models.Intake``.
+        - URL registration: ``apps/api/plane/app/urls/project.py``.
     """
 
     permission_classes = [ProjectMemberPermission]

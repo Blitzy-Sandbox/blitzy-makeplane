@@ -132,6 +132,16 @@ class IssueArchiveViewSet(BaseViewSet):
         via Celery (RabbitMQ) with ``type="issue.activity.updated"`` and a
         payload containing the new ``archived_at`` value -- the worker
         appends a row to :class:`IssueActivity` for the issue timeline.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueFlatSerializer``,
+          ``plane.app.serializers.IssueDetailSerializer``.
+        - Models: ``plane.db.models.Issue``, ``plane.db.models.IssueLink``,
+          ``plane.db.models.FileAsset``, ``plane.db.models.CycleIssue``,
+          ``plane.db.models.IssueSubscriber``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     serializer_class = IssueFlatSerializer
@@ -435,7 +445,10 @@ class BulkArchiveIssuesEndpoint(BaseAPIView):
         batch is rejected (atomic-style validation).
 
     Permissions:
-        permission_classes = [ProjectEntityPermission]
+        ``permission_classes = [ProjectEntityPermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/issue/archive.py`). Defined in
+        :class:`plane.app.permissions.project.ProjectEntityPermission`.
         Per-method gate: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER])``
 
     Business rule:
@@ -449,6 +462,13 @@ class BulkArchiveIssuesEndpoint(BaseAPIView):
         ["archived_at"])``; for each affected issue one
         ``plane.bgtasks.issue_activities_task.issue_activity`` Celery task
         is enqueued (RabbitMQ) with ``type="issue.activity.updated"``.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectEntityPermission``,
+          ``plane.app.permissions.allow_permission``.
+        - Models: ``plane.db.models.Issue``, ``plane.db.models.State``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     permission_classes = [ProjectEntityPermission]

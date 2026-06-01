@@ -76,6 +76,19 @@ class IssueSearchEndpoint(BaseAPIView):
         project__project_projectmember__is_active=True,
         project__archived_at__isnull=True)``; subsequent helpers conditionally narrow
         based on the query parameters above.
+
+    Request body:
+        None (GET only); all parameters are supplied as query string.
+
+    Cross-references:
+        * Models: ``Issue``, ``IssueRelation`` in
+          ``apps/api/plane/db/models/issue.py``;
+          ``Project``, ``ProjectMember`` in
+          ``apps/api/plane/db/models/project.py``;
+          ``CycleIssue`` in ``apps/api/plane/db/models/cycle.py``;
+          ``ModuleIssue`` in ``apps/api/plane/db/models/module.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/search.py``.
     """
 
     def filter_issues_by_project(self, project_id: int, issues: QuerySet) -> QuerySet:

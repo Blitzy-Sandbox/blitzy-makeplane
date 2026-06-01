@@ -52,6 +52,16 @@ class QuickLinkViewSet(BaseViewSet):
         There is no class-level ``get_queryset`` override; every handler
         filters explicitly by ``workspace__slug`` and ``owner=request.user``
         to enforce per-user scoping.
+
+    Cross-references:
+        * Serializer: ``WorkspaceUserLinkSerializer`` in
+          ``apps/api/plane/app/serializers/workspace.py``.
+        * Models: ``WorkspaceUserLink``, ``Workspace`` in
+          ``apps/api/plane/db/models/workspace.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     model = WorkspaceUserLink

@@ -89,14 +89,36 @@ class ProjectInvitationsViewset(BaseViewSet):
     Side effects (POST):
         * Bulk creates :class:`ProjectMemberInvite` rows with JWT tokens
           (HS256-signed with ``settings.SECRET_KEY``).
-        * Enqueues invitation email tasks (Celery via RabbitMQ); the
-          worker module is :mod:`plane.bgtasks.project_invitation_task`.
+        * INTENT UNCLEAR: appears intended to enqueue invitation email
+          tasks (Celery via RabbitMQ) via
+          :func:`plane.bgtasks.project_invitation_task.project_invitation`,
+          but the implementation at the bottom of ``create`` calls
+          ``project_invitations.delay(...)`` on the local list returned
+          by ``ProjectMemberInvite.objects.bulk_create(...)`` rather than
+          on the imported Celery task. As written, the loop will raise
+          ``AttributeError`` at runtime because lists have no ``.delay``
+          attribute. No invitation email is dispatched in the current
+          implementation.
 
     Queryset filter logic:
         Scoped to ``workspace.slug == kwargs["slug"]`` and
         ``project_id == kwargs["project_id"]``, with related
         ``project``, ``workspace``, and ``workspace.owner`` selected
         eagerly.
+
+    Cross-references:
+        * Serializer: ``ProjectMemberInviteSerializer`` in
+          ``apps/api/plane/app/serializers/project.py``.
+        * Model: ``ProjectMemberInvite`` in
+          ``apps/api/plane/db/models/project.py``.
+        * Permissions: ``ProjectBasePermission`` in
+          ``apps/api/plane/app/permissions/project.py``;
+          ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * Celery task (intended target): ``project_invitation`` in
+          ``apps/api/plane/bgtasks/project_invitation_task.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/project.py``.
     """
 
     serializer_class = ProjectMemberInviteSerializer
@@ -117,13 +139,23 @@ class ProjectInvitationsViewset(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN])
     def create(self, request, slug, project_id):
-        """Bulk create project member invitations and enqueue invitation email tasks (Celery via RabbitMQ).
+        """Bulk create project member invitation rows; email dispatch is currently broken.
 
         Each invitation row carries an HS256 JWT token signed with
         ``settings.SECRET_KEY``. Workspace role consistency is enforced
         upfront: a workspace ``Guest`` cannot be invited as ``Member`` /
         ``Admin``, and a workspace ``Admin`` cannot be invited as a
         lesser role.
+
+        INTENT UNCLEAR: the trailing loop is intended to enqueue
+        invitation emails through Celery via RabbitMQ (worker module
+        :mod:`plane.bgtasks.project_invitation_task`), but it calls
+        ``project_invitations.delay(...)`` on the list returned by
+        ``ProjectMemberInvite.objects.bulk_create(...)`` -- which shadows
+        the originally-intended task reference. The list has no
+        ``.delay`` attribute, so the loop raises ``AttributeError``
+        before any email is queued. Documented as-is; the implementation
+        is out of scope for this documentation pass.
         """
         emails = request.data.get("emails", [])
 
@@ -219,6 +251,18 @@ class UserProjectInvitationsViewset(BaseViewSet):
     Queryset filter logic:
         Scoped to ``email == request.user.email``, with ``workspace``,
         ``workspace.owner``, and ``project`` eager-loaded.
+
+    Cross-references:
+        * Serializer: ``ProjectMemberInviteSerializer`` in
+          ``apps/api/plane/app/serializers/project.py``.
+        * Models: ``ProjectMemberInvite``, ``ProjectMember``,
+          ``ProjectUserProperty``, ``WorkspaceMember``, ``Project``,
+          ``ProjectNetwork`` in ``apps/api/plane/db/models/project.py``
+          and ``apps/api/plane/db/models/workspace.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/project.py``.
     """
 
     serializer_class = ProjectMemberInviteSerializer
@@ -316,9 +360,11 @@ class ProjectJoinEndpoint(BaseAPIView):
         output.
 
     Permissions:
-        permission_classes = [AllowAny] -- the invite link must be
-        openable without a prior session. The supplied ``email`` is
-        the integrity check that gates acceptance.
+        ``permission_classes = [AllowAny]`` (declared on the class
+        attribute; see ``apps/api/plane/app/views/project/invite.py``)
+        -- the invite link must be openable without a prior session.
+        The supplied ``email`` is the integrity check that gates
+        acceptance.
 
     Side effects (POST, on accept):
         * Stamps ``responded_at`` and ``accepted`` on the
@@ -327,6 +373,17 @@ class ProjectJoinEndpoint(BaseAPIView):
           (capped at ``Member=15`` even if invite role is higher).
         * Creates or reactivates a :class:`ProjectMember` row carrying
           the invitation's role.
+
+    Cross-references:
+        * Serializer: ``ProjectMemberInviteSerializer`` in
+          ``apps/api/plane/app/serializers/project.py``.
+        * Models: ``ProjectMemberInvite``, ``ProjectMember``,
+          ``WorkspaceMember``, ``User`` in
+          ``apps/api/plane/db/models/project.py``,
+          ``apps/api/plane/db/models/workspace.py``, and
+          ``apps/api/plane/db/models/user.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/project.py``.
     """
 
     permission_classes = [AllowAny]

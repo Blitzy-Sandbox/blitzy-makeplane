@@ -389,6 +389,9 @@ class UnreadNotificationEndpoint(BaseAPIView):
         ``mention_unread_notifications_count`` covers mentions only so
         the UI can render a distinct mentions badge.
 
+    Request body:
+        None (GET only). All inputs are URL kwargs.
+
     Permissions:
         - Inherits ``permission_classes = [IsAuthenticated]`` from
           ``BaseAPIView`` (authenticated session required).
@@ -401,6 +404,12 @@ class UnreadNotificationEndpoint(BaseAPIView):
         configured PostgreSQL read replica via
         ``ReadReplicaControlMixin`` — acceptable because slightly
         stale unread counts are tolerable for badge UX.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Models: ``plane.db.models.Notification``,
+          ``plane.db.models.Workspace``.
+        - URL registration: ``apps/api/plane/app/urls/notification.py``.
     """
 
     use_read_replica = True

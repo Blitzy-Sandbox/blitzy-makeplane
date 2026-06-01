@@ -61,7 +61,10 @@ class LabelViewSet(BaseViewSet):
         updated_at).
 
     Permissions:
-        permission_classes = [ProjectBasePermission]
+        ``permission_classes = [ProjectBasePermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/issue/label.py`). Defined in
+        :class:`plane.app.permissions.project.ProjectBasePermission`.
             * Reads allowed to any active project member.
             * Writes additionally gated by
               ``@allow_permission([ROLE.ADMIN])`` -- only project
@@ -84,7 +87,15 @@ class LabelViewSet(BaseViewSet):
         Every write decorates with
         ``@invalidate_cache(path="/api/workspaces/:slug/labels/",
         url_params=True, user=False)`` -- ``create`` adds
-        ``multiple=True`` to also invalidate paginated cache keys.
+        ``multiple=True`` to also invalidate paginated cache keys
+        (Redis: caching only, not task queueing).
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectBasePermission``,
+          ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.LabelSerializer``.
+        - Models: ``plane.db.models.Label``, ``plane.db.models.Project``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     serializer_class = LabelSerializer

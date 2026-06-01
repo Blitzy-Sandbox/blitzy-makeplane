@@ -26,7 +26,7 @@ import json
 
 # Django imports
 from django.utils import timezone
-from django.db.models import OuterRef, F, Value, UUIDField, Subquery, Count, IntegerField
+from django.db.models import OuterRef, Func, F, Q, Value, UUIDField, Subquery, Count, IntegerField
 from django.utils.decorators import method_decorator
 from django.views.decorators.gzip import gzip_page
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -90,18 +90,30 @@ class SubIssuesEndpoint(BaseAPIView):
         :func:`plane.utils.timezone_converter.user_timezone_converter`.
 
     Permissions:
-        permission_classes = [ProjectEntityPermission]
+        ``permission_classes = [ProjectEntityPermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/issue/sub_issue.py`). Defined in
+        :class:`plane.app.permissions.project.ProjectEntityPermission`.
 
-    Side effects (POST):
+    Side effects (POST -- Celery via RabbitMQ, NOT Redis):
         ``Issue.objects.bulk_update(..., ["parent"], batch_size=10)`` --
         note ``Issue.objects`` is used here (the default manager, NOT
         ``issue_objects``) so the update reaches even archived rows.
-        For each reparented issue an ``issue.activity.updated`` Celery
-        task is enqueued (RabbitMQ) recording the parent change.
+        For each reparented issue an ``issue_activity.delay(...)``
+        Celery task with ``type="issue.activity.updated"`` is enqueued
+        (via RabbitMQ) recording the parent change.
 
     Compression:
         ``get`` is decorated with ``@method_decorator(gzip_page)`` --
         sub-issue listings can be large, so the response is gzipped.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectEntityPermission``.
+        - Serializers: ``plane.app.serializers.IssueSerializer``.
+        - Models: ``plane.db.models.Issue``, ``plane.db.models.CycleIssue``,
+          ``plane.db.models.IssueLink``, ``plane.db.models.FileAsset``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     permission_classes = [ProjectEntityPermission]

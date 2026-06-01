@@ -106,7 +106,9 @@ class WorkSpaceViewSet(BaseViewSet):
         ordered by name.
 
     Permissions:
-        permission_classes = [WorkSpaceBasePermission]:
+        ``permission_classes = [WorkSpaceBasePermission]`` (declared on
+        the class attribute; see
+        ``apps/api/plane/app/views/workspace/base.py``):
             * Anonymous: denied.
             * POST: allowed (anyone authenticated may create a workspace
               unless the instance config ``DISABLE_WORKSPACE_CREATION``
@@ -154,6 +156,23 @@ class WorkSpaceViewSet(BaseViewSet):
         Eager-loads ``owner`` via ``select_related`` and annotates
         ``total_members`` via a correlated ``WorkspaceMember`` count of
         active, non-bot members.
+
+    Cross-references:
+        * Serializer: ``WorkSpaceSerializer`` in
+          ``apps/api/plane/app/serializers/workspace.py``.
+        * Models: ``Workspace``, ``WorkspaceMember`` in
+          ``apps/api/plane/db/models/workspace.py``;
+          ``Profile`` in ``apps/api/plane/db/models/user.py``.
+        * Permissions: ``WorkSpaceBasePermission`` in
+          ``apps/api/plane/app/permissions/workspace.py``;
+          ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * Celery tasks:
+          ``apps/api/plane/bgtasks/workspace_seed_task.py``,
+          ``apps/api/plane/bgtasks/event_tracking_task.py`` (both
+          queued via RabbitMQ).
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     model = Workspace
@@ -336,6 +355,9 @@ class UserWorkSpacesEndpoint(BaseAPIView):
         GET /api/users/me/workspaces/   (mounted under the user URL
             namespace; see ``apps/api/plane/app/urls/user.py``)
 
+    Request body:
+        None (GET only); all parameters are supplied as query string.
+
     Query parameters:
         fields (str, optional, comma-separated): when supplied, the
             response only contains those serializer fields (sparse
@@ -354,6 +376,13 @@ class UserWorkSpacesEndpoint(BaseAPIView):
 
     Read replica:
         ``use_read_replica = True``.
+
+    Cross-references:
+        * Serializer: ``WorkSpaceSerializer`` in
+          ``apps/api/plane/app/serializers/workspace.py``.
+        * Models: ``Workspace``, ``WorkspaceMember`` in
+          ``apps/api/plane/db/models/workspace.py``.
+        * URL registration: ``apps/api/plane/app/urls/user.py``.
     """
 
     search_fields = ["name"]
@@ -401,6 +430,9 @@ class WorkSpaceAvailabilityCheckEndpoint(BaseAPIView):
     HTTP methods + URL pattern:
         GET /api/workspace-slug-check/?slug=foo
 
+    Request body:
+        None (GET only); ``slug`` is supplied as a query parameter.
+
     Query parameters:
         slug (str, required): the candidate slug.
 
@@ -414,6 +446,14 @@ class WorkSpaceAvailabilityCheckEndpoint(BaseAPIView):
 
     Errors:
         HTTP 400 if the ``slug`` query parameter is missing or empty.
+
+    Cross-references:
+        * Model: ``Workspace`` in
+          ``apps/api/plane/db/models/workspace.py``.
+        * Constants: ``RESTRICTED_WORKSPACE_SLUGS`` in
+          ``apps/api/plane/utils/constants.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     def get(self, request):
@@ -479,6 +519,17 @@ class UserWorkspaceDashboardEndpoint(BaseAPIView):
         The ``issue_activities`` rollup looks back three months; the
         ``completed_issues`` rollup uses ``WeekInMonth`` to bucket the
         requested month into four week-of-month buckets.
+
+    Request body:
+        None (GET only); the ``month`` parameter is supplied as a
+        query string.
+
+    Cross-references:
+        * Models: ``Issue``, ``IssueActivity``, ``IssueAssignee`` in
+          ``apps/api/plane/db/models/issue.py``;
+          ``State`` in ``apps/api/plane/db/models/state.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     def get(self, request, slug):
@@ -600,7 +651,9 @@ class WorkspaceThemeViewSet(BaseViewSet):
         ``WorkspaceThemeSerializer``.
 
     Permissions:
-        permission_classes = [WorkSpaceAdminPermission] — workspace
+        ``permission_classes = [WorkSpaceAdminPermission]`` (declared
+        on the class attribute; see
+        ``apps/api/plane/app/views/workspace/base.py``) — workspace
         admins/members only.
 
     Side effects on create:
@@ -610,6 +663,16 @@ class WorkspaceThemeViewSet(BaseViewSet):
 
     Queryset:
         Filtered by ``workspace__slug``.
+
+    Cross-references:
+        * Serializer: ``WorkspaceThemeSerializer`` in
+          ``apps/api/plane/app/serializers/workspace.py``.
+        * Model: ``WorkspaceTheme`` in
+          ``apps/api/plane/db/models/workspace.py``.
+        * Permissions: ``WorkSpaceAdminPermission`` in
+          ``apps/api/plane/app/permissions/workspace.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     permission_classes = [WorkSpaceAdminPermission]
@@ -648,7 +711,9 @@ class ExportWorkspaceUserActivityEndpoint(BaseAPIView):
         Action, Field, Old value, New value]``.
 
     Permissions:
-        permission_classes = [WorkspaceEntityPermission] — any active
+        ``permission_classes = [WorkspaceEntityPermission]`` (declared
+        on the class attribute; see
+        ``apps/api/plane/app/views/workspace/base.py``) — any active
         workspace member.
 
     Queryset:
@@ -665,6 +730,16 @@ class ExportWorkspaceUserActivityEndpoint(BaseAPIView):
         with ``=``, ``+``, ``-``, or ``@`` cannot be interpreted as
         formulae when opened in spreadsheet software (CSV injection
         mitigation).
+
+    Cross-references:
+        * Model: ``IssueActivity`` in
+          ``apps/api/plane/db/models/issue.py``.
+        * Permissions: ``WorkspaceEntityPermission`` in
+          ``apps/api/plane/app/permissions/workspace.py``.
+        * Helpers: ``sanitize_csv_row`` in
+          ``apps/api/plane/utils/csv_utils.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     permission_classes = [WorkspaceEntityPermission]

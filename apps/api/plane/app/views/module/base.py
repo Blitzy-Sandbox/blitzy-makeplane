@@ -1072,7 +1072,10 @@ class ModuleLinkViewSet(BaseViewSet):
         :class:`plane.app.serializers.ModuleLinkSerializer` output.
 
     Permissions:
-        permission_classes = [ProjectEntityPermission]
+        ``permission_classes = [ProjectEntityPermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/module/base.py`). Defined in
+        :class:`plane.app.permissions.project.ProjectEntityPermission`.
 
         ProjectEntityPermission requires the requesting user to be
         an active project member; for unsafe methods (POST / PATCH /
@@ -1091,6 +1094,12 @@ class ModuleLinkViewSet(BaseViewSet):
         the URL, the requesting user is an ACTIVE project member, and
         the project is not archived. Orders by ``-created_at``;
         applies ``.distinct()``.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectEntityPermission``.
+        - Serializers: ``plane.app.serializers.ModuleLinkSerializer``.
+        - Models: ``plane.db.models.ModuleLink``, ``plane.db.models.Module``.
+        - URL registration: ``apps/api/plane/app/urls/module.py``.
     """
 
     permission_classes = [ProjectEntityPermission]
@@ -1158,7 +1167,10 @@ class ModuleFavoriteViewSet(BaseViewSet):
         DELETE: HTTP 204 NO_CONTENT with empty body.
 
     Permissions:
-        permission_classes = [ProjectLitePermission]
+        ``permission_classes = [ProjectLitePermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/module/base.py`). Defined in
+        :class:`plane.app.permissions.project.ProjectLitePermission`.
 
         ProjectLitePermission requires only active project
         membership (no role restrictions on unsafe methods) --
@@ -1186,6 +1198,11 @@ class ModuleFavoriteViewSet(BaseViewSet):
         method in ``create`` and ``destroy`` (not in the queryset
         itself, so a list call returns favorites across all entity
         types in the workspace).
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectLitePermission``.
+        - Models: ``plane.db.models.UserFavorite``, ``plane.db.models.Module``.
+        - URL registration: ``apps/api/plane/app/urls/module.py``.
     """
 
     model = UserFavorite

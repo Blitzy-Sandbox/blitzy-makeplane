@@ -82,8 +82,10 @@ class PageVersionEndpoint(BaseAPIView):
             * ``description_json`` (JSONField) -- TipTap document.
 
     Permissions:
-        permission_classes = [ProjectPagePermission]
-            -- defined in :mod:`plane.app.permissions.page`. Enforces:
+        ``permission_classes = [ProjectPagePermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/page/version.py`). Defined in
+        :class:`plane.app.permissions.page.ProjectPagePermission`. Enforces:
             (1) the requesting user is an active project member,
             (2) for private pages (``Page.access == 1``), the user is
                 either the page owner or the workspace admin,
@@ -93,7 +95,7 @@ class PageVersionEndpoint(BaseAPIView):
         locate the parent page; the version's own ``pk`` is checked
         only for existence in :meth:`get`.
 
-    Side effects:
+    Side effects (Celery via RabbitMQ -- NOT Redis):
         None -- this endpoint is strictly read-only. It performs no
         writes, no Celery dispatches, no cache invalidation. Version
         rows are mutated only by:
@@ -104,7 +106,7 @@ class PageVersionEndpoint(BaseAPIView):
             * :func:`plane.bgtasks.page_transaction_task.page_transaction`
               -- writes the activity-log delta for each transaction.
 
-        Both tasks are queued via Celery / RabbitMQ from
+        Both tasks are queued via Celery (RabbitMQ) from
         :class:`plane.app.views.page.base.PagesDescriptionViewSet.partial_update`
         and :class:`PageViewSet.create` / ``partial_update`` /
         :class:`PageDuplicateEndpoint`.
@@ -119,6 +121,15 @@ class PageVersionEndpoint(BaseAPIView):
         projects via the :class:`ProjectPage` junction. Project
         scoping is enforced by :class:`ProjectPagePermission`, which
         verifies the page is reachable from the URL's ``project_id``.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectPagePermission``.
+        - Serializers: ``plane.app.serializers.PageVersionSerializer``,
+          ``plane.app.serializers.PageVersionDetailSerializer``.
+        - Models: ``plane.db.models.PageVersion``, ``plane.db.models.Page``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.page_version_task.track_page_version``
+          (writes the rows this endpoint reads).
+        - URL registration: ``apps/api/plane/app/urls/page.py``.
     """
 
     permission_classes = [ProjectPagePermission]

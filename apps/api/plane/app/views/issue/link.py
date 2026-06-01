@@ -70,25 +70,27 @@ class IssueLinkViewSet(BaseViewSet):
 
     Permissions:
         permission_classes = [ProjectEntityPermission]
-            -- declared on line 27. Members of the project (active
-            ``ProjectMember`` row, role >= GUEST) may CRUD links;
-            non-members receive HTTP 403. See
-            :class:`plane.app.permissions.project.ProjectEntityPermission`.
+            -- declared on the class attribute (see
+            ``apps/api/plane/app/views/issue/link.py``).
+            Members of the project (active ``ProjectMember`` row,
+            role >= GUEST) may CRUD links; non-members receive HTTP
+            403. See :class:`plane.app.permissions.project.ProjectEntityPermission`.
 
     get_queryset filter logic:
         Filters by ``workspace__slug``, ``project_id``, ``issue_id`` from
         URL kwargs, restricts to active project members on a
         non-archived project, orders by ``-created_at``, distinct.
 
-    Side effects:
+    Side effects (Celery via RabbitMQ -- NOT Redis):
         * ``create`` / ``partial_update`` enqueue
-          :func:`plane.bgtasks.work_item_link_task.crawl_work_item_link_title`
-          (Celery via RabbitMQ) which fetches the destination page's
-          ``<title>`` asynchronously and updates the row in place. The
-          worker is NON-idempotent only insofar as it overwrites
-          ``title`` -- safe to retry.
-        * Every write enqueues
-          :func:`plane.bgtasks.issue_activities_task.issue_activity`
+          ``crawl_work_item_link_title.delay(...)`` (see
+          :func:`plane.bgtasks.work_item_link_task.crawl_work_item_link_title`)
+          which fetches the destination page's ``<title>``
+          asynchronously and updates the row in place. The worker is
+          NON-idempotent only insofar as it overwrites ``title`` --
+          safe to retry.
+        * Every write enqueues ``issue_activity.delay(...)`` (see
+          :func:`plane.bgtasks.issue_activities_task.issue_activity`)
           with ``type="link.activity.{created|updated|deleted}"`` so the
           change appears in the issue activity timeline.
 

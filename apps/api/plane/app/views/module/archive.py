@@ -132,7 +132,10 @@ class ModuleArchiveUnarchiveEndpoint(BaseAPIView):
         Empty body with HTTP 204.
 
     Permissions:
-        permission_classes = [ProjectEntityPermission]
+        ``permission_classes = [ProjectEntityPermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/module/archive.py`). Defined in
+        :class:`plane.app.permissions.project.ProjectEntityPermission`.
 
         ProjectEntityPermission requires the requesting user to be an
         active project member; for unsafe methods (POST / DELETE) the
@@ -190,8 +193,17 @@ class ModuleArchiveUnarchiveEndpoint(BaseAPIView):
           (currently inherited as ``False`` from ``BaseAPIView``).
         * No Celery tasks are queued from this endpoint -- archive /
           unarchive are synchronous DB writes only (unlike the main
-          :class:`ModuleViewSet` which queues ``model_activity`` and
-          ``issue_activity`` Celery tasks via RabbitMQ).
+          :class:`ModuleViewSet` which queues ``model_activity.delay`` and
+          ``issue_activity.delay`` Celery tasks via RabbitMQ).
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectEntityPermission``.
+        - Serializers: ``plane.app.serializers.ModuleDetailSerializer``,
+          ``plane.app.serializers.ModuleSerializer``.
+        - Models: ``plane.db.models.Module``, ``plane.db.models.ModuleIssue``,
+          ``plane.db.models.ModuleMember``, ``plane.db.models.UserFavorite``,
+          ``plane.db.models.Issue``.
+        - URL registration: ``apps/api/plane/app/urls/module.py``.
     """
 
     permission_classes = [ProjectEntityPermission]

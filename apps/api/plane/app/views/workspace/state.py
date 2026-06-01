@@ -37,12 +37,26 @@ class WorkspaceStatesEndpoint(BaseAPIView):
         grouping math).
 
     Permissions:
-        permission_classes = [WorkspaceEntityPermission] -- read access for
-        every active workspace member; mutations would require Admin/Member,
-        but this endpoint is GET-only.
+        ``permission_classes = [WorkspaceEntityPermission]`` (declared
+        on the class attribute; see
+        ``apps/api/plane/app/views/workspace/state.py``) -- read
+        access for every active workspace member; mutations would
+        require Admin/Member, but this endpoint is GET-only.
 
     Read replica:
         ``use_read_replica = True`` -- cross-project listing is read-only.
+
+    Cross-references:
+        * Serializer: ``StateSerializer`` in
+          ``apps/api/plane/app/serializers/state.py``.
+        * Model: ``State`` in
+          ``apps/api/plane/db/models/state.py``;
+          ``ProjectMember`` in
+          ``apps/api/plane/db/models/project.py``.
+        * Permissions: ``WorkspaceEntityPermission`` in
+          ``apps/api/plane/app/permissions/workspace.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     permission_classes = [WorkspaceEntityPermission]

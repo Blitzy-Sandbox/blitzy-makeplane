@@ -68,7 +68,10 @@ class IssueSubscriberViewSet(BaseViewSet):
         - ``subscription_status``: ``{"subscribed": bool}`` (HTTP 200).
 
     Permissions:
-        permission_classes = [ProjectEntityPermission]
+        ``permission_classes = [ProjectEntityPermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/issue/subscriber.py`). Defined in
+        :class:`plane.app.permissions.project.ProjectEntityPermission`.
         Dynamic override via :meth:`get_permissions`: for actions
         ``subscribe``, ``unsubscribe``, ``subscription_status`` the
         permission is switched to :class:`ProjectLitePermission` so
@@ -81,11 +84,22 @@ class IssueSubscriberViewSet(BaseViewSet):
         project members on a non-archived project; ordered by
         ``-created_at``; distinct.
 
-    Consumers:
+    Consumers (Celery via RabbitMQ -- NOT Redis):
         :class:`IssueSubscriber` rows are read by the notification
         pipeline (``plane.bgtasks.notification_task.notification_task``,
         Celery via RabbitMQ) when fanning out notifications for issue
         updates.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectEntityPermission``,
+          ``plane.app.permissions.ProjectLitePermission``.
+        - Serializers: ``plane.app.serializers.IssueSubscriberSerializer``,
+          ``plane.app.serializers.ProjectMemberLiteSerializer``.
+        - Models: ``plane.db.models.IssueSubscriber``, ``plane.db.models.Issue``,
+          ``plane.db.models.ProjectMember``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.notification_task.notification_task``
+          (consumer; this endpoint writes the rows the task reads).
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     serializer_class = IssueSubscriberSerializer

@@ -64,6 +64,13 @@ class FileAssetEndpoint(BaseAPIView):
         Lookups concatenate ``str(workspace_id) + "/" + asset_key`` to match
         the on-disk layout produced by
         ``FileAsset.asset = FileField(upload_to=get_upload_path)``.
+
+    Cross-references:
+        * Serializer: :class:`plane.app.serializers.FileAssetSerializer`
+          (``apps/api/plane/app/serializers/asset.py``)
+        * Model: :class:`plane.db.models.FileAsset`
+          (``apps/api/plane/db/models/asset.py``)
+        * URL: ``apps/api/plane/app/urls/asset.py``
     """
 
     parser_classes = (MultiPartParser, FormParser, JSONParser)
@@ -123,12 +130,21 @@ class FileAssetViewSet(BaseViewSet):
     ``serializer_class`` are intentionally unset because the action operates
     on a composite asset key rather than a primary key lookup.
 
+    Request body (POST /restore/):
+        None -- the asset is identified entirely by the URL composite key
+        ``<workspace_id>/<asset_key>``; no body is read or required.
+
     Response:
         HTTP 204 (no body).
 
     Permissions:
         Inherits ``permission_classes = [IsAuthenticated]`` from
         ``BaseViewSet``.
+
+    Cross-references:
+        * Model: :class:`plane.db.models.FileAsset`
+          (``apps/api/plane/db/models/asset.py``)
+        * URL: ``apps/api/plane/app/urls/asset.py``
     """
 
     def restore(self, request, workspace_id, asset_key):
@@ -177,6 +193,13 @@ class UserAssetsEndpoint(BaseAPIView):
         ``BaseAPIView``; ownership is enforced by every queryset filtering on
         ``created_by=request.user`` so a user cannot read or delete another
         user's asset by guessing its key.
+
+    Cross-references:
+        * Serializer: :class:`plane.app.serializers.FileAssetSerializer`
+          (``apps/api/plane/app/serializers/asset.py``)
+        * Model: :class:`plane.db.models.FileAsset`
+          (``apps/api/plane/db/models/asset.py``)
+        * URL: ``apps/api/plane/app/urls/asset.py``
     """
 
     parser_classes = (MultiPartParser, FormParser)

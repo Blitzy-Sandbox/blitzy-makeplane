@@ -59,6 +59,15 @@ class WorkspaceUserPreferenceViewSet(BaseAPIView):
         Despite the ViewSet suffix, this class extends ``BaseAPIView`` and
         implements flat HTTP handlers -- leave the class name and base
         unchanged (no refactoring, per system boundaries).
+
+    Cross-references:
+        - Serializer: ``apps/api/plane/app/serializers/workspace.py``
+          (``WorkspaceUserPreferenceSerializer``).
+        - Models: ``apps/api/plane/db/models/workspace.py``
+          (``WorkspaceUserPreference``, ``Workspace``).
+        - Permission helper: ``apps/api/plane/app/permissions/base.py``
+          (``allow_permission`` decorator, ``ROLE`` enum).
+        - URL registration: ``apps/api/plane/app/urls/workspace.py``.
     """
 
     model = WorkspaceUserPreference

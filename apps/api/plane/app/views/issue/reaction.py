@@ -71,11 +71,17 @@ class IssueReactionViewSet(BaseViewSet):
         actor=request.user)`` -- so a user can only remove their OWN
         reaction. There is no admin override.
 
-    Side effects:
-        Each create / destroy enqueues
-        ``plane.bgtasks.issue_activities_task.issue_activity`` with
+    Side effects (Celery via RabbitMQ -- NOT Redis):
+        Each create / destroy enqueues ``issue_activity.delay(...)`` with
         ``type="issue_reaction.activity.{created|deleted}"`` for the
         issue timeline.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueReactionSerializer``.
+        - Models: ``plane.db.models.IssueReaction``, ``plane.db.models.Issue``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
     """
 
     serializer_class = IssueReactionSerializer

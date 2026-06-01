@@ -106,8 +106,9 @@ class ProjectMemberViewSet(BaseViewSet):
 
     Side effects (POST):
         Bulk creates ``ProjectMember`` + ``ProjectUserProperty`` rows
-        and enqueues ``project_add_user_email`` Celery tasks
-        (RabbitMQ).
+        and enqueues ``project_add_user_email`` Celery tasks via
+        RabbitMQ (worker module
+        :mod:`plane.bgtasks.project_add_user_email_task`).
 
     Queryset filter logic:
         Scoped to ``workspace.slug == kwargs["slug"]``,
@@ -115,6 +116,24 @@ class ProjectMemberViewSet(BaseViewSet):
         ``member.is_bot=False`` (system service accounts are excluded
         from human-readable rosters). ``project``, ``member``,
         ``workspace``, and ``workspace.owner`` are eager-loaded.
+
+    Cross-references:
+        * Serializers: ``ProjectMemberAdminSerializer``,
+          ``ProjectMemberRoleSerializer`` in
+          ``apps/api/plane/app/serializers/project.py``.
+        * Models: ``ProjectMember``, ``ProjectUserProperty``,
+          ``WorkspaceMember`` in
+          ``apps/api/plane/db/models/project.py`` and
+          ``apps/api/plane/db/models/workspace.py``.
+        * Permissions: ``ProjectBasePermission`` in
+          ``apps/api/plane/app/permissions/project.py``;
+          ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * Celery task:
+          ``apps/api/plane/bgtasks/project_add_user_email_task.py``
+          (queued via RabbitMQ).
+        * URL registration:
+          ``apps/api/plane/app/urls/project.py``.
     """
 
     serializer_class = ProjectMemberAdminSerializer
@@ -443,6 +462,9 @@ class ProjectMemberUserEndpoint(BaseAPIView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/projects/<project_id>/project-members/me/
 
+    Request body:
+        None (GET only).
+
     Response shape:
         :class:`plane.app.serializers.ProjectMemberSerializer` output
         for the single active membership row keyed by
@@ -453,6 +475,14 @@ class ProjectMemberUserEndpoint(BaseAPIView):
         Inherits :class:`plane.app.views.base.BaseAPIView` default of
         ``[IsAuthenticated]``. Used by the web client to render
         project-context UI without requiring elevated permissions.
+
+    Cross-references:
+        * Serializer: ``ProjectMemberSerializer`` in
+          ``apps/api/plane/app/serializers/project.py``.
+        * Model: ``ProjectMember`` in
+          ``apps/api/plane/db/models/project.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/project.py``.
     """
 
     def get(self, request, slug, project_id):
@@ -474,13 +504,18 @@ class UserProjectRolesEndpoint(BaseAPIView):
     HTTP methods + URL patterns:
         GET /api/users/me/workspaces/<slug>/project-roles/
 
+    Request body:
+        None (GET only).
+
     Response shape:
         ``dict[str, int]`` mapping each project UUID (string) to the
         requesting user's integer role in that project. Role values:
         ``Admin=20``, ``Member=15``, ``Guest=5``.
 
     Permissions:
-        permission_classes = [WorkspaceUserPermission] -- the
+        ``permission_classes = [WorkspaceUserPermission]`` (declared on
+        the class attribute; see
+        ``apps/api/plane/app/views/project/member.py``) -- the
         requesting user must have an active workspace membership;
         per-project permissions are unnecessary because the response
         only enumerates the requester's own roles.
@@ -489,6 +524,14 @@ class UserProjectRolesEndpoint(BaseAPIView):
         use_read_replica = True -- this endpoint is read-heavy and is
         polled by the web client on workspace switch, so it is routed
         through the read replica to offload the primary.
+
+    Cross-references:
+        * Model: ``ProjectMember`` in
+          ``apps/api/plane/db/models/project.py``.
+        * Permissions: ``WorkspaceUserPermission`` in
+          ``apps/api/plane/app/permissions/workspace.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/project.py``.
     """
 
     permission_classes = [WorkspaceUserPermission]

@@ -90,6 +90,9 @@ class AdvanceAnalyticsEndpoint(AdvanceAnalyticsBaseView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/advance-analytics/
 
+    Request body:
+        None (GET only) -- all inputs are query parameters listed below.
+
     Query parameters:
         tab (str, optional, default=``"overview"``): One of
             ``"overview"`` (member / project / work-item / cycle / intake
@@ -124,6 +127,17 @@ class AdvanceAnalyticsEndpoint(AdvanceAnalyticsBaseView):
 
     Permissions:
         ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")``.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Filter helper: :func:`plane.utils.date_utils.get_analytics_filters`
+          (``apps/api/plane/utils/date_utils.py``)
+        * Models read: :class:`plane.db.models.WorkspaceMember`,
+          :class:`plane.db.models.ProjectMember`,
+          :class:`plane.db.models.Project`, :class:`plane.db.models.Issue`,
+          :class:`plane.db.models.Cycle` (``apps/api/plane/db/models/``)
+        * URL: ``apps/api/plane/app/urls/analytic.py``
     """
 
     def get_filtered_counts(self, queryset: QuerySet) -> Dict[str, int]:
@@ -230,6 +244,9 @@ class AdvanceAnalyticsStatsEndpoint(AdvanceAnalyticsBaseView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/advance-analytics-stats/
 
+    Request body:
+        None (GET only) -- all inputs are query parameters listed below.
+
     Query parameters:
         type (str, optional, default=``"work-items"``): Only
             ``"work-items"`` is recognized; any other value returns 400.
@@ -249,6 +266,15 @@ class AdvanceAnalyticsStatsEndpoint(AdvanceAnalyticsBaseView):
 
     Permissions:
         ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")``.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Filter helper: :func:`plane.utils.date_utils.get_analytics_filters`
+          (``apps/api/plane/utils/date_utils.py``)
+        * Model read: :class:`plane.db.models.Issue`
+          (``apps/api/plane/db/models/issue.py``)
+        * URL: ``apps/api/plane/app/urls/analytic.py``
     """
 
     def get_project_issues_stats(self) -> QuerySet:
@@ -321,6 +347,9 @@ class AdvanceAnalyticsChartEndpoint(AdvanceAnalyticsBaseView):
     HTTP methods + URL patterns:
         GET /api/workspaces/<slug>/advance-analytics-charts/
 
+    Request body:
+        None (GET only) -- all inputs are query parameters listed below.
+
     Query parameters:
         type (str, optional, default=``"projects"``): One of
             ``"projects"`` (workspace-wide totals across 7 entity kinds),
@@ -362,6 +391,15 @@ class AdvanceAnalyticsChartEndpoint(AdvanceAnalyticsBaseView):
 
     Permissions:
         ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")``.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Chart builder: :func:`plane.utils.build_chart.build_analytics_chart`
+          (``apps/api/plane/utils/build_chart.py``)
+        * Filter helper: :func:`plane.utils.date_utils.get_analytics_filters`
+          (``apps/api/plane/utils/date_utils.py``)
+        * URL: ``apps/api/plane/app/urls/analytic.py``
     """
 
     def project_chart(self) -> List[Dict[str, Any]]:

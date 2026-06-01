@@ -144,6 +144,14 @@ class IntakeViewSet(BaseViewSet):
         because the relation is 1:1 with the project. ``destroy``
         refuses to delete the default intake row to preserve the
         application invariant that every project has a triage queue.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IntakeSerializer``,
+          ``plane.app.serializers.ProjectLiteSerializer``.
+        - Models: ``plane.db.models.Intake``, ``plane.db.models.IntakeIssue``,
+          ``plane.db.models.Project``.
+        - URL registration: ``apps/api/plane/app/urls/intake.py``.
     """
 
     serializer_class = IntakeSerializer
@@ -335,6 +343,19 @@ class IntakeIssueViewSet(BaseViewSet):
         duplicate activity rows; callers (this view) avoid double
         dispatch via the ``skip_activity`` + ``is_description_update``
         guard.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IntakeIssueSerializer``,
+          ``plane.app.serializers.IntakeIssueDetailSerializer``,
+          ``plane.app.serializers.IssueCreateSerializer``,
+          ``plane.app.serializers.IssueSerializer``.
+        - Models: ``plane.db.models.Issue``, ``plane.db.models.IntakeIssue``,
+          ``plane.db.models.Intake``, ``plane.db.models.CycleIssue``,
+          ``plane.db.models.FileAsset``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``,
+          ``plane.bgtasks.issue_description_version_task``.
+        - URL registration: ``apps/api/plane/app/urls/intake.py``.
     """
 
     serializer_class = IntakeIssueSerializer
@@ -902,6 +923,9 @@ class IntakeWorkItemDescriptionVersionEndpoint(BaseAPIView):
             requesting user's IANA timezone via
             :func:`plane.utils.timezone_converter.user_timezone_converter`.
 
+    Request body:
+        None (GET only). All inputs are URL kwargs or query parameters.
+
     Permissions:
         permission_classes = [IsAuthenticated]  (inherited from
             :class:`plane.app.views.base.BaseAPIView`).
@@ -910,6 +934,16 @@ class IntakeWorkItemDescriptionVersionEndpoint(BaseAPIView):
         ``[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST]`` -- guests may read
         version history, but only for issues they themselves created
         when ``project.guest_view_all_features`` is False.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueDescriptionVersionDetailSerializer``.
+        - Models: ``plane.db.models.IssueDescriptionVersion``,
+          ``plane.db.models.Issue``, ``plane.db.models.Project``.
+        - Celery tasks: ``plane.bgtasks.issue_description_version_task``
+          (Celery via RabbitMQ -- populates the version rows that this
+          endpoint reads).
+        - URL registration: ``apps/api/plane/app/urls/intake.py``.
     """
 
     def process_paginated_result(self, fields, results, timezone):

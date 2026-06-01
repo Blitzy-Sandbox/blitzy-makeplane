@@ -92,6 +92,16 @@ class ProjectEstimatePointEndpoint(BaseAPIView):
         :class:`~plane.db.models.EstimatePoint` by ``estimate_id``,
         ``project_id``, and ``workspace__slug``. Otherwise returns ``[]``
         without raising.
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Serializer: :class:`plane.app.serializers.EstimatePointSerializer`
+          (``apps/api/plane/app/serializers/estimate.py``)
+        * Models: :class:`plane.db.models.Project`,
+          :class:`plane.db.models.EstimatePoint`
+          (``apps/api/plane/db/models/``)
+        * URL: ``apps/api/plane/app/urls/estimate.py``
     """
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
@@ -158,9 +168,11 @@ class BulkEstimatePointEndpoint(BaseViewSet):
 
     Permissions:
         permission_classes = [ProjectEntityPermission]
-            -- workspace + project membership required; SAFE_METHODS
-            require any active member, write methods require ADMIN or
-            MEMBER role.
+            -- declared on the class attribute (see
+            ``apps/api/plane/app/views/estimate/base.py``). Workspace +
+            project membership required; SAFE_METHODS require any active
+            member, write methods require ADMIN or MEMBER role. See
+            :class:`plane.app.permissions.project.ProjectEntityPermission`.
 
     Queryset filter logic:
         ``model = Estimate`` and every method filters by
@@ -188,6 +200,22 @@ class BulkEstimatePointEndpoint(BaseViewSet):
           rows are emitted by this cascade path (only the
           :class:`EstimatePointEndpoint.destroy` per-point path emits
           activity events).
+
+    Cross-references:
+        * Permission: :class:`plane.app.permissions.project.ProjectEntityPermission`
+          (``apps/api/plane/app/permissions/project.py``)
+        * Serializers: :class:`plane.app.serializers.EstimateSerializer`,
+          :class:`plane.app.serializers.EstimatePointSerializer`,
+          :class:`plane.app.serializers.EstimateReadSerializer`
+          (``apps/api/plane/app/serializers/estimate.py``)
+        * Models: :class:`plane.db.models.Estimate`,
+          :class:`plane.db.models.EstimatePoint`,
+          :class:`plane.db.models.Project`,
+          :class:`plane.db.models.Issue`
+          (``apps/api/plane/db/models/``)
+        * Cache invalidation: :func:`plane.utils.cache.invalidate_cache`
+          (``apps/api/plane/utils/cache.py``)
+        * URL: ``apps/api/plane/app/urls/estimate.py``
     """
 
     permission_classes = [ProjectEntityPermission]

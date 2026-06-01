@@ -56,6 +56,17 @@ class WorkspaceHomePreferenceViewSet(BaseAPIView):
         implements two flat HTTP handlers rather than DRF ``ModelViewSet``
         actions — leave the class name and base unchanged (no refactoring,
         per system boundaries).
+
+    Cross-references:
+        * Serializer: ``WorkspaceHomePreferenceSerializer`` in
+          ``apps/api/plane/app/serializers/workspace.py``.
+        * Models: ``WorkspaceHomePreference``,
+          ``HomeWidgetKeys``, ``Workspace`` in
+          ``apps/api/plane/db/models/workspace.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     model = WorkspaceHomePreference

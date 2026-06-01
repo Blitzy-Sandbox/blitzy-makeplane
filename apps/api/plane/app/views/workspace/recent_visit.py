@@ -49,6 +49,19 @@ class UserRecentVisitViewSet(BaseViewSet):
         None here. Recent-visit rows are persisted by the
         ``plane.bgtasks.recent_visited_task`` Celery task, dispatched via
         ``.delay()`` from view base classes.
+
+    Cross-references:
+        * Serializer: ``WorkspaceRecentVisitSerializer`` in
+          ``apps/api/plane/app/serializers/workspace.py``.
+        * Model: ``UserRecentVisit`` in
+          ``apps/api/plane/db/models/recent_visit.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * Celery task:
+          ``apps/api/plane/bgtasks/recent_visited_task.py`` (queued
+          via RabbitMQ).
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     model = UserRecentVisit

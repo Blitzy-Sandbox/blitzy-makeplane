@@ -35,13 +35,28 @@ class WorkspaceEstimatesEndpoint(BaseAPIView):
         ``Estimate`` reachable from the workspace, with ``points`` prefetched.
 
     Permissions:
-        permission_classes = [WorkspaceEntityPermission] — caller must be an
-        active workspace member.
+        ``permission_classes = [WorkspaceEntityPermission]`` (declared
+        on the class attribute; see
+        ``apps/api/plane/app/views/workspace/estimate.py``) — caller
+        must be an active workspace member.
 
     Caching:
         Wrapped with ``cache_response(60 * 60 * 2)`` (two-hour TTL). Redis is
         used purely as a cache here (not as a task broker — Celery routes
         through RabbitMQ, per architectural context).
+
+    Cross-references:
+        * Serializer: ``WorkspaceEstimateSerializer`` in
+          ``apps/api/plane/app/serializers/estimate.py``.
+        * Models: ``Estimate``, ``EstimatePoint`` in
+          ``apps/api/plane/db/models/estimate.py``;
+          ``Project`` in ``apps/api/plane/db/models/project.py``.
+        * Permissions: ``WorkspaceEntityPermission`` in
+          ``apps/api/plane/app/permissions/workspace.py``.
+        * Cache helper: ``cache_response`` in
+          ``apps/api/plane/utils/cache.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     permission_classes = [WorkspaceEntityPermission]

@@ -79,8 +79,11 @@ class WorkspaceInvitationsViewset(BaseViewSet):
         destroy: HTTP 204.
 
     Permissions:
-        permission_classes = [WorkSpaceAdminPermission] -- only workspace
-        admins or members (role 20 or 15) may create / delete invitations.
+        ``permission_classes = [WorkSpaceAdminPermission]`` (declared on
+        the class attribute; see
+        ``apps/api/plane/app/views/workspace/invite.py``) -- only
+        workspace admins or members (role 20 or 15) may create / delete
+        invitations.
 
     Side effects (``create``):
         * Validates each invitee email via ``django.core.validators.validate_email``.
@@ -105,6 +108,21 @@ class WorkspaceInvitationsViewset(BaseViewSet):
     Queryset:
         Filtered by ``workspace__slug`` with eager-loading of
         ``workspace``, ``workspace__owner``, and ``created_by``.
+
+    Cross-references:
+        * Serializer: ``WorkSpaceMemberInviteSerializer`` in
+          ``apps/api/plane/app/serializers/workspace.py``.
+        * Models: ``WorkspaceMemberInvite``, ``WorkspaceMember``,
+          ``Workspace`` in
+          ``apps/api/plane/db/models/workspace.py``.
+        * Permissions: ``WorkSpaceAdminPermission`` in
+          ``apps/api/plane/app/permissions/workspace.py``.
+        * Celery tasks:
+          ``apps/api/plane/bgtasks/workspace_invitation_task.py``,
+          ``apps/api/plane/bgtasks/event_tracking_task.py`` (both
+          queued via RabbitMQ).
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     serializer_class = WorkSpaceMemberInviteSerializer
@@ -252,8 +270,10 @@ class WorkspaceJoinEndpoint(BaseAPIView):
             ``{"error": "You have already responded to the invitation request"}``.
 
     Permissions:
-        permission_classes = [AllowAny] -- invitee may not yet have an
-        account; this is the entry point of the join flow.
+        ``permission_classes = [AllowAny]`` (declared on the class
+        attribute; see ``apps/api/plane/app/views/workspace/invite.py``)
+        -- invitee may not yet have an account; this is the entry point
+        of the join flow.
 
     Cache invalidation (POST, decorator chain):
         * ``/api/workspaces/``
@@ -272,6 +292,21 @@ class WorkspaceJoinEndpoint(BaseAPIView):
     If the invitee has not yet registered, the invite is marked accepted
     but ``WorkspaceMember`` creation is deferred until the user signs up
     (another flow handles that backfill).
+
+    Cross-references:
+        * Serializer: ``WorkSpaceMemberInviteSerializer`` in
+          ``apps/api/plane/app/serializers/workspace.py``.
+        * Models: ``WorkspaceMemberInvite``, ``WorkspaceMember``,
+          ``Workspace`` in
+          ``apps/api/plane/db/models/workspace.py``;
+          ``User`` in ``apps/api/plane/db/models/user.py``.
+        * Celery task:
+          ``apps/api/plane/bgtasks/event_tracking_task.py`` (queued via
+          RabbitMQ).
+        * Cache helper: ``invalidate_cache`` in
+          ``apps/api/plane/utils/cache.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     permission_classes = [AllowAny]
@@ -413,6 +448,20 @@ class UserWorkspaceInvitationsViewSet(BaseViewSet):
           already matching an existing membership
           (``ignore_conflicts=True``).
         * Deletes every joined invitation.
+
+    Cross-references:
+        * Serializer: ``WorkSpaceMemberInviteSerializer`` in
+          ``apps/api/plane/app/serializers/workspace.py``.
+        * Models: ``WorkspaceMemberInvite``, ``WorkspaceMember``,
+          ``Workspace`` in
+          ``apps/api/plane/db/models/workspace.py``.
+        * Celery task:
+          ``apps/api/plane/bgtasks/event_tracking_task.py`` (queued via
+          RabbitMQ).
+        * Cache helper: ``invalidate_cache`` in
+          ``apps/api/plane/utils/cache.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
     """
 
     serializer_class = WorkSpaceMemberInviteSerializer
