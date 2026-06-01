@@ -34,6 +34,13 @@ class InstanceAdminMeSerializer(BaseSerializer):
     """
 
     class Meta:
+        """DRF ``Meta`` binding to :class:`User` for the admin "GET /me" surface.
+
+        All listed fields are projected onto the response, and
+        ``read_only_fields = fields`` enforces that this serializer is
+        purely read-only -- no field may be written through it.
+        """
+
         model = User
         fields = [
             "id",
@@ -76,6 +83,14 @@ class InstanceAdminSerializer(BaseSerializer):
     user_detail = UserAdminLiteSerializer(source="user", read_only=True)
 
     class Meta:
+        """DRF ``Meta`` binding to :class:`InstanceAdmin` with server-owned identity fields locked.
+
+        Exposes the full membership row (``fields = "__all__"``) but pins
+        ``id``, ``instance``, and ``user`` as read-only so clients cannot
+        rebind an admin membership to a different user or instance through
+        a PATCH payload.
+        """
+
         model = InstanceAdmin
         fields = "__all__"
         read_only_fields = ["id", "instance", "user"]

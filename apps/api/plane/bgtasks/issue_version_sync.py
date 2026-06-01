@@ -60,10 +60,18 @@ def issue_task(updated_issue, issue_id, user_id):
     """Snapshot an issue's current full state (fields + related data) into ``IssueVersion``.
 
     Trigger:
-        Explicit ``issue_task.delay(updated_issue, issue_id, user_id)``
-        from ``issue_activities_task.py`` and signal-driven paths after
-        an issue is created or updated. The Celery message is routed via
-        RabbitMQ and consumed by the worker.
+        # INTENT UNCLEAR: no active call site exists. An exhaustive
+        # grep + AST scan of ``apps/api`` finds zero ``issue_task.delay``
+        # or ``issue_task.apply_async`` invocations and no signal
+        # handlers wired to this task; the only references are the
+        # ``def`` itself and the self-reference in this docstring.
+        # If the live per-edit snapshot path is ever needed in
+        # production, a caller would dispatch
+        # ``issue_task.delay(updated_issue, issue_id, user_id)`` from
+        # the issue-write path; Celery messages would then route via
+        # RabbitMQ and be consumed by the worker. As shipped today
+        # this task is reachable only via a direct synchronous call
+        # in tests or shell-equivalent contexts. Documented as observed.
 
     Side effects:
         - DB read: loads the ``Issue`` row plus (when the changeset

@@ -27,5 +27,13 @@ class UserLiteSerializer(BaseSerializer):
     """
 
     class Meta:
+        """DRF ``Meta`` binding to :class:`User` projecting only safe nested-payload fields.
+
+        The field list is deliberately minimal -- ``id``, ``email``,
+        ``first_name``, ``last_name`` -- to keep transitive nesting from
+        exposing password hashes, MFA secrets, or other sensitive
+        account state.
+        """
+
         model = User
         fields = ["id", "email", "first_name", "last_name"]

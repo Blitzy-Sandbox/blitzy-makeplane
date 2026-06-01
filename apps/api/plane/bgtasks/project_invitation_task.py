@@ -4,9 +4,22 @@
 
 """Celery task that emails a project invitation link to a non-member.
 
-Trigger: explicit ``.delay(email, project_id, token, current_site, invitor)``
-from ``apps/api/plane/app/views/project/invite.py`` when a workspace user
+Intended trigger: explicit ``project_invitation.delay(email, project_id,
+token, current_site, invitor)`` from
+``apps/api/plane/app/views/project/invite.py`` when a workspace user
 invites a non-project-member to a project.
+
+# INTENT UNCLEAR: the documented caller is currently unreachable. The
+# trailing loop in ``ProjectMemberInviteViewSet.create`` shadows the
+# imported ``project_invitation`` task by rebinding the local name
+# ``project_invitations`` to the list returned by
+# ``ProjectMemberInvite.objects.bulk_create(...)`` and then calling
+# ``.delay(...)`` on that list. Lists have no ``.delay`` attribute, so the
+# loop raises ``AttributeError`` before any invitation message is queued.
+# The view's docstring already flags this with ``INTENT UNCLEAR``. The
+# fix is in the view, not this task; the task body itself is well-formed
+# and would work as documented once the caller is corrected. Per the
+# documentation-only system boundary the view code is not modified here.
 
 Distinct from ``project_add_user_email_task.py``: this task drives the
 invitation acceptance flow (the invitee must follow the link to join), while
@@ -41,11 +54,22 @@ def project_invitation(email, project_id, token, current_site, invitor):
     """Email a project invitation link and persist the rendered message on the invite.
 
     Trigger:
-        Explicit ``project_invitation.delay(email, project_id, token,
-        current_site, invitor)`` from
-        ``apps/api/plane/app/views/project/invite.py`` when a workspace user
-        invites a non-project-member to a project. The Celery message is
-        routed via RabbitMQ and consumed by the worker.
+        Intended caller: ``project_invitation.delay(email, project_id,
+        token, current_site, invitor)`` from
+        ``apps/api/plane/app/views/project/invite.py`` when a workspace
+        user invites a non-project-member to a project.
+
+        # INTENT UNCLEAR: the documented caller is currently unreachable.
+        # ``ProjectMemberInviteViewSet.create`` rebinds the local name
+        # ``project_invitations`` to the list returned by
+        # ``ProjectMemberInvite.objects.bulk_create(...)`` and then calls
+        # ``.delay(...)`` on that list. Because lists have no ``.delay``
+        # attribute, the loop raises ``AttributeError`` before this task
+        # is ever queued. The view's docstring already flags this with
+        # ``INTENT UNCLEAR``; the fix belongs in the view and is out of
+        # scope for this documentation-only pass. When the caller is
+        # corrected the Celery message will route via RabbitMQ and be
+        # consumed by the worker in the normal way.
 
     Side effects:
         - DB write: updates ``ProjectMemberInvite.message`` (looked up by

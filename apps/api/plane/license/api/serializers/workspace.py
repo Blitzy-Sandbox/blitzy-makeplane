@@ -69,6 +69,15 @@ class WorkspaceSerializer(BaseSerializer):
         return value
 
     class Meta:
+        """DRF ``Meta`` binding to :class:`Workspace` with audit and ownership fields locked.
+
+        Exposes every workspace field (``fields = "__all__"``) but pins
+        the audit columns (``created_by``, ``updated_by``, ``created_at``,
+        ``updated_at``), the ``owner`` relation, and the server-resolved
+        ``logo_url`` as read-only -- they are managed by the server and
+        must never be rebound from client payloads.
+        """
+
         model = Workspace
         fields = "__all__"
         read_only_fields = [

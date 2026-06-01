@@ -67,8 +67,8 @@ component_map = {
 
 
 def extract_all_components(description_html):
-    """
-    Extracts all component types from the HTML value in a single pass.
+    """Extract all component types from the HTML value in a single pass.
+
     Returns a dict mapping component_type -> list of extracted entities.
     """
     try:
@@ -96,9 +96,7 @@ def extract_all_components(description_html):
 
 
 def get_entity_details(component: str, mention: dict):
-    """
-    Normalizes mention attributes into entity_name, entity_type, entity_identifier.
-    """
+    """Normalize mention attributes into entity_name, entity_type, entity_identifier."""
     config = component_map.get(component)
     if not config:
         return {"entity_name": None, "entity_type": None, "entity_identifier": None}

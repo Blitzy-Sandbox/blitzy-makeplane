@@ -918,10 +918,20 @@ class IssueVotePublicViewSet(BaseViewSet):
         proceeds and the next list call returns empty.
 
         # INTENT UNCLEAR: ``create`` and ``destroy`` do not check
-        # ``is_votes_enabled`` (unlike comments / reactions which
-        # explicitly 400 when disabled). Inputs proceed and write
-        # rows; only LIST is gated. Observed; documented; not
-        # modified.
+        # ``DeployBoard.is_votes_enabled`` (unlike comments and
+        # issue-reactions, which explicitly 400 when their feature
+        # flag is disabled). Authenticated callers can therefore
+        # POST and DELETE :class:`IssueVote` rows even when the
+        # public board has votes turned off; only the LIST/get path
+        # is gated. This is a POTENTIAL AUTHORIZATION GAP:
+        # ``IssueVote`` rows accumulate on disabled boards and
+        # surface as soon as votes are re-enabled, which a downstream
+        # consumer may not expect. A symmetric fix would mirror the
+        # comment/reaction gates -- re-resolve the board in
+        # ``create`` / ``destroy`` and return 400 (or 403) when
+        # ``is_votes_enabled`` is False. The fix is a behavior
+        # change and is out of scope for this documentation-only
+        # pass; observed and flagged here for downstream remediation.
 
     Permissions:
         Inherits ``BaseViewSet.permission_classes = [IsAuthenticated]``.
@@ -1091,17 +1101,24 @@ class IssueRetrievePublicEndpoint(BaseAPIView):
           ``issue_reactions__actor`` fields.
 
         # INTENT UNCLEAR: inside the ``reaction_items`` JSONObject,
-        # the ``avatar_url`` ``Case``/``When`` branches use
-        # ``votes__actor__avatar_asset`` and
-        # ``votes__actor__avatar`` rather than the matching
-        # ``issue_reactions__actor__*`` fields. This appears to mix
-        # vote-actor and reaction-actor identities when computing
-        # the avatar URL inside the reaction_items annotation; the
-        # surrounding ``id`` / ``first_name`` / ``last_name`` /
-        # ``display_name`` fields on the same ``actor_details``
-        # block correctly use ``issue_reactions__actor__*``. Per
-        # system boundaries the SQL is documented as observed and
-        # NOT modified.
+        # the ``avatar_url`` ``Case``/``When`` branches read from
+        # ``votes__actor__avatar_asset`` and ``votes__actor__avatar``
+        # rather than the matching ``issue_reactions__actor__*``
+        # fields. The surrounding ``id`` / ``first_name`` /
+        # ``last_name`` / ``display_name`` columns on the same
+        # ``actor_details`` block correctly use
+        # ``issue_reactions__actor__*``. When a reaction author and
+        # a vote author on the same issue are different users, this
+        # asymmetry CAN MISATTRIBUTE the reactor's avatar to the
+        # vote author's avatar in the public response payload (a
+        # PII / data-correctness concern on public boards). A
+        # symmetric fix would change both ``Case``/``When`` branches
+        # to ``issue_reactions__actor__avatar_asset`` /
+        # ``issue_reactions__actor__avatar``. The fix is a behavior
+        # change (touches the SQL annotation that drives response
+        # JSON) and is therefore out of scope for this
+        # documentation-only pass; observed and flagged here for
+        # downstream remediation.
     """
 
     permission_classes = [AllowAny]
