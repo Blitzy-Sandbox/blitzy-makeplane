@@ -2,6 +2,46 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Celery tasks for soft-delete cascade and the daily hard-delete sweep.
+
+Two ``@shared_task`` functions live here (plus one commented-out
+placeholder):
+
+1. ``soft_delete_related_objects`` — cascades a soft-delete through
+   reverse FK relationships, respecting each FK's ``on_delete`` policy
+   (``DO_NOTHING`` / ``SET_NULL`` / ``CASCADE``). The initial dispatch
+   from ``SoftDeleteModel.delete()`` (see ``plane/db/mixins.py``) is a
+   ``.delay()`` call; the recursion inside the task itself is a direct
+   in-process function call, so the full cascade for a given root
+   completes inside a single Celery task.
+
+2. ``hard_delete`` — Beat-scheduled at ``00:00 UTC`` daily (entry
+   ``check-every-day-to-delete-hard-delete`` in ``plane/celery.py``);
+   physically removes rows whose ``deleted_at`` is older than
+   ``settings.HARD_DELETE_AFTER_DAYS``.
+
+3. ``restore_related_objects`` — PLACEHOLDER. The ``@shared_task``
+   decoration is INTENTIONALLY COMMENTED OUT; the body is ``pass``.
+   This is reserved as an API-surface marker for future soft-delete
+   restore functionality and has no call sites today.
+
+Hard-delete model order:
+    The explicit list — Workspace → Project → Cycle → Module → Issue →
+    Page → IssueView → Label → State → IssueActivity → IssueComment →
+    IssueLink → IssueReaction → UserFavorite → ModuleIssue → CycleIssue
+    → Estimate → EstimatePoint — sweeps children before parents so
+    cascade FK constraints stay satisfied. A subsequent generic phase
+    iterates every other Django model with a ``deleted_at`` field to
+    catch any soft-deletable models added after this file was last
+    maintained.
+
+Async infrastructure: queued onto **RabbitMQ** and consumed by Celery
+workers (per the architectural rule that RabbitMQ is the task broker;
+Redis is used only for caching and session state).
+
+See tech spec §4.12 DATA CLEANUP AND RETENTION WORKFLOWS.
+"""
+
 # Django imports
 from django.utils import timezone
 from django.apps import apps
@@ -16,8 +56,60 @@ from celery import shared_task
 
 @shared_task
 def soft_delete_related_objects(app_label, model_name, instance_pk, using=None):
-    """
-    Soft delete related objects for a given model instance
+    """Cascade a soft-delete through reverse FK relationships, respecting each FK's ``on_delete`` policy.
+
+    Trigger:
+        Initial dispatch is
+        ``soft_delete_related_objects.delay(app_label, model_name,
+        instance_pk, using=using)`` from ``SoftDeleteModel.delete()``
+        in ``plane/db/mixins.py`` whenever a soft delete is performed
+        (soft delete is the default behavior of
+        ``SoftDeleteModel.delete``). The Celery message is routed via
+        **RabbitMQ** and consumed by the worker. Recursive descent
+        into cascading relations happens via direct in-process
+        function calls inside the task body, not via additional
+        ``.delay()`` dispatches.
+
+    Side effects:
+        - **DB read**: enumerates the source model's auto-created
+          reverse relationships (``one_to_many`` / ``one_to_one``)
+          via ``_meta.get_fields()``.
+        - **DB write (per relation)**:
+            * ``on_delete=DO_NOTHING`` — no action.
+            * ``on_delete=SET_NULL`` — sets the FK to ``NULL`` on
+              each related row (``QuerySet.update`` for many-relations;
+              ``setattr`` + ``save(update_fields=[...])`` for
+              ``OneToOneRel``).
+            * any other ``on_delete`` (including ``CASCADE``) —
+              soft-deletes each related row (sets ``deleted_at``) and
+              **recurses synchronously** by calling
+              ``soft_delete_related_objects`` directly for the
+              now-soft-deleted child. Because the recursion is a
+              direct call and not ``.delay()``, the entire cascade
+              completes inside the originating Celery task.
+        - **DB write (self)**: after the relations are processed, the
+          source instance itself is soft-deleted
+          (``deleted_at = timezone.now()``) when it carries a
+          ``deleted_at`` field that is not already set.
+        - Errors raised while traversing a single relation are caught,
+          logged via ``print``, and the cascade continues with the
+          next relation rather than aborting.
+        - **No** emails. **No** webhook fan-out. **No** cache
+          invalidation.
+
+    Idempotency:
+        IDEMPOTENT. Re-soft-deleting an already-soft-deleted row is a
+        no-op because the ``deleted_at`` guards skip rows that already
+        carry a timestamp; a missing instance (``DoesNotExist``)
+        returns early without raising.
+
+    Args:
+        app_label: Django app label of the source model.
+        model_name: Model class name within ``app_label``.
+        instance_pk: Primary key of the soft-deleted row whose
+            cascade is being processed.
+        using: Database alias propagated to recursive cascade calls
+            (default ``None`` — uses the default DB).
     """
     # Get the model class using app registry
     model_class = apps.get_model(app_label, model_name)
@@ -107,11 +199,72 @@ def soft_delete_related_objects(app_label, model_name, instance_pk, using=None):
 
 # @shared_task
 def restore_related_objects(app_label, model_name, instance_pk, using=None):
+    """Provide a placeholder symbol for a future soft-delete restore Celery task (currently a no-op stub).
+
+    The ``@shared_task`` decoration on the preceding source line is
+    INTENTIONALLY COMMENTED OUT and the body is ``pass``: this
+    function is not yet a Celery task and is not called from anywhere
+    in the codebase today. It exists only as an API-surface marker
+    reserved for future restore-from-soft-delete functionality.
+
+    A future implementation should:
+        1. Uncomment the ``@shared_task`` decorator above.
+        2. Implement the inverse cascade of
+           ``soft_delete_related_objects`` (set ``deleted_at = None``
+           on the source and on cascading descendants while respecting
+           each FK's ``on_delete`` policy).
+        3. Wire up call sites (likely from a restore endpoint or
+           admin action) using ``.delay()`` so the cascade runs on a
+           worker via RabbitMQ.
+
+    Args:
+        app_label: Django app label of the source model.
+        model_name: Model class name within ``app_label``.
+        instance_pk: Primary key of the row to restore.
+        using: Database alias (default ``None`` — uses the default
+            DB).
+    """
     pass
 
 
 @shared_task
 def hard_delete():
+    """Delete soft-deleted rows past the retention threshold across the model hierarchy.
+
+    Trigger:
+        Celery Beat schedule entry
+        ``check-every-day-to-delete-hard-delete`` declared in
+        ``plane/celery.py`` (``crontab(hour=0, minute=0)`` — 00:00 UTC
+        daily). The Celery message is routed via **RabbitMQ** and
+        consumed by the worker.
+
+    Side effects:
+        - **DB delete (hard, ordered)**: for each model in the explicit
+          list — Workspace → Project → Cycle → Module → Issue → Page →
+          IssueView → Label → State → IssueActivity → IssueComment →
+          IssueLink → IssueReaction → UserFavorite → ModuleIssue →
+          CycleIssue → Estimate → EstimatePoint — runs
+          ``model.all_objects.filter(deleted_at__lt=now() -
+          timedelta(days=settings.HARD_DELETE_AFTER_DAYS)).delete()``.
+          Children are processed before parents so cascade FK
+          constraints stay satisfied.
+        - **DB delete (generic phase)**: after the explicit list,
+          iterates every other Django model with a ``deleted_at`` field
+          via ``apps.get_models()`` and repeats the same
+          retention-filter delete, catching any soft-deletable models
+          added after this file was last maintained.
+        - Each ``.delete()`` is a true hard delete (rows leave the
+          database) and runs Django's ORM cascade for the surviving
+          relations.
+        - **No** emails. **No** webhook fan-out. **No** cache
+          invalidation.
+
+    Idempotency:
+        IDEMPOTENT. The
+        ``deleted_at < now() - HARD_DELETE_AFTER_DAYS`` filter is
+        monotonic in time; once a row has been hard-deleted it is
+        gone, so subsequent runs find no matches for the same rows.
+    """
     from plane.db.models import (
         Workspace,
         Project,
