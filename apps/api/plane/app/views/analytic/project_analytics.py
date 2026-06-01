@@ -2,6 +2,30 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Project-scoped advanced analytics endpoints with optional cycle / module narrowing.
+
+Mirrors the workspace-level surface in
+:mod:`plane.app.views.analytic.advance` but constrains every queryset to
+a single project (and optionally to a single cycle or module). The three
+endpoints are:
+
+* :class:`ProjectAdvanceAnalyticsEndpoint` -- compact work-item state
+  counts (overall / cycle-scoped / module-scoped).
+* :class:`ProjectAdvanceAnalyticsStatsEndpoint` -- grouped stats either
+  by project or by assignee (with avatar URL computed from
+  ``avatar_asset`` or ``avatar``).
+* :class:`ProjectAdvanceAnalyticsChartEndpoint` -- completion-trend
+  charts: day-by-day for cycle / module windows, month-by-month with
+  zero-fill for project-wide scope.
+
+All three share :class:`ProjectAdvanceAnalyticsBaseView`, which wires
+``self.filters`` from :func:`plane.utils.date_utils.get_analytics_filters`
+(``date_filter`` + ``project_ids`` query parameters). These endpoints
+execute heavy aggregate ``.annotate()`` / ``.values()`` queries -- the
+parent ``BaseAPIView`` MAY set ``use_read_replica = True`` to route
+``GET`` traffic through the read replica.
+"""
+
 from rest_framework.response import Response
 from rest_framework import status
 from typing import Dict, Any
@@ -30,7 +54,26 @@ from plane.utils.date_utils import (
 
 
 class ProjectAdvanceAnalyticsBaseView(BaseAPIView):
+    """Shared workspace-init helper for the three project-scoped analytics endpoints.
+
+    Subclasses call :meth:`initialize_workspace` at the start of every
+    ``get`` to populate ``self._workspace_slug`` and ``self.filters``
+    (a dict with ``base_filters`` / ``project_filters`` /
+    ``analytics_date_range`` / ``chart_period_range`` keys -- see
+    :func:`plane.utils.date_utils.get_analytics_filters`).
+
+    Not directly routed -- only its three subclasses
+    (:class:`ProjectAdvanceAnalyticsEndpoint`,
+    :class:`ProjectAdvanceAnalyticsStatsEndpoint`,
+    :class:`ProjectAdvanceAnalyticsChartEndpoint`) are exposed via URL.
+    """
+
     def initialize_workspace(self, slug: str, type: str) -> None:
+        """Cache the workspace slug and build the request-scoped filter dict.
+
+        Delegates to :func:`get_analytics_filters`; ``type`` is
+        ``"analytics"`` or ``"chart"``.
+        """
         self._workspace_slug = slug
         self.filters = get_analytics_filters(
             slug=slug,
@@ -42,7 +85,49 @@ class ProjectAdvanceAnalyticsBaseView(BaseAPIView):
 
 
 class ProjectAdvanceAnalyticsEndpoint(ProjectAdvanceAnalyticsBaseView):
+    """Compact work-item state counts for a project (optionally narrowed to a cycle or module).
+
+    HTTP methods + URL patterns:
+        GET /api/workspaces/<slug>/projects/<uuid:project_id>/advance-analytics/
+
+    Query parameters:
+        cycle_id (UUID, optional): When supplied, the base queryset
+            switches to ``Issue.issue_objects.filter(id__in=<CycleIssue
+            issue_ids for this cycle>)`` so counts reflect only issues
+            assigned to the cycle.
+        module_id (UUID, optional): When supplied, the base queryset
+            switches to ``Issue.issue_objects.filter(id__in=<ModuleIssue
+            issue_ids for this module>)``. Ignored when ``cycle_id`` is
+            also present (cycle takes precedence).
+        date_filter (str, optional): Date-range token passed to
+            :func:`get_analytics_filters` (``type="analytics"``).
+        project_ids (str, optional): Forwarded to
+            :func:`get_analytics_filters` for the ``base_filters`` dict.
+
+    URL parameters:
+        slug: The workspace slug.
+        project_id: The project UUID; used directly when no cycle / module
+            scope is supplied.
+
+    Response shape (200 OK):
+        ``{"total_work_items": {"count": int}, "started_work_items":
+        {"count": int}, "backlog_work_items": {"count": int},
+        "un_started_work_items": {"count": int}, "completed_work_items":
+        {"count": int}}``. Counts are restricted to the current
+        ``analytics_date_range`` window when set.
+
+    Permissions:
+        ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER])`` -- project-level
+        admin or member (no explicit ``level=`` kwarg; defaults to
+        project scope per :func:`plane.app.permissions.base.allow_permission`).
+    """
+
     def get_filtered_counts(self, queryset: QuerySet) -> Dict[str, int]:
+        """Return ``{"count": <count>}`` for the supplied queryset.
+
+        ``<count>`` is restricted to the current ``analytics_date_range``
+        window when set; otherwise it is the unfiltered queryset count.
+        """
         def get_filtered_count() -> int:
             if self.filters["analytics_date_range"]:
                 return queryset.filter(
@@ -56,8 +141,14 @@ class ProjectAdvanceAnalyticsEndpoint(ProjectAdvanceAnalyticsBaseView):
         }
 
     def get_work_items_stats(self, project_id, cycle_id=None, module_id=None) -> Dict[str, Dict[str, int]]:
-        """
-        Returns work item stats for the workspace, or filtered by cycle_id or module_id if provided.
+        """Return per-state-group counts for the project, cycle, or module scope.
+
+        Categories: started / backlog / unstarted / completed.
+        When ``cycle_id`` is supplied the base queryset is built from
+        ``CycleIssue`` issue IDs; when ``module_id`` is supplied it is
+        built from ``ModuleIssue`` issue IDs; otherwise it is filtered
+        directly by ``project_id``. ``cycle_id`` takes precedence over
+        ``module_id``.
         """
         base_queryset = None
         if cycle_id is not None:
@@ -83,6 +174,11 @@ class ProjectAdvanceAnalyticsEndpoint(ProjectAdvanceAnalyticsBaseView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def get(self, request: HttpRequest, slug: str, project_id: str) -> Response:
+        """Return per-state-group work-item counts for the project.
+
+        Optionally narrowed to the supplied ``cycle_id`` or ``module_id``
+        query parameters.
+        """
         self.initialize_workspace(slug, type="analytics")
 
         # Optionally accept cycle_id or module_id as query params
@@ -95,7 +191,54 @@ class ProjectAdvanceAnalyticsEndpoint(ProjectAdvanceAnalyticsBaseView):
 
 
 class ProjectAdvanceAnalyticsStatsEndpoint(ProjectAdvanceAnalyticsBaseView):
+    """Grouped issue statistics either by project or by assignee for the project (with avatar URL).
+
+    HTTP methods + URL patterns:
+        GET /api/workspaces/<slug>/projects/<uuid:project_id>/advance-analytics-stats/
+
+    Query parameters:
+        type (str, optional, default=``"work-items"``): Only
+            ``"work-items"`` is recognized; any other value returns 400.
+        cycle_id (UUID, optional): When supplied, group-by-assignee mode
+            scopes to ``CycleIssue`` issue IDs for the cycle.
+        module_id (UUID, optional): When supplied, group-by-assignee mode
+            scopes to ``ModuleIssue`` issue IDs for the module.
+        date_filter (str, optional): Date-range token; populates
+            ``chart_period_range``.
+        project_ids (str, optional): Forwarded to
+            :func:`get_analytics_filters`.
+
+    URL parameters:
+        slug: The workspace slug.
+        project_id: The project UUID.
+
+    Response shape (200 OK):
+        For the ``work-items`` type: array of ``{"display_name": str,
+        "assignee_id": UUID, "avatar_url": str | None,
+        "cancelled_work_items": int, "completed_work_items": int,
+        "backlog_work_items": int, "un_started_work_items": int,
+        "started_work_items": int}``, ordered by ``display_name``.
+        ``avatar_url`` is computed: ``/api/assets/v2/static/<asset>/``
+        when ``avatar_asset`` is set, otherwise the legacy ``avatar``
+        string, otherwise ``None``. State-group counts use
+        ``distinct=True`` to avoid double counting from
+        ``assignees`` and ``labels`` joins.
+
+    Error responses (400 Bad Request):
+        ``{"message": "Invalid type"}``.
+
+    Permissions:
+        ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER])`` -- project-level
+        admin or member.
+    """
+
     def get_project_issues_stats(self) -> QuerySet:
+        """Return per-project grouped state-group counts.
+
+        Bound by the current ``chart_period_range``. Not used in the
+        current dispatch path -- preserved for symmetry with
+        ``advance.AdvanceAnalyticsStatsEndpoint``.
+        """
         # Get the base queryset with workspace and project filters
         base_queryset = Issue.issue_objects.filter(**self.filters["base_filters"])
 
@@ -117,6 +260,12 @@ class ProjectAdvanceAnalyticsStatsEndpoint(ProjectAdvanceAnalyticsBaseView):
         )
 
     def get_work_items_stats(self, project_id, cycle_id=None, module_id=None) -> Dict[str, Dict[str, int]]:
+        """Return per-assignee grouped state-group counts for the project / cycle / module scope.
+
+        Each row is annotated with an avatar URL: ``avatar_asset`` ->
+        ``/api/assets/v2/static/<asset>/`` when set, otherwise the
+        legacy ``avatar`` field as a fallback.
+        """
         base_queryset = None
         if cycle_id is not None:
             cycle_issues = CycleIssue.objects.filter(**self.filters["base_filters"], cycle_id=cycle_id).values_list(
@@ -164,6 +313,11 @@ class ProjectAdvanceAnalyticsStatsEndpoint(ProjectAdvanceAnalyticsBaseView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def get(self, request: HttpRequest, slug: str, project_id: str) -> Response:
+        """Dispatch on ``type`` and return per-assignee state-group counts.
+
+        Only ``"work-items"`` is supported. Optionally narrowed by
+        ``cycle_id`` / ``module_id`` query parameters.
+        """
         self.initialize_workspace(slug, type="chart")
         type = request.GET.get("type", "work-items")
 
@@ -180,7 +334,79 @@ class ProjectAdvanceAnalyticsStatsEndpoint(ProjectAdvanceAnalyticsBaseView):
 
 
 class ProjectAdvanceAnalyticsChartEndpoint(ProjectAdvanceAnalyticsBaseView):
+    """Completion-trend chart payload for a project (day-by-day cycle / module scope, month-by-month project scope).
+
+    HTTP methods + URL patterns:
+        GET /api/workspaces/<slug>/projects/<uuid:project_id>/advance-analytics-charts/
+
+    Query parameters:
+        type (str, optional, default=``"projects"``): One of
+            ``"custom-work-items"`` (delegates to
+            :func:`plane.utils.build_chart.build_analytics_chart`) or
+            ``"work-items"`` (completion-trend series). Any other value
+            (including the default ``"projects"``) falls through to a
+            400 ``"Invalid type"`` response since the project chart
+            endpoint does not implement a ``"projects"`` branch.
+        group_by (str, optional): Forwarded to
+            :func:`build_analytics_chart`.
+        x_axis (str, optional, default=``"PRIORITY"``): Forwarded to
+            :func:`build_analytics_chart`.
+        cycle_id (UUID, optional): When supplied with ``type=work-items``,
+            the completion chart uses ``cycle.start_date`` to
+            ``cycle.end_date`` as a day-by-day window. With
+            ``type=custom-work-items``, the queryset is restricted to
+            ``CycleIssue`` issue IDs for the cycle.
+        module_id (UUID, optional): When supplied with
+            ``type=work-items``, the completion chart uses
+            ``module.start_date`` to ``module.target_date`` as a
+            day-by-day window. With ``type=custom-work-items``, the
+            queryset is restricted to ``ModuleIssue`` issue IDs.
+        date_filter (str, optional): Date-range token; populates
+            ``chart_period_range``.
+        project_ids (str, optional): Forwarded to
+            :func:`get_analytics_filters`.
+
+    URL parameters:
+        slug: The workspace slug.
+        project_id: The project UUID.
+
+    Response shape (200 OK, ``type=work-items``):
+        ``{"data": [{"key": "YYYY-MM-DD", "name": "YYYY-MM-DD",
+        "count": int, "completed_issues": int, "created_issues": int},
+        ...], "schema": {"completed_issues": "completed_issues",
+        "created_issues": "created_issues"}}``. With ``cycle_id`` /
+        ``module_id`` the series is day-by-day and ``count`` is
+        ``created_count + completed_count``; without them the series is
+        month-by-month with zero-fill from project creation through the
+        current month and ``count`` is ``created_count`` only.
+
+    Response shape (200 OK, ``type=work-items`` with empty cycle/module):
+        ``{"data": [], "schema": {}}`` when the cycle / module has no
+        ``start_date`` or the project has no ``created_at``.
+
+    Response shape (200 OK, ``type=custom-work-items``):
+        Pass-through of :func:`build_analytics_chart`.
+
+    Error responses (400 Bad Request):
+        ``{"message": "Invalid type"}`` for any ``type`` not in
+        ``{"custom-work-items", "work-items"}``.
+
+    Permissions:
+        ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])``
+        -- project-level admin, member, or guest can view charts.
+    """
+
     def work_item_completion_chart(self, project_id, cycle_id=None, module_id=None) -> Dict[str, Any]:
+        """Build the completion-trend series for the project / cycle / module scope.
+
+        Cycle and module scopes use the cycle's / module's
+        ``start_date`` -> ``end_date`` / ``target_date`` window with
+        day-by-day buckets. Project scope buckets by month with
+        ``TruncMonth("created_at")`` and zero-fills missing months from
+        the project's first-of-month creation date through the current
+        month. Returns ``{"data": [], "schema": {}}`` when the scope's
+        start date is unset.
+        """
         # Get the base queryset
         queryset = (
             Issue.issue_objects.filter(**self.filters["base_filters"])
@@ -316,6 +542,11 @@ class ProjectAdvanceAnalyticsChartEndpoint(ProjectAdvanceAnalyticsBaseView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def get(self, request: HttpRequest, slug: str, project_id: str) -> Response:
+        """Dispatch on ``type`` and return the chart payload.
+
+        ``custom-work-items`` -> :func:`build_analytics_chart`;
+        ``work-items`` -> :meth:`work_item_completion_chart`.
+        """
         self.initialize_workspace(slug, type="chart")
         type = request.GET.get("type", "projects")
         group_by = request.GET.get("group_by", None)
