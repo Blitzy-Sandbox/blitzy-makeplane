@@ -2,6 +2,43 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Celery task that converts issue activities into in-app notifications and queued email log entries.
+
+This is the FIRST HALF of the notification pipeline. The SECOND HALF —
+``apps/api/plane/bgtasks/email_notification_task.py`` — aggregates the
+``EmailNotificationLog`` rows produced here and dispatches consolidated
+emails by way of ``stack_email_notification``.
+
+Trigger:
+    ``notifications.delay(...)`` from inside ``issue_activity`` in
+    ``apps/api/plane/bgtasks/issue_activities_task.py`` whenever an
+    activity is recorded with ``notification=True``.
+
+Responsibilities:
+    - **Mention diffing**: parses ``mention-component`` HTML tags in
+      both the old and new description / comment HTML to identify
+      newly-added and removed user mentions.
+    - **Subscriber management**: when a user is newly mentioned, an
+      ``IssueSubscriber`` row is created so they remain on the
+      notification list even if they're un-mentioned later — this is
+      the user-facing "mentions feel sticky" product behavior.
+    - **Notification creation**: writes ``Notification`` rows for
+      in-app notification badges.
+    - **Email log queuing**: writes ``EmailNotificationLog`` rows for
+      later aggregation by ``email_notification_task``.
+
+Skip-set:
+    Certain event ``type`` values bypass notification creation entirely
+    — cycle, module, issue_reaction, comment_reaction, issue_vote, and
+    issue_draft activity events do not produce notifications by design.
+
+Async infrastructure: queued onto **RabbitMQ** and consumed by Celery
+workers (per the architectural rule that RabbitMQ is the task broker;
+Redis is used only for caching and session state).
+
+See tech spec §4.6 NOTIFICATION PIPELINE WORKFLOW.
+"""
+
 # Python imports
 import json
 import uuid
@@ -35,6 +72,7 @@ from bs4 import BeautifulSoup
 
 
 def update_mentions_for_issue(issue, project, new_mentions, removed_mention):
+    """Bulk-create ``IssueMention`` rows for ``new_mentions`` and delete rows for ``removed_mention``."""
     aggregated_issue_mentions = []
     for mention_id in new_mentions:
         aggregated_issue_mentions.append(
@@ -51,6 +89,7 @@ def update_mentions_for_issue(issue, project, new_mentions, removed_mention):
 
 
 def get_new_mentions(requested_instance, current_instance):
+    """Return user ids newly mentioned in ``requested_instance`` vs. ``current_instance``."""
     # requested_data is the newer instance of the current issue
     # current_instance is the older instance of the current issue, saved in the database
 
@@ -67,6 +106,7 @@ def get_new_mentions(requested_instance, current_instance):
 
 # Get Removed Mention
 def get_removed_mentions(requested_instance, current_instance):
+    """Return user ids mentioned in ``current_instance`` but no longer in ``requested_instance``."""
     # requested_data is the newer instance of the current issue
     # current_instance is the older instance of the current issue, saved in the database
 
@@ -82,6 +122,13 @@ def get_removed_mentions(requested_instance, current_instance):
 
 # Adds mentions as subscribers
 def extract_mentions_as_subscribers(project_id, issue_id, mentions):
+    """Build pending ``IssueSubscriber`` rows for mentioned users not already on the issue.
+
+    Only active project members who are not already subscribers,
+    assignees, or the issue creator are added — those users already
+    receive notifications through other code paths. The returned
+    instances are then bulk-created by the caller.
+    """
     # mentions is an array of User IDs representing the FILTERED set of mentioned users
 
     bulk_mention_subscribers = []
@@ -113,6 +160,14 @@ def extract_mentions_as_subscribers(project_id, issue_id, mentions):
 
 # Parse Issue Description & extracts mentions
 def extract_mentions(issue_instance):
+    """Extract user ids referenced by ``mention-component`` tags in the description HTML.
+
+    ``issue_instance`` is a JSON-encoded string holding the activity
+    snapshot; the ``description_html`` key is parsed with BeautifulSoup.
+    Returns an empty list when parsing fails — silent on error because
+    the caller diffs old vs. new and a missing snapshot naturally
+    degrades to "no mentions known on this side".
+    """
     try:
         # issue_instance has to be a dictionary passed, containing the description_html and other set of activity data. # noqa: E501
         mentions = []
@@ -131,6 +186,11 @@ def extract_mentions(issue_instance):
 
 # =========== Comment Parsing and notification Functions ======================
 def extract_comment_mentions(comment_value):
+    """Extract the set of user ids referenced by ``mention-component`` tags in the raw HTML ``comment_value``.
+
+    Unlike :func:`extract_mentions`, ``comment_value`` is the raw HTML
+    string itself (not a JSON-encoded activity snapshot).
+    """
     try:
         mentions = []
         soup = BeautifulSoup(comment_value, "html.parser")
@@ -143,6 +203,11 @@ def extract_comment_mentions(comment_value):
 
 
 def get_new_comment_mentions(new_value, old_value):
+    """Return user ids newly mentioned in ``new_value`` vs. ``old_value`` (comment HTML diff).
+
+    When ``old_value`` is ``None`` — the comment-created case — every
+    mention in ``new_value`` is treated as new.
+    """
     mentions_newer = extract_comment_mentions(new_value)
     if old_value is None:
         return mentions_newer
@@ -155,6 +220,12 @@ def get_new_comment_mentions(new_value, old_value):
 
 
 def create_mention_notification(project, notification_comment, issue, actor_id, mention_id, issue_id, activity):
+    """Build (but do not save) a mention ``Notification`` for ``mention_id`` on ``issue``.
+
+    The returned instance is appended to a ``bulk_notifications`` list
+    by the caller and persisted later via ``Notification.objects.bulk_create``.
+    The ``sender`` is fixed at ``in_app:issue_activities:mentioned``.
+    """
     return Notification(
         workspace=project.workspace,
         sender="in_app:issue_activities:mentioned",
@@ -198,6 +269,69 @@ def notifications(
     requested_data,
     current_instance,
 ):
+    """Produce in-app + email notifications for mentioned users, assignees, and subscribers of an issue.
+
+    Trigger:
+        Explicit ``notifications.delay(type, issue_id, project_id,
+        actor_id, subscriber, issue_activities_created, requested_data,
+        current_instance)`` from inside ``issue_activity`` in
+        ``apps/api/plane/bgtasks/issue_activities_task.py`` when an
+        activity is recorded with ``notification=True``. The Celery
+        message is routed via **RabbitMQ** and consumed by the worker.
+
+    Side effects:
+        - **HTML parse (2x)**: BeautifulSoup extracts
+          ``mention-component`` ids from ``current_instance`` and
+          ``requested_data`` for both description (via
+          :func:`extract_mentions`) and per-comment HTML (via
+          :func:`extract_comment_mentions`). The diff identifies
+          newly-mentioned and removed users.
+        - **DB write (``IssueMention``)**: rows are created for
+          newly-mentioned users and deleted for users removed from the
+          mention set (see :func:`update_mentions_for_issue`).
+        - **DB write (``IssueSubscriber``)**: newly-mentioned users are
+          auto-subscribed via :func:`extract_mentions_as_subscribers`
+          so they remain on the notification list even if they're
+          un-mentioned later.
+        - **DB write (``Notification``)**: one in-app notification per
+          ``(receiver, issue, event)`` tuple, bulk-created with
+          ``batch_size=100``.
+        - **DB write (``EmailNotificationLog``)**: rows are queued
+          (``ignore_conflicts=True``) for later aggregation + send by
+          ``email_notification_task.stack_email_notification``.
+        - **Skip-set**: when ``type`` is one of the
+          ``cycle.activity.*`` / ``module.activity.*`` /
+          ``issue_reaction.activity.*`` / ``comment_reaction.activity.*``
+          / ``issue_vote.activity.*`` / ``issue_draft.activity.*``
+          events, notification creation is bypassed entirely.
+        - **No** webhook fan-out (those go through ``webhook_task.py``).
+        - **No** cache invalidation.
+
+    Idempotency:
+        NON-idempotent. Duplicate invocations create duplicate
+        ``Notification`` and ``EmailNotificationLog`` rows. The caller
+        (the ``issue_activity`` dispatcher) is expected to invoke this
+        at most once per ``(issue, activity)`` pair; signal
+        de-duplication upstream guards against duplicate triggers.
+
+    Args:
+        type: Event discriminator string of the form
+            ``"<entity>.activity.<verb>"`` (e.g. ``"issue.activity.updated"``,
+            ``"comment.activity.created"``, ``"link.activity.created"``,
+            ``"attachment.activity.created"``, ``"issue_relation.activity.created"``,
+            ``"intake.activity.created"``).
+        issue_id: Primary key of the ``Issue``.
+        project_id: Primary key of the ``Project``.
+        actor_id: Primary key of the ``User`` who triggered the activity.
+        subscriber: Legacy boolean — when truthy, the ``actor`` is
+            ``get_or_create``-d as an ``IssueSubscriber`` on the issue.
+        issue_activities_created: JSON-encoded list of
+            ``IssueActivitySerializer`` payloads for the
+            ``IssueActivity`` rows created by the upstream dispatcher
+            (referenced from the resulting ``Notification`` rows).
+        requested_data: New-state JSON snapshot for the entity (string).
+        current_instance: Previous-state JSON snapshot for the entity (string).
+    """
     try:
         issue_activities_created = (
             json.loads(issue_activities_created) if issue_activities_created is not None else None
