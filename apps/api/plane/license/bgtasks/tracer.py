@@ -2,6 +2,29 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""OpenTelemetry tracing task for instance-wide and per-workspace metric collection.
+
+This module exposes the ``instance_traces`` Celery shared task, which Plane's
+licensing subsystem uses to emit periodic operational telemetry as OpenTelemetry
+spans. The task is consumed by a Celery worker via RabbitMQ (the project's
+async broker); Redis is used for caching and session only and is NOT involved
+in task queueing.
+
+Startup contract: this task reads the singleton ``Instance`` row plus the core
+ORM models (``Workspace``, ``User``, ``Project``, ``Issue``, ``Module``,
+``Cycle``, ``CycleIssue``, ``ModuleIssue``, ``Page``, ``WorkspaceMember``). The
+``migrator`` container must apply Django migrations before any Celery worker
+can execute the task safely.
+
+Schedule and triggers:
+    - Celery Beat: ``run-every-6-hours-for-instance-trace`` schedule entry in
+      ``plane/celery.py`` (every 6 hours at minute 0,
+      ``crontab(hour="*/6", minute=0)``).
+    - Explicit: ``plane/license/management/commands/register_instance.py``
+      invokes ``instance_traces.delay()`` after registering or refreshing the
+      singleton ``Instance`` row.
+"""
+
 # Third party imports
 from celery import shared_task
 from opentelemetry import trace
@@ -25,6 +48,52 @@ from plane.utils.telemetry import init_tracer, shutdown_tracer
 
 @shared_task
 def instance_traces():
+    """Emit OpenTelemetry spans describing the Plane instance and each workspace tenant.
+
+    Triggers:
+        - Celery Beat: the ``run-every-6-hours-for-instance-trace`` schedule
+          entry in ``plane/celery.py`` (``crontab(hour="*/6", minute=0)``)
+          enqueues this task every 6 hours at minute 0 UTC.
+        - Explicit: invoked via ``.delay()`` from
+          ``plane/license/management/commands/register_instance.py`` after a
+          successful instance registration or refresh.
+
+    Side effects:
+        - Initializes the OpenTelemetry tracer provider via
+          ``plane.utils.telemetry.init_tracer`` (process-level singleton; safe
+          to call repeatedly).
+        - Reads the singleton ``Instance`` row via ``Instance.objects.first()``
+          and returns early if no row exists or if
+          ``instance.is_telemetry_enabled`` is ``False``.
+        - Emits a single ``instance_details`` span with instance-wide aggregate
+          counts of ``Workspace``, ``User``, ``Project``, ``Issue``,
+          ``Module``, ``Cycle``, ``CycleIssue``, ``ModuleIssue``, ``Page`` and
+          the ``Instance`` metadata attributes (``instance_id``,
+          ``instance_name``, ``current_version``, ``latest_version``,
+          ``is_telemetry_enabled``, ``is_support_required``, ``is_setup_done``,
+          ``is_signup_screen_visited``, ``is_verified``, ``edition``,
+          ``domain``, ``is_test``).
+        - For each ``Workspace`` returned by ``Workspace.objects.all()``,
+          emits a ``workspace_details`` span carrying the per-tenant filtered
+          counts (``Project``, ``Issue``, ``Module``, ``Cycle``,
+          ``CycleIssue``, ``ModuleIssue``, ``Page``, ``WorkspaceMember``) plus
+          the ``instance_id``, ``workspace_id`` and ``workspace_slug``
+          attributes.
+        - Always calls ``shutdown_tracer()`` in a ``finally`` block so the
+          ``BatchSpanProcessor`` flushes buffered spans to the OTLP collector
+          before the task exits.
+        - No DB writes, no emails, no webhooks, no cache invalidation: this
+          task performs read-only ORM access plus outbound OTLP span emission.
+
+    Idempotency:
+        - Database layer: idempotent because only ``.count()`` reads are
+          performed.
+        - Telemetry sink: non-idempotent in span identity space because every
+          invocation produces a fresh set of spans stamped with the current
+          wall-clock timestamps; downstream telemetry aggregators should
+          deduplicate or aggregate spans by ``instance_id`` and
+          ``workspace_id`` as needed.
+    """
     try:
         init_tracer()
         # Check if the instance is registered
