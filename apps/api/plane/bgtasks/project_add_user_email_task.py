@@ -2,6 +2,21 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Celery task that emails a project-addition notification to a new project member.
+
+Distinct from ``project_invitation_task.py``: this task is invoked when an
+existing workspace member is *directly added* to a project (no acceptance
+flow). Invitations to non-members go through ``project_invitation_task.py``.
+
+Trigger: explicit ``.delay(current_site, project_member_id, invitor_id)`` from
+``apps/api/plane/app/views/project/member.py`` (the bulk-add project member
+endpoint).
+
+Async infrastructure: queued onto RabbitMQ and consumed by Celery workers
+(per the project's queue/cache split). Redis is used elsewhere only for
+caching and session state -- it is not the task broker.
+"""
+
 # Python imports
 import logging
 
@@ -23,6 +38,46 @@ from plane.db.models import User
 
 @shared_task
 def project_add_user_email(current_site, project_member_id, invitor_id):
+    """Email a project-addition notification to the newly added project member.
+
+    Trigger:
+        Explicit ``project_add_user_email.delay(current_site,
+        project_member_id, invitor_id)`` from
+        ``apps/api/plane/app/views/project/member.py`` (the bulk-add project
+        member endpoint) when an existing workspace member is directly added
+        to a project. The Celery message is routed via RabbitMQ and consumed
+        by the worker.
+
+    Side effects:
+        - Sends one SMTP email (subject ``"You have been invited to a Plane
+          project"``; multipart HTML+plain-text rendered from
+          ``emails/notifications/project_addition.html``) to the new project
+          member's address using the instance-configured SMTP backend from
+          :func:`plane.license.utils.instance_value.get_email_configuration`.
+        - Embeds a deep-link URL of the form
+          ``{current_site}/{workspace.slug}/projects/{project_id}/issues``
+          in the email body.
+        - No database writes. No webhook fan-out. No cache invalidation.
+
+    Idempotency:
+        NON-idempotent. Each invocation produces one outbound email; the
+        caller is responsible for gating on the project-member creation
+        event so duplicate triggers do not generate duplicate "you have
+        been added" emails.
+
+    Args:
+        current_site: Scheme + host prefix used to build the project URL.
+        project_member_id: Primary key of the newly created
+            ``ProjectMember`` row whose ``member.email`` is the recipient.
+        invitor_id: Primary key of the ``User`` who added the member; used
+            to populate the inviter's first name in the email body.
+
+    Returns:
+        ``None``. Errors are swallowed: any exception during user/project
+        lookup, template rendering, or SMTP delivery is forwarded to
+        :func:`plane.utils.exception_logger.log_exception` so a failed email
+        never poisons the worker.
+    """
     try:
         # Get the invitor
         invitor = User.objects.get(pk=invitor_id)
