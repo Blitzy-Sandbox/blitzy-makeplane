@@ -2,6 +2,44 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Celery tasks for the second half of the notification pipeline: aggregation + email dispatch.
+
+Two ``@shared_task`` callables live here:
+
+1. ``stack_email_notification`` — Beat-scheduled aggregator that runs
+   every 5 minutes (see the
+   ``check-every-five-minutes-to-send-email-notifications`` entry in
+   ``apps/api/plane/celery.py``). It bundles pending
+   ``EmailNotificationLog`` rows by ``(receiver, issue)`` so a user
+   receives ONE consolidated email per issue per 5-minute window
+   instead of one email per change.
+2. ``send_email_notification`` — chained from the aggregator via
+   ``send_email_notification.delay(...)``; renders and sends the
+   actual SMTP email for one ``(receiver, issue)`` group.
+
+Companion: ``apps/api/plane/bgtasks/notification_task.py`` writes the
+``EmailNotificationLog`` rows that this aggregator consumes.
+
+Redis is used here in two ways, both of which are caching / coordination
+semantics (NOT a Celery broker):
+
+- ``send_email_notification`` calls :func:`acquire_lock` /
+  :func:`release_lock` (SET NX EX with a 300-second TTL) keyed by
+  ``send_email_notif_<issue_id>_<receiver_id>_<sorted_log_ids>`` to
+  guarantee that an identical aggregated batch is not dispatched
+  twice if the same Celery task body is delivered to two workers.
+- ``send_email_notification`` reads the workspace's frontend base URL
+  from ``redis_instance().get(str(issue_id))``; when that key is
+  absent the task returns early without sending.
+
+Async infrastructure: every ``@shared_task`` here is queued onto
+**RabbitMQ** and consumed by Celery workers (per the architectural
+rule that RabbitMQ is the task broker; Redis is used only for
+caching and coordination).
+
+See tech spec section 4.6 NOTIFICATION PIPELINE WORKFLOW.
+"""
+
 import logging
 import re
 from datetime import datetime
@@ -25,6 +63,7 @@ from plane.utils.exception_logger import log_exception
 
 
 def remove_unwanted_characters(input_text):
+    """Strip ASCII / Latin-1 control characters from ``input_text`` so it is safe to use as an email subject line."""
     # Remove only control characters and potentially problematic characters for email subjects
     processed_text = re.sub(r"[\x00-\x1F\x7F-\x9F]", "", input_text)
     return processed_text
@@ -32,6 +71,12 @@ def remove_unwanted_characters(input_text):
 
 # acquire and delete redis lock
 def acquire_lock(lock_id, expire_time=300):
+    """Acquire a Redis lock at ``lock_id`` for ``expire_time`` seconds via ``SET NX EX``.
+
+    Returns truthy on first acquisition, ``None`` if the key already
+    exists. Used by :func:`send_email_notification` to dedupe accidental
+    duplicate deliveries of the same aggregated batch.
+    """
     redis_client = redis_instance()
     """Attempt to acquire a lock with a specified expiration time."""
     return redis_client.set(lock_id, "true", nx=True, ex=expire_time)
@@ -45,6 +90,39 @@ def release_lock(lock_id):
 
 @shared_task
 def stack_email_notification():
+    """Aggregate pending ``EmailNotificationLog`` rows and dispatch one consolidated email per ``(receiver, issue)``.
+
+    Trigger:
+        Celery Beat — every 5 minutes — via the
+        ``check-every-five-minutes-to-send-email-notifications`` schedule
+        entry in ``apps/api/plane/celery.py``. The Celery message is
+        routed through **RabbitMQ** and consumed by the worker.
+
+    Side effects:
+        - **DB read**: queries every ``EmailNotificationLog`` row with
+          ``processed_at__isnull=True`` and groups them in-process by
+          ``receiver_id`` and then by ``entity_identifier`` (issue id).
+        - **Task dispatch**: for every ``(receiver, issue)`` pair,
+          ``send_email_notification.delay(issue_id, notification_data,
+          receiver_id, email_notification_ids)`` is enqueued onto
+          RabbitMQ to render and send the actual email.
+        - **DB write**: every aggregated row's ``processed_at`` is set
+          to ``timezone.now()`` so it is not re-aggregated on the next
+          5-minute Beat tick. This is the idempotency primitive for
+          this task.
+        - **No** outbound SMTP from this function (delegated to
+          ``send_email_notification``).
+        - **No** webhook fan-out. **No** cache invalidation.
+
+    Idempotency:
+        IDEMPOTENT through the ``processed_at`` flag pattern. The
+        ``processed_at__isnull=True`` filter ensures each
+        ``EmailNotificationLog`` row is read at most once across all
+        Beat ticks; the terminal bulk update marks them processed even
+        if delivery fails downstream (delivery is the responsibility
+        of ``send_email_notification``, which carries its own Redis
+        dedup lock).
+    """
     # get all email notifications
     email_notifications = EmailNotificationLog.objects.filter(processed_at__isnull=True).order_by("receiver").values()
 
@@ -85,6 +163,12 @@ def stack_email_notification():
 
 
 def create_payload(notification_data):
+    """Fold per-actor ``IssueActivity`` change lists into a deduplicated email-rendering structure.
+
+    Output shape::
+
+        {actor_id: {field: {"old_value": [...], "new_value": [...], "activity_time": "<UTC>"}}}
+    """
     # return format {"actor_id":  { "key": { "old_value": [], "new_value": [] } }}
     data = {}
     for actor_id, changes in notification_data.items():
@@ -128,6 +212,12 @@ def create_payload(notification_data):
 
 
 def process_mention(mention_component):
+    """Replace ``<mention-component>`` tags in ``mention_component`` HTML with ``@<display_name>`` plain text.
+
+    Each tag's ``entity_identifier`` attribute is resolved against the
+    ``User`` table so the rendered email body shows readable handles
+    instead of raw HTML mention markup.
+    """
     soup = BeautifulSoup(mention_component, "html.parser")
     mentions = soup.find_all("mention-component")
     for mention in mentions:
@@ -140,6 +230,7 @@ def process_mention(mention_component):
 
 
 def process_html_content(content):
+    """Apply :func:`process_mention` to each HTML string in ``content`` (a list); pass ``None`` through unchanged."""
     if content is None:
         return None
     processed_content_list = []
@@ -151,6 +242,73 @@ def process_html_content(content):
 
 @shared_task
 def send_email_notification(issue_id, notification_data, receiver_id, email_notification_ids):
+    """Render and send one consolidated notification email for ``(receiver_id, issue_id)``.
+
+    Trigger:
+        Explicit ``send_email_notification.delay(issue_id,
+        notification_data, receiver_id, email_notification_ids)`` from
+        :func:`stack_email_notification`. There is no other call site
+        in the codebase. The Celery message is routed through
+        **RabbitMQ** and consumed by the worker.
+
+    Side effects:
+        - **Redis lock acquire**: :func:`acquire_lock` is called with
+          ``lock_id = f"send_email_notif_{issue_id}_{receiver_id}_{sorted_ids}"``
+          and a 300-second TTL (the ``expire_time`` default). If the
+          key already exists (i.e. the same batch was just queued
+          twice), the task short-circuits and logs
+          ``"Duplicate email received skipping"``.
+        - **Redis cache read**: ``redis_instance().get(str(issue_id))``
+          is read to resolve the workspace's frontend base URL used
+          when building the issue / project / preference links in the
+          email body. If the key is absent the task returns without
+          sending.
+        - **DB read**: the receiver ``User`` row, the ``Issue`` row,
+          and one ``User`` row per actor referenced in
+          ``notification_data``.
+        - **HTML parse**: :func:`process_mention` /
+          :func:`process_html_content` walk the comment / mention HTML
+          via BeautifulSoup and rewrite ``mention-component`` tags as
+          ``@<display_name>`` text so the rendered email is readable
+          plaintext-equivalent.
+        - **External (SMTP)**: one ``EmailMultiAlternatives`` message
+          (plaintext + HTML alternative) is sent over the SMTP
+          connection built from
+          :func:`plane.license.utils.instance_value.get_email_configuration`
+          (instance-admin-configured ``EMAIL_HOST`` / port / TLS / SSL
+          / from-address).
+        - **DB write**: on successful send, every
+          ``EmailNotificationLog`` row in ``email_notification_ids``
+          has its ``sent_at`` set to ``timezone.now()``.
+        - **Redis lock release**: :func:`release_lock` is called on
+          every exit path (success, SMTP failure,
+          ``Issue.DoesNotExist`` / ``User.DoesNotExist``, generic
+          exception).
+        - **No** webhook fan-out. **No** Plane cache invalidation.
+
+    Idempotency:
+        NON-idempotent at the SMTP layer (each successful invocation
+        produces one email). Protected upstream in two layers:
+        :func:`stack_email_notification` marks every
+        ``EmailNotificationLog`` row as processed exactly once per
+        Beat tick, and this task's own Redis ``SET NX EX`` lock keyed
+        on ``(issue_id, receiver_id, sorted_email_notification_ids)``
+        deduplicates accidental duplicate Celery deliveries of the
+        same aggregated batch.
+
+    Args:
+        issue_id: Primary key of the ``Issue`` the consolidated email
+            describes.
+        notification_data: Mapping of ``{triggered_by_id: [activity_payload, ...]}``
+            assembled by :func:`stack_email_notification` from the
+            grouped ``EmailNotificationLog.data`` rows; consumed by
+            :func:`create_payload`.
+        receiver_id: Primary key of the ``User`` to email.
+        email_notification_ids: List of ``EmailNotificationLog``
+            primary keys covered by this consolidated email. Used to
+            build the Redis lock key (so the lock is unique per batch)
+            and to bulk-update ``sent_at`` after a successful send.
+    """
     # Convert UUIDs to a sorted, concatenated string
     sorted_ids = sorted(email_notification_ids)
     ids_str = "_".join(str(id) for id in sorted_ids)
