@@ -2,6 +2,56 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Celery Beat tasks for the daily PostgreSQL to MongoDB archive and hard-delete cleanup sweeps.
+
+Five distinct retention sweeps run sequentially each night from
+``02:30 UTC`` to ``03:30 UTC`` (schedule defined in
+``apps/api/plane/celery.py:L56-L75``):
+
+    +--------+---------------------------------------+------------------------------+
+    |  Time  | Beat task                             | Target model                 |
+    +========+=======================================+==============================+
+    | 02:30  | ``delete_api_logs``                   | ``APIActivityLog``           |
+    | 02:45  | ``delete_email_notification_logs``    | ``EmailNotificationLog``     |
+    | 03:00  | ``delete_page_versions``              | ``PageVersion``              |
+    | 03:15  | ``delete_issue_description_versions`` | ``IssueDescriptionVersion``  |
+    | 03:30  | ``delete_webhook_logs``               | ``WebhookLog``               |
+    +--------+---------------------------------------+------------------------------+
+
+Retention rules:
+    - ``HARD_DELETE_AFTER_DAYS`` (environment variable, default ``30``):
+      log rows older than this many days are eligible for deletion.
+      Resolved inline in each ``get_*_logs_queryset`` helper rather than
+      exported as a module constant.
+    - ``BATCH_SIZE = 500``: rows processed per batch when flushing
+      buffered records to MongoDB and deleting from PostgreSQL.
+    - Page and Issue description versions: KEEP the latest ``20`` per
+      parent (via the ``RowNumber()`` window function partitioned by
+      ``page_id`` / ``issue_id`` and ordered by ``created_at DESC`` --
+      any row with ``row_num > 20`` is swept). The cap is fixed and
+      independent of ``HARD_DELETE_AFTER_DAYS``.
+    - Webhook logs: queryset iterator uses ``chunk_size=100`` because
+      webhook log rows carry larger payloads (request/response headers
+      and bodies) than the other log models.
+
+Generic archive pattern:
+    ``process_cleanup_task()`` is the shared helper used by all five
+    Beat tasks. When ``MongoConnection.is_configured()`` returns
+    ``True``, eligible rows are bulk-inserted into a MongoDB archive
+    collection BEFORE being hard-deleted from PostgreSQL. When MongoDB
+    is not configured, rows are simply hard-deleted with no archive
+    side effect. If a MongoDB bulk-insert fails, the corresponding
+    PostgreSQL delete is skipped for that batch so the rows can be
+    retried on the next run (see ``flush_to_mongo_and_delete``).
+
+Async infrastructure:
+    Tasks are enqueued onto **RabbitMQ** by Celery Beat and consumed by
+    Celery workers. Redis is used for caching and sessions only and is
+    never the task broker (per the project architectural contract).
+
+See tech spec section 4.12 -- DATA CLEANUP AND RETENTION WORKFLOWS.
+"""
+
 # Python imports
 from datetime import timedelta
 import logging
@@ -58,9 +108,7 @@ def flush_to_mongo_and_delete(
     model,
     mongo_available: bool,
 ) -> None:
-    """
-    Inserts a batch of records into MongoDB and deletes the corresponding rows from PostgreSQL.
-    """
+    """Insert a batch of records into MongoDB and delete the corresponding rows from PostgreSQL."""
     if not buffer:
         logger.debug("No records to flush - buffer is empty")
         return
@@ -96,15 +144,33 @@ def process_cleanup_task(
     task_name: str,
     collection_name: str,
 ):
-    """
-    Generic function to process cleanup tasks.
+    """Run the generic archive-then-delete pattern shared by all five cleanup tasks.
+
+    For each batch of size ``BATCH_SIZE`` produced by ``queryset_func``:
+        1. If ``MongoConnection.is_configured()`` returns ``True``,
+           apply ``transform_func`` to convert each PostgreSQL row dict
+           into a MongoDB document and bulk-insert into the configured
+           archive collection (``collection_name``).
+        2. Hard-delete the same row set from PostgreSQL via
+           ``model.all_objects.filter(id__in=...).delete()``.
+
+    When MongoDB is not configured, step 1 is skipped and rows are
+    hard-deleted without an archive side effect. When MongoDB IS
+    configured but the bulk-insert fails, the PostgreSQL delete for
+    that batch is skipped so the rows can be retried on the next run.
 
     Args:
-        queryset_func: Function that returns the queryset to process
-        transform_func: Function to transform each record for MongoDB
-        model: Django model class
-        task_name: Name of the task for logging
-        collection_name: MongoDB collection name
+        queryset_func: Callable returning the queryset (already chunked
+            via ``.iterator(chunk_size=...)``) of eligible rows. The
+            queryset yields ``dict`` rows produced by ``.values(...)``.
+        transform_func: Callable converting one PostgreSQL row dict
+            into the MongoDB document dict to archive.
+        model: Django model class whose rows are being cleaned (e.g.
+            ``APIActivityLog``, ``PageVersion``). Must expose
+            ``all_objects`` so soft-deleted rows are also reachable.
+        task_name: Human-readable name used for log output only.
+        collection_name: Name of the MongoDB collection used as the
+            archive destination when MongoDB is configured.
     """
     logger.info(f"Starting {task_name} cleanup task")
 
@@ -421,7 +487,30 @@ def get_webhook_logs_queryset():
 
 @shared_task
 def delete_api_logs():
-    """Delete old API activity logs."""
+    """Sweep ``APIActivityLog`` rows older than ``HARD_DELETE_AFTER_DAYS`` (default ``30``).
+
+    Trigger:
+        Celery Beat schedule entry
+        ``check-every-day-to-delete-api-logs`` scheduled at
+        ``02:30 UTC`` daily, defined in
+        ``apps/api/plane/celery.py:L56-L59``. The Celery message is
+        routed via **RabbitMQ** and consumed by a worker.
+
+    Side effects:
+        * **MongoDB archive** (when ``MongoConnection.is_configured()``
+          returns ``True``): bulk-inserts the eligible rows into the
+          ``api_activity_logs`` archive collection via
+          ``process_cleanup_task()``.
+        * **PostgreSQL hard-delete**: batched delete with
+          ``BATCH_SIZE = 500`` rows per iteration.
+        * **No** emails, **no** webhook fan-out, **no** cache
+          invalidation.
+
+    Idempotency:
+        Idempotent. The monotonic ``created_at <= now - N days`` filter
+        ensures that subsequent runs find zero remaining matches once a
+        row has been archived and deleted.
+    """
     process_cleanup_task(
         queryset_func=get_api_logs_queryset,
         transform_func=transform_api_log,
@@ -433,7 +522,31 @@ def delete_api_logs():
 
 @shared_task
 def delete_email_notification_logs():
-    """Delete old email notification logs."""
+    """Sweep ``EmailNotificationLog`` rows older than ``HARD_DELETE_AFTER_DAYS`` (default ``30``).
+
+    Trigger:
+        Celery Beat schedule entry
+        ``check-every-day-to-delete-email-notification-logs`` scheduled
+        at ``02:45 UTC`` daily, defined in
+        ``apps/api/plane/celery.py:L60-L63``. The Celery message is
+        routed via **RabbitMQ** and consumed by a worker.
+
+    Side effects:
+        * **MongoDB archive** (when ``MongoConnection.is_configured()``
+          returns ``True``): bulk-inserts the eligible rows into the
+          ``email_notification_logs`` archive collection via
+          ``process_cleanup_task()``.
+        * **PostgreSQL hard-delete**: batched delete with
+          ``BATCH_SIZE = 500`` rows per iteration.
+        * **No** outbound emails are sent by this sweep itself (it
+          deletes the post-delivery LOG rows). **No** webhook fan-out.
+          **No** cache invalidation.
+
+    Idempotency:
+        Idempotent. The monotonic ``sent_at <= now - N days`` filter
+        ensures that subsequent runs find zero remaining matches once a
+        row has been archived and deleted.
+    """
     process_cleanup_task(
         queryset_func=get_email_logs_queryset,
         transform_func=transform_email_log,
@@ -445,7 +558,34 @@ def delete_email_notification_logs():
 
 @shared_task
 def delete_page_versions():
-    """Delete excess page versions."""
+    """Cap each page at the latest 20 ``PageVersion`` rows; archive and delete older versions.
+
+    Trigger:
+        Celery Beat schedule entry
+        ``check-every-day-to-delete-page-versions`` scheduled at
+        ``03:00 UTC`` daily, defined in
+        ``apps/api/plane/celery.py:L64-L67``. The Celery message is
+        routed via **RabbitMQ** and consumed by a worker.
+
+    Side effects:
+        * **DB read**: uses
+          ``RowNumber() OVER (PARTITION BY page_id ORDER BY created_at DESC)``
+          to assign a per-page rank, then selects rows where
+          ``row_num > 20``.
+        * **MongoDB archive** (when ``MongoConnection.is_configured()``
+          returns ``True``): bulk-inserts the swept rows into the
+          ``page_versions`` archive collection via
+          ``process_cleanup_task()``.
+        * **PostgreSQL hard-delete**: batched delete with
+          ``BATCH_SIZE = 500`` rows per iteration.
+        * **No** emails, **no** webhook fan-out, **no** cache
+          invalidation.
+
+    Idempotency:
+        Idempotent. The cap is stable; subsequent runs find no rows
+        beyond the latest 20 per page unless new versions are written
+        between runs.
+    """
     process_cleanup_task(
         queryset_func=get_page_versions_queryset,
         transform_func=transform_page_version,
@@ -457,7 +597,34 @@ def delete_page_versions():
 
 @shared_task
 def delete_issue_description_versions():
-    """Delete excess issue description versions."""
+    """Cap each issue at the latest 20 ``IssueDescriptionVersion`` rows; archive and delete older versions.
+
+    Trigger:
+        Celery Beat schedule entry
+        ``check-every-day-to-delete-issue-description-versions``
+        scheduled at ``03:15 UTC`` daily, defined in
+        ``apps/api/plane/celery.py:L68-L71``. The Celery message is
+        routed via **RabbitMQ** and consumed by a worker.
+
+    Side effects:
+        * **DB read**: uses
+          ``RowNumber() OVER (PARTITION BY issue_id ORDER BY created_at DESC)``
+          to assign a per-issue rank, then selects rows where
+          ``row_num > 20``.
+        * **MongoDB archive** (when ``MongoConnection.is_configured()``
+          returns ``True``): bulk-inserts the swept rows into the
+          ``issue_description_versions`` archive collection via
+          ``process_cleanup_task()``.
+        * **PostgreSQL hard-delete**: batched delete with
+          ``BATCH_SIZE = 500`` rows per iteration.
+        * **No** emails, **no** webhook fan-out, **no** cache
+          invalidation.
+
+    Idempotency:
+        Idempotent. The cap is stable; subsequent runs find no rows
+        beyond the latest 20 per issue unless new versions are written
+        between runs.
+    """
     process_cleanup_task(
         queryset_func=get_issue_description_versions_queryset,
         transform_func=transform_issue_description_version,
@@ -469,7 +636,35 @@ def delete_issue_description_versions():
 
 @shared_task
 def delete_webhook_logs():
-    """Delete old webhook logs"""
+    """Sweep ``WebhookLog`` rows older than ``HARD_DELETE_AFTER_DAYS`` (default ``30``).
+
+    Trigger:
+        Celery Beat schedule entry
+        ``check-every-day-to-delete-webhook-logs`` scheduled at
+        ``03:30 UTC`` daily, defined in
+        ``apps/api/plane/celery.py:L72-L75``. The Celery message is
+        routed via **RabbitMQ** and consumed by a worker.
+
+    Side effects:
+        * **MongoDB archive** (when ``MongoConnection.is_configured()``
+          returns ``True``): bulk-inserts the eligible rows into the
+          ``webhook_logs`` archive collection via
+          ``process_cleanup_task()``.
+        * **PostgreSQL hard-delete**: batched delete with
+          ``BATCH_SIZE = 500`` rows per iteration. The queryset
+          iterator uses ``chunk_size=100`` (see
+          ``get_webhook_logs_queryset``) because webhook log rows carry
+          larger payloads (request/response headers and bodies) than
+          the other log models.
+        * **No** emails. **No** webhook fan-out -- this sweep deletes
+          past-delivery LOG records and does NOT re-deliver any
+          webhooks. **No** cache invalidation.
+
+    Idempotency:
+        Idempotent. The monotonic ``created_at <= now - N days`` filter
+        ensures that subsequent runs find zero remaining matches once a
+        row has been archived and deleted.
+    """
     process_cleanup_task(
         queryset_func=get_webhook_logs_queryset,
         transform_func=transform_webhook_log,
