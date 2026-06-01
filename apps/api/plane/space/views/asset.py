@@ -2,6 +2,36 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Anchor-scoped public ``FileAsset`` endpoints for the ``plane.space`` API.
+
+Defines three :class:`BaseAPIView` subclasses that orchestrate the
+presigned-S3 upload + soft-delete + restore + bulk-reassign lifecycle for
+file assets attached to issue descriptions and issue comments on
+published deploy boards:
+
+* :class:`EntityAssetEndpoint` -- full CRUD with mixed permissions
+  (anonymous GET to download, authenticated POST/PATCH/DELETE for upload
+  orchestration).
+* :class:`AssetRestoreEndpoint` -- authenticated restore of a soft-deleted
+  asset (resets ``is_deleted`` + ``deleted_at`` on a row found via
+  :class:`FileAsset.all_objects`, which bypasses the soft-delete manager).
+* :class:`EntityBulkAssetEndpoint` -- authenticated bulk reassignment of
+  ``comment_id`` for ``COMMENT_DESCRIPTION``-type assets associated with
+  a given entity (used when comments are reordered or merged).
+
+Mounted under ``api/public/assets/v2/anchor/<str:anchor>/`` (see
+``apps/api/plane/space/urls/asset.py``). The upload flow follows the
+presigned POST contract documented in tech spec §5.2.9: the client
+requests a presigned POST URL from the server, uploads directly to
+S3/MinIO, then PATCHes back to set ``is_uploaded=True`` (which also
+enqueues :func:`plane.bgtasks.storage_metadata_task.get_asset_object_metadata`
+via Celery/RabbitMQ to record object size and content type). Asset
+filenames are sanitized via
+:func:`plane.utils.path_validator.sanitize_filename` to prevent path
+traversal. Background metadata extraction uses Celery via RabbitMQ --
+NOT Redis (Redis serves caching/session only).
+"""
+
 # Python imports
 import uuid
 
@@ -25,7 +55,99 @@ from .base import BaseAPIView
 
 
 class EntityAssetEndpoint(BaseAPIView):
+    """CRUD for anchor-scoped issue/comment description :class:`FileAsset` rows.
+
+    HTTP methods and URL patterns:
+        GET    ``api/public/assets/v2/anchor/<str:anchor>/<uuid:pk>/``
+            (URL name: ``entity-asset``)
+            Anonymous-readable: redirects to a time-limited presigned URL
+            for the underlying S3/MinIO object.
+        POST   ``api/public/assets/v2/anchor/<str:anchor>/``
+            (URL name: ``entity-asset``)
+            Authenticated: creates a :class:`FileAsset` row and returns a
+            presigned POST payload for direct browser -> S3/MinIO upload.
+        PATCH  ``api/public/assets/v2/anchor/<str:anchor>/<uuid:pk>/``
+            (URL name: ``entity-asset``)
+            Authenticated: marks an existing asset ``is_uploaded=True``
+            and enqueues the metadata-extraction Celery task.
+        DELETE ``api/public/assets/v2/anchor/<str:anchor>/<uuid:pk>/``
+            (URL name: ``entity-asset``)
+            Authenticated: soft-deletes the asset
+            (``is_deleted=True``, ``deleted_at=timezone.now()``).
+
+    Request body (POST):
+        name (str, optional, default ``"unnamed"``): client-provided
+            file name; passed through
+            :func:`plane.utils.path_validator.sanitize_filename` to strip
+            path-traversal sequences before being embedded in the S3 key.
+        type (str, optional, default ``"image/jpeg"``): MIME type. MUST
+            be one of ``image/jpeg``, ``image/png``, ``image/webp``,
+            ``image/jpg``, ``image/gif`` -- any other value returns 400.
+        size (int, optional, default ``settings.FILE_SIZE_LIMIT``):
+            advertised file size in bytes; embedded in presigned POST
+            conditions to bound the upload at the storage layer.
+        entity_type (str, required): must match a value of
+            :class:`FileAsset.EntityTypeContext`; otherwise 400.
+        entity_identifier (UUID, optional): denormalized into
+            ``comment_id`` on the new :class:`FileAsset` row when the
+            asset is a comment description attachment.
+
+    Request body (PATCH):
+        attributes (dict, optional): merged into ``FileAsset.attributes``.
+
+    Request body (DELETE):
+        None.
+
+    Response shape:
+        GET 302 redirect to the S3/MinIO presigned download URL.
+        POST 200 OK: ``{"upload_data": {<presigned POST fields>},
+        "asset_id": str, "asset_url": str}`` -- the client posts the file
+        directly to S3/MinIO using ``upload_data``, then PATCHes this
+        endpoint to finalize.
+        POST 400 Bad Request: ``{"error": "Invalid entity type.",
+        "status": False}`` or ``{"error": "Invalid file type. Only JPEG,
+        PNG, WebP, JPG and GIF files are allowed.", "status": False}``.
+        POST/PATCH/DELETE 404 Not Found: ``{"error": "Project is not
+        published"}`` when the anchor does not resolve to any
+        :class:`DeployBoard` row.
+        GET 404 Not Found: ``{"error": "Requested resource could not be
+        found."}`` when the anchor does not resolve, OR
+        ``{"error": "The requested asset could not be found."}`` when
+        ``is_uploaded`` is still ``False`` (upload was never finalized).
+        PATCH/DELETE 204 No Content on success.
+
+    Permissions:
+        :meth:`get_permissions` returns ``[AllowAny]`` for GET (anonymous
+        download via presigned URL) and ``[IsAuthenticated]`` for POST,
+        PATCH, DELETE (upload orchestration is gated to logged-in users).
+
+    Queryset filter:
+        GET fetches :class:`FileAsset` by ``workspace_id`` + ``pk``,
+        restricted to ``entity_type IN (ISSUE_DESCRIPTION,
+        COMMENT_DESCRIPTION)`` -- this is a SECURITY BOUNDARY: anonymous
+        downloads are restricted to description attachments, NOT
+        attachments on other entity types (project covers, user avatars,
+        etc.).
+        DELETE additionally filters by ``project_id`` to scope deletes
+        to the project that owns the deploy board.
+
+    Storage integration:
+        Uses :class:`plane.settings.storage.S3Storage` for both
+        ``generate_presigned_url`` (GET) and ``generate_presigned_post``
+        (POST). Object keys are namespaced by ``workspace_id`` to
+        prevent cross-workspace key collisions.
+
+    Background tasks:
+        PATCH enqueues
+        :func:`plane.bgtasks.storage_metadata_task.get_asset_object_metadata`
+        via Celery (RabbitMQ broker) whenever the patched asset does not
+        already carry ``storage_metadata`` -- this populates the row's
+        recorded content-length / content-type from a HEAD against the
+        bucket so subsequent reads do not need to re-query S3.
+    """
+
     def get_permissions(self):
+        """Return ``[AllowAny]`` for GET (anonymous download), ``[IsAuthenticated]`` otherwise."""
         if self.request.method == "GET":
             permission_classes = [AllowAny]
         else:
@@ -33,6 +155,14 @@ class EntityAssetEndpoint(BaseAPIView):
         return [permission() for permission in permission_classes]
 
     def get(self, request, anchor, pk):
+        """Redirect to a presigned S3/MinIO URL for the requested description asset.
+
+        Resolves the anchor, then loads the :class:`FileAsset` restricted
+        to ``ISSUE_DESCRIPTION`` / ``COMMENT_DESCRIPTION`` entity types
+        (anonymous downloads are not permitted for other asset
+        categories). Returns 302 to the presigned URL only if
+        ``is_uploaded`` is True.
+        """
         # Get the deploy board
         deploy_board = DeployBoard.objects.filter(anchor=anchor).first()
         # Check if the project is published
@@ -67,6 +197,14 @@ class EntityAssetEndpoint(BaseAPIView):
         return HttpResponseRedirect(signed_url)
 
     def post(self, request, anchor):
+        """Create a :class:`FileAsset` row and return a presigned upload payload.
+
+        Sanitizes the client-provided filename, validates the entity type
+        and MIME type allowlist, computes a workspace-scoped S3 key, then
+        returns the presigned POST fields the client uses to upload
+        directly to S3/MinIO. The client must subsequently PATCH this
+        endpoint with the new asset's ``pk`` to finalize the upload.
+        """
         # Get the deploy board
         deploy_board = DeployBoard.objects.filter(anchor=anchor).first()
         # Check if the project is published
@@ -134,6 +272,13 @@ class EntityAssetEndpoint(BaseAPIView):
         )
 
     def patch(self, request, anchor, pk):
+        """Finalize an upload by setting ``is_uploaded=True`` and enqueueing metadata extraction.
+
+        When the row does not already carry ``storage_metadata``, enqueues
+        :func:`plane.bgtasks.storage_metadata_task.get_asset_object_metadata`
+        via Celery (RabbitMQ broker) to backfill the recorded
+        content-length / content-type via a HEAD against the bucket.
+        """
         # Get the deploy board
         deploy_board = DeployBoard.objects.filter(anchor=anchor).first()
         # Check if the project is published
@@ -155,6 +300,7 @@ class EntityAssetEndpoint(BaseAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def delete(self, request, anchor, pk):
+        """Soft-delete a :class:`FileAsset` (sets ``is_deleted=True``, ``deleted_at=now``)."""
         # Get the deploy board
         deploy_board = DeployBoard.objects.filter(anchor=anchor, entity_name="project").first()
         # Check if the project is published
@@ -171,9 +317,45 @@ class EntityAssetEndpoint(BaseAPIView):
 
 
 class AssetRestoreEndpoint(BaseAPIView):
-    """Endpoint to restore a deleted assets."""
+    """Restore a soft-deleted :class:`FileAsset` for a published deploy-board.
+
+    HTTP methods and URL patterns:
+        POST ``api/public/assets/v2/anchor/<str:anchor>/restore/<uuid:pk>/``
+            (URL name: ``asset-restore``)
+
+    Request body:
+        None -- restoration is an idempotent ``is_deleted=False`` /
+        ``deleted_at=None`` write on the targeted row.
+
+    Response shape:
+        204 No Content on success.
+        404 Not Found: ``{"error": "Project is not published"}`` when the
+        anchor does not resolve to a project-entity deploy board.
+        :class:`FileAsset.DoesNotExist` from the
+        :class:`FileAsset.all_objects` ``.get(...)`` call propagates to
+        :meth:`BaseAPIView.handle_exception` and returns 404
+        ``{"error": "The required object does not exist."}``.
+
+    Permissions:
+        Inherits ``BaseAPIView.permission_classes = [IsAuthenticated]``
+        -- only authenticated users may restore deleted assets.
+
+    Queryset filter:
+        Uses :class:`FileAsset.all_objects` -- the soft-delete-bypassing
+        manager declared on the soft-delete mixin in
+        ``apps/api/plane/db/mixins.py`` -- to fetch the row by ``id`` +
+        ``workspace`` and reset ``is_deleted=False`` / ``deleted_at=None``.
+        The default :class:`FileAsset.objects` manager would exclude
+        soft-deleted rows and so cannot be used here.
+    """
 
     def post(self, request, anchor, pk):
+        """Restore a soft-deleted :class:`FileAsset` (resets ``is_deleted`` / ``deleted_at``).
+
+        Uses :class:`FileAsset.all_objects` (the soft-delete-bypassing
+        manager) so that previously soft-deleted rows remain reachable
+        for restoration.
+        """
         # Get the deploy board
         deploy_board = DeployBoard.objects.filter(anchor=anchor, entity_name="project").first()
         # Check if the project is published
@@ -189,9 +371,46 @@ class AssetRestoreEndpoint(BaseAPIView):
 
 
 class EntityBulkAssetEndpoint(BaseAPIView):
-    """Endpoint to bulk update assets."""
+    """Bulk reassign ``comment_id`` for an entity's ``COMMENT_DESCRIPTION`` assets.
+
+    HTTP methods and URL patterns:
+        POST ``api/public/assets/v2/anchor/<str:anchor>/<uuid:entity_id>/bulk/``
+            (URL name: ``entity-bulk-asset``)
+
+    Request body:
+        asset_ids (list[UUID], required): list of :class:`FileAsset` IDs
+            to reassign. An empty list returns 400.
+
+    Response shape:
+        204 No Content on success.
+        400 Bad Request: ``{"error": "No asset ids provided."}`` when
+        ``asset_ids`` is empty/missing.
+        404 Not Found: ``{"error": "Project is not published"}`` when the
+        anchor does not resolve, OR ``{"error": "The requested asset
+        could not be found."}`` when none of the listed asset IDs match
+        the workspace / project scope of the deploy board.
+
+    Permissions:
+        Inherits ``BaseAPIView.permission_classes = [IsAuthenticated]``.
+
+    Queryset filter:
+        Resolves the deploy board (anchor + ``entity_name="project"``),
+        then loads :class:`FileAsset` rows by ``id__in=asset_ids`` scoped
+        to the board's workspace and project. The update step
+        (``assets.update(comment_id=entity_id)``) is GATED on
+        ``asset.entity_type == COMMENT_DESCRIPTION`` (checked against the
+        first row of the queryset) -- assets of other entity types are
+        silently ignored.
+
+    Side effects:
+        Single SQL UPDATE statement that rewrites ``comment_id`` for all
+        matched ``COMMENT_DESCRIPTION``-type rows. Used by the client
+        when a comment is reordered or merged and its attached file
+        assets need to move with it.
+    """
 
     def post(self, request, anchor, entity_id):
+        """Reassign ``comment_id=entity_id`` across all ``COMMENT_DESCRIPTION`` assets in ``asset_ids``."""
         # Get the deploy board
         deploy_board = DeployBoard.objects.filter(anchor=anchor, entity_name="project").first()
         # Check if the project is published
