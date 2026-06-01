@@ -2,6 +2,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Anchor-scoped public ``Label`` listing for the ``plane.space`` API.
+
+Defines :class:`ProjectLabelsEndpoint`, a read-only compact listing
+(``[{"id", "name", "color", "parent"}, ...]``) of labels belonging to the
+published project behind a given ``anchor``. The ``anchor`` URL parameter
+resolves to a :class:`plane.db.models.DeployBoard` row, which scopes the
+query to that board's workspace and project; the endpoint is mounted
+under ``api/public/`` and serves anonymous traffic on published boards.
+"""
+
 # Third Party imports
 from rest_framework.response import Response
 from rest_framework import status
@@ -13,9 +23,45 @@ from plane.db.models import DeployBoard, Label
 
 
 class ProjectLabelsEndpoint(BaseAPIView):
+    """Public read-only endpoint listing ``Label`` rows bound to a published board.
+
+    HTTP methods and URL patterns:
+        GET ``api/public/anchor/<str:anchor>/labels/``
+            (URL name: ``project-labels``)
+
+    Request body:
+        None (read-only endpoint).
+
+    Response shape:
+        200 OK: JSON array of ``{"id": UUID, "name": str, "color": str,
+            "parent": UUID | null}`` objects, one per label in the project
+            bound to the given anchor.
+        404 Not Found: ``{"error": "Invalid anchor"}`` when the anchor
+            does not resolve to a :class:`plane.db.models.DeployBoard`
+            row.
+
+    Permissions:
+        ``permission_classes = [AllowAny]`` -- anonymous public read
+        surface on ``api/public/``.
+
+    Queryset filter:
+        Resolves ``anchor`` to a :class:`DeployBoard` row, then returns
+        ``Label.objects.filter(workspace__slug=..., project_id=...).values(
+        "id", "name", "color", "parent")``. The ``parent`` field is
+        included so the published-board UI can reconstruct the label
+        hierarchy (labels can be nested under a parent label).
+    """
+
     permission_classes = [AllowAny]
 
     def get(self, request, anchor):
+        """Return the compact label list for the published board behind ``anchor``.
+
+        Resolves ``anchor`` to a :class:`DeployBoard`, then returns the
+        ``(id, name, color, parent)`` projection of ``Label`` rows under
+        that board's workspace + project. Responds with HTTP 404 when the
+        anchor does not resolve to any deploy board.
+        """
         deploy_board = DeployBoard.objects.filter(anchor=anchor).first()
         if not deploy_board:
             return Response({"error": "Invalid anchor"}, status=status.HTTP_404_NOT_FOUND)
