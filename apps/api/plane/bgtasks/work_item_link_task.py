@@ -2,6 +2,29 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Celery task: crawl external URLs to enrich :class:`IssueLink` rows with title + favicon.
+
+Trigger: explicit ``crawl_work_item_link_title.delay(id, url)`` from
+``apps/api/plane/api/views/issue.py`` and
+``apps/api/plane/app/views/issue/link.py`` whenever an
+:class:`~plane.db.models.IssueLink` row is created with an external URL.
+
+SSRF prevention: :func:`validate_url_ip` resolves the target host via DNS
+and rejects URLs that resolve to private (RFC 1918), loopback, link-local,
+or reserved IPs so the Celery worker cannot be coerced into probing the
+internal network or cloud-metadata endpoints. :func:`safe_get` re-validates
+every redirect hop before following it and caps the redirect chain at
+``MAX_REDIRECTS`` to defeat redirect-loop SSRF gadgets.
+
+Favicon handling: ``DEFAULT_FAVICON`` (a base64-encoded SVG link icon) is
+used as a fallback when the page declares no favicon, the favicon is
+unreachable, or the favicon fetch raises.
+
+Async infrastructure: queued onto **RabbitMQ** and consumed by Celery
+workers (per AAP architectural rule -- Redis is **not** the task broker;
+Redis is reserved for caching and session state).
+"""
+
 # Python imports
 import logging
 import socket
@@ -25,15 +48,25 @@ DEFAULT_FAVICON = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoP
 
 
 def validate_url_ip(url: str) -> None:
-    """
-    Validate that a URL doesn't point to a private/internal IP address.
-    Resolves hostnames to IPs before checking.
+    """Reject ``url`` if its host resolves to a private, loopback, link-local, or reserved IP (SSRF prevention).
+
+    Resolves the URL's host via DNS and rejects ranges that would let an
+    attacker use the Celery worker as a probe against the internal network:
+    private (RFC 1918), loopback (``127.0.0.0/8``, ``::1``), link-local
+    (``169.254.0.0/16``), and any IPv4/IPv6 range flagged by
+    :mod:`ipaddress` as reserved. Also restricts the scheme to ``http`` /
+    ``https`` to block ``file://``, ``gopher://`` and similar SSRF gadgets.
+
+    SECURITY-CRITICAL: this check must not be removed or weakened -- it is
+    the only barrier preventing the worker from being coerced into probing
+    cloud-metadata services (e.g. ``169.254.169.254``) or internal hosts.
 
     Args:
-        url: The URL to validate
+        url: The URL to validate.
 
     Raises:
-        ValueError: If the URL points to a private/internal IP
+        ValueError: If the URL has no hostname, uses a non-HTTP(S) scheme,
+            cannot be resolved, or resolves to any blocked IP range.
     """
     parsed = urlparse(url)
     hostname = parsed.hostname
@@ -73,7 +106,11 @@ def safe_get(
 ) -> Tuple[requests.Response, str]:
     """
     Perform a GET request that validates every redirect hop against private IPs.
-    Prevents SSRF by ensuring no redirect lands on a private/internal address.
+
+    Prevents SSRF by ensuring no redirect lands on a private/internal address:
+    each ``Location`` header is resolved relative to the previous URL,
+    re-validated via :func:`validate_url_ip`, and the chain is aborted after
+    ``MAX_REDIRECTS`` hops.
 
     Args:
         url: The URL to fetch
@@ -178,7 +215,6 @@ def find_favicon_url(soup: Optional[BeautifulSoup], base_url: str) -> Optional[s
     Returns:
         str: Absolute URL to favicon or None
     """
-
     if soup is not None:
         # Look for various favicon link tags
         favicon_selectors = [
@@ -258,6 +294,49 @@ def fetch_and_encode_favicon(
 
 @shared_task
 def crawl_work_item_link_title(id: str, url: str) -> None:
+    """Crawl ``url`` for ``<title>`` + favicon and persist them on ``IssueLink(id=id).metadata``.
+
+    Trigger:
+        Explicit ``crawl_work_item_link_title.delay(id, url)`` from
+        ``apps/api/plane/api/views/issue.py`` and
+        ``apps/api/plane/app/views/issue/link.py`` whenever an
+        :class:`~plane.db.models.IssueLink` row is created with an external
+        URL. The Celery message is routed via **RabbitMQ** and consumed by
+        the worker.
+
+    Side effects:
+        - DNS + SSRF check via :func:`validate_url_ip` (rejects private,
+          loopback, link-local, and reserved IPs as well as non-HTTP(S)
+          schemes).
+        - External HTTP: :func:`safe_get` fetches the page HTML, re-validating
+          every redirect hop and capping the chain at ``MAX_REDIRECTS``.
+        - HTML parse (BeautifulSoup): extracts the ``<title>`` text and the
+          favicon URL (``<link rel="icon">``, ``<link rel="shortcut icon">``,
+          and Apple-touch variants); falls back to ``/favicon.ico``.
+        - External HTTP (favicon): fetches the favicon image; falls back to
+          ``DEFAULT_FAVICON`` (a base64 SVG placeholder) if the fetch fails
+          or returns invalid content.
+        - Base64 encoding: encodes the favicon bytes as a ``data:`` URI so
+          the UI can render the icon inline without additional network
+          requests.
+        - DB write: stores the resulting dict
+          ``{title, favicon, url, favicon_url}`` in :attr:`IssueLink.metadata`
+          (a ``JSONField``) and calls ``.save()``. The dedicated
+          :attr:`IssueLink.title` field is **not** overwritten by this task.
+        - No emails, no webhook fan-out, no cache invalidation.
+
+    Idempotency:
+        IDEMPOTENT in result: repeated invocations on the same ``(id, url)``
+        converge on the same persisted state, assuming the remote page is
+        stable. Each call still issues outbound HTTP requests, so repeated
+        invocations are observable by the remote host. If the ``IssueLink``
+        row no longer exists the task logs a warning and returns silently,
+        so stale messages on the queue do not crash the worker.
+
+    Args:
+        id: Primary key of the :class:`IssueLink` row to update.
+        url: External URL to crawl.
+    """
     meta_data = crawl_work_item_link_title_and_favicon(url)
 
     try:
