@@ -2,6 +2,45 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Public issue / comment / reaction / vote endpoints for the ``plane.space`` API.
+
+Defines the six anchor-resolved endpoints that power the
+published-deploy-board UI's interactive features:
+
+* :class:`ProjectIssuesPublicEndpoint` -- anchor-scoped list of issues
+  with grouping, sub-grouping, ordering, filtering, and offset
+  pagination (via :class:`GroupedOffsetPaginator` /
+  :class:`SubGroupedOffsetPaginator`). Anonymous-readable.
+* :class:`IssueCommentPublicViewSet` -- issue comments CRUD; reads are
+  anonymous, writes are authenticated; gated by
+  :attr:`DeployBoard.is_comments_enabled` and restricted to
+  ``access="EXTERNAL"`` comments.
+* :class:`IssueReactionPublicViewSet` -- issue-level reaction CRUD
+  gated by :attr:`DeployBoard.is_reactions_enabled`.
+* :class:`CommentReactionPublicViewSet` -- comment-level reaction
+  CRUD gated by :attr:`DeployBoard.is_reactions_enabled`.
+* :class:`IssueVotePublicViewSet` -- issue upvote/downvote upsert
+  gated by :attr:`DeployBoard.is_votes_enabled`.
+* :class:`IssueRetrievePublicEndpoint` -- single-issue retrieve with
+  inlined ``vote_items`` and ``reaction_items`` JSON arrays for the
+  detail view; anonymous-readable.
+
+All endpoints mount under ``api/public/`` and resolve a
+:class:`DeployBoard` row by ``anchor`` to derive workspace + project
+scope. Anonymous viewers reach a deliberate subset of the surface
+(``list`` / ``retrieve`` / list-style reads); first-class write
+actions require ``IsAuthenticated`` and additionally register
+:class:`ProjectPublicMember` rows on every write -- this is how Plane
+tracks the long-lived list of authenticated visitors who have
+interacted with a public board (so they can later be promoted to
+full :class:`ProjectMember` rows by an admin).
+
+Every write enqueues an ``issue_activity`` Celery task via RabbitMQ
+(NOT Redis -- Redis is caching/session only) so the wider
+notification + activity-feed pipelines stay in sync with public-board
+interactions.
+"""
+
 # Python imports
 import json
 
@@ -71,9 +110,92 @@ from plane.utils.issue_filters import issue_filters
 
 
 class ProjectIssuesPublicEndpoint(BaseAPIView):
+    """Anchor-scoped LIST of issues for a published deploy-board (grouped + paginated).
+
+    HTTP methods and URL patterns:
+        GET /api/public/anchor/<str:anchor>/issues/
+            (name: ``project-issues``)
+
+    Request body:
+        None (LIST-only endpoint; all parameters are read from
+        ``request.query_params``).
+
+    Query parameters:
+        order_by (str, optional, default=``"-created_at"``): ordering
+            field; passed through
+            :func:`plane.utils.order_queryset.order_issue_queryset`
+            which applies the canonical ordering precedence (priority
+            overrides created_at by default for most fields).
+        group_by (str, optional): single-axis grouping field (e.g.
+            ``"state"``, ``"priority"``, ``"labels"``, ``"assignees"``,
+            ``"cycle"``, ``"module"``). When set, the response uses
+            :class:`GroupedOffsetPaginator`.
+        sub_group_by (str, optional): second-axis grouping field. When
+            set in addition to ``group_by``, the response uses
+            :class:`SubGroupedOffsetPaginator`. If
+            ``group_by == sub_group_by``, returns 400 with
+            ``{"error": "Group by and sub group by cannot have same
+            parameters"}``.
+        Any filter recognized by
+            :func:`plane.utils.issue_filters.issue_filters` (priority,
+            state, labels, assignees, start_date, target_date, etc.).
+
+    Response shape:
+        200 OK: paginated payload via :class:`BaseAPIView.paginate` --
+            specific shape depends on the paginator used. When
+            ungrouped: simple offset envelope with ``results`` list.
+            When grouped: payload includes ``group_by_fields`` list
+            and ``count_filter`` exclusion of archived / draft issues
+            and of issues stuck in intake states 1 / -1 / 2.
+        400 Bad Request: when ``group_by == sub_group_by``.
+        404 Not Found: ``{"error": "Project is not published"}`` when
+            the anchor does not resolve to a project-entity
+            :class:`DeployBoard` row.
+
+    Permissions:
+        ``permission_classes = [AllowAny]``.
+
+    Queryset filter:
+        Starts from :class:`Issue.issue_objects` (the manager that
+        already excludes archived + draft + soft-deleted rows by
+        default), filters to ``workspace.slug`` + ``project_id`` from
+        the deploy board, then applies user filters from
+        ``issue_filters``. Annotates each row with:
+
+        * ``cycle_id``: the active :class:`CycleIssue` (NULL when not
+          in any cycle);
+        * ``link_count``: number of :class:`IssueLink` rows;
+        * ``attachment_count``: number of
+          :class:`FileAsset.EntityTypeContext.ISSUE_ATTACHMENT` rows
+          (description attachments are NOT counted);
+        * ``sub_issues_count``: number of issues whose ``parent`` is
+          this row.
+
+        The pagination call additionally applies a ``count_filter``
+        excluding ``archived_at IS NOT NULL`` and ``is_draft=True``
+        and intake-state issues (status in 1 / -1 / 2 OR not in
+        intake at all) -- so the displayed count matches what would
+        be visible.
+
+    Side effects:
+        None -- read-only endpoint, no Celery dispatch, no
+        :class:`ProjectPublicMember` registration.
+    """
+
     permission_classes = [AllowAny]
 
     def get(self, request, anchor):
+        """List issues for ``anchor``'s deploy board with grouping/pagination.
+
+        Resolves the deploy board (404 if absent), filters
+        :class:`Issue.issue_objects` to the board's workspace +
+        project, annotates ``cycle_id`` / ``link_count`` /
+        ``attachment_count`` / ``sub_issues_count``, applies
+        user-supplied filters and ordering, then paginates via the
+        appropriate :class:`GroupedOffsetPaginator` /
+        :class:`SubGroupedOffsetPaginator` based on ``group_by`` /
+        ``sub_group_by`` query parameters.
+        """
         filters = issue_filters(request.query_params, "GET")
         order_by_param = request.GET.get("order_by", "-created_at")
 
@@ -212,12 +334,99 @@ class ProjectIssuesPublicEndpoint(BaseAPIView):
 
 
 class IssueCommentPublicViewSet(BaseViewSet):
+    """Anchor-scoped issue-comments CRUD for published deploy-boards.
+
+    HTTP methods and URL patterns:
+        GET    /api/public/anchor/<str:anchor>/issues/<uuid:issue_id>/comments/
+                  (name: ``issue-comments``)
+        POST   (same path)
+        GET    /api/public/anchor/<str:anchor>/issues/<uuid:issue_id>/comments/<uuid:pk>/
+                  (name: ``issue-comment-detail``)
+        PATCH  (same detail path)
+        DELETE (same detail path)
+
+    Request body (POST):
+        comment_html (str, required): rendered HTML.
+        comment_json (dict, optional): ProseMirror/TipTap JSON.
+        comment_stripped (str, optional): plain-text fallback.
+        actor and access are SERVER-SET -- ``actor=request.user``,
+            ``access="EXTERNAL"``. Clients cannot override these.
+
+    Request body (PATCH):
+        Partial subset of the POST schema; ``actor`` / ``access``
+        cannot be re-set by clients.
+
+    Request body (DELETE):
+        None.
+
+    Response shape:
+        LIST 200 OK: array of :class:`IssueCommentSerializer`
+            payloads, ordered by ``created_at`` ascending, annotated
+            with ``is_member`` (Exists subquery: True when the
+            comment author is a current active
+            :class:`ProjectMember`).
+        POST 201 Created: :class:`IssueCommentSerializer` payload.
+        PATCH 200 OK: :class:`IssueCommentSerializer` payload.
+        DELETE 204 No Content on success.
+        POST/PATCH/DELETE 400 Bad Request: ``{"error": "Comments are
+            not enabled for this project"}`` when
+            ``deploy_board.is_comments_enabled`` is False, OR
+            serializer error payload on invalid POST/PATCH.
+
+    Permissions (``get_permissions`` override):
+        ``[AllowAny]`` for ``list`` / ``retrieve``;
+        ``[IsAuthenticated]`` for ``create`` / ``partial_update`` /
+        ``destroy``. Anonymous viewers can READ comments but cannot
+        post / edit / delete.
+
+    Queryset filter (``get_queryset``):
+        Resolves :class:`DeployBoard` by anchor +
+        ``entity_name="project"``; returns
+        :class:`IssueComment.objects.none()` if
+        ``is_comments_enabled=False``. Otherwise scopes to:
+
+        * workspace + issue_id from URL kwargs;
+        * ``access="EXTERNAL"`` (INTERNAL comments are NOT exposed
+          on the public surface -- this is a SECURITY BOUNDARY);
+        * select_related on project / workspace / issue;
+        * ``is_member`` Exists annotation indicating whether the
+          comment's actor is a current active project member (used
+          by the UI to distinguish staff replies from
+          anonymous-visitor comments).
+
+        Ordered by ``created_at`` ascending (oldest first -- comment
+        threads read top-to-bottom).
+
+    Edit/delete authorization (inline in ``partial_update`` /
+    ``destroy``):
+        :class:`IssueComment.objects.get(pk=pk, actor=request.user)`
+        -- only the comment's original actor can edit or delete it.
+        Non-author requests raise
+        :class:`IssueComment.DoesNotExist`, which the base handler
+        maps to 404.
+
+    Background tasks (Celery via RabbitMQ -- NOT Redis):
+        Every successful write enqueues
+        :func:`plane.bgtasks.issue_activities_task.issue_activity`
+        with ``type="comment.activity.created"`` / ``...updated`` /
+        ``...deleted`` so downstream activity-feed / notification
+        consumers stay in sync.
+
+    Visitor tracking:
+        On every successful POST, if the actor is not already a
+        :class:`ProjectMember`, a :class:`ProjectPublicMember` row
+        is created (or fetched). This lets workspace owners later
+        see which authenticated users interacted with a published
+        board.
+    """
+
     serializer_class = IssueCommentSerializer
     model = IssueComment
 
     filterset_fields = ["issue__id", "workspace__id"]
 
     def get_permissions(self):
+        """Return ``[AllowAny]`` for list/retrieve, ``[IsAuthenticated]`` for writes."""
         if self.action in ["list", "retrieve"]:
             self.permission_classes = [AllowAny]
         else:
@@ -226,6 +435,16 @@ class IssueCommentPublicViewSet(BaseViewSet):
         return super(IssueCommentPublicViewSet, self).get_permissions()
 
     def get_queryset(self):
+        """Return ``EXTERNAL``-access :class:`IssueComment` rows for the resolved board.
+
+        Returns an empty queryset when ``is_comments_enabled`` is
+        False or the anchor does not resolve. Annotates each row
+        with ``is_member`` (True when the comment's actor is a
+        current active :class:`ProjectMember`); ordered by
+        ``created_at`` ascending. The ``access="EXTERNAL"`` filter is
+        a SECURITY BOUNDARY -- INTERNAL comments (staff-only) are
+        never exposed on the public surface.
+        """
         try:
             project_deploy_board = DeployBoard.objects.get(anchor=self.kwargs.get("anchor"), entity_name="project")
             if project_deploy_board.is_comments_enabled:
@@ -255,6 +474,14 @@ class IssueCommentPublicViewSet(BaseViewSet):
             return IssueComment.objects.none()
 
     def create(self, request, anchor, issue_id):
+        """Create an ``access="EXTERNAL"`` comment on a public-board issue.
+
+        Forces ``actor=request.user`` and ``access="EXTERNAL"``
+        server-side (client values are ignored). On success enqueues
+        ``comment.activity.created`` via Celery (RabbitMQ) and
+        registers a :class:`ProjectPublicMember` row if the actor is
+        not yet a project member.
+        """
         project_deploy_board = DeployBoard.objects.get(anchor=anchor, entity_name="project")
 
         if not project_deploy_board.is_comments_enabled:
@@ -294,6 +521,14 @@ class IssueCommentPublicViewSet(BaseViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def partial_update(self, request, anchor, issue_id, pk):
+        """Update a comment authored by ``request.user`` on a public-board issue.
+
+        Author-only: the lookup
+        ``IssueComment.objects.get(pk=pk, actor=request.user)``
+        raises DoesNotExist (mapped to 404 by the base handler) when
+        a different user attempts the edit. On success enqueues
+        ``comment.activity.updated`` via Celery (RabbitMQ).
+        """
         project_deploy_board = DeployBoard.objects.get(anchor=anchor, entity_name="project")
 
         if not project_deploy_board.is_comments_enabled:
@@ -318,6 +553,13 @@ class IssueCommentPublicViewSet(BaseViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def destroy(self, request, anchor, issue_id, pk):
+        """Delete a comment authored by ``request.user`` on a public-board issue.
+
+        Author-only (same lookup pattern as ``partial_update``). On
+        success enqueues ``comment.activity.deleted`` via Celery
+        (RabbitMQ) BEFORE the row is removed so the activity payload
+        can capture the pre-delete state.
+        """
         project_deploy_board = DeployBoard.objects.get(anchor=anchor, entity_name="project")
 
         if not project_deploy_board.is_comments_enabled:
@@ -340,10 +582,62 @@ class IssueCommentPublicViewSet(BaseViewSet):
 
 
 class IssueReactionPublicViewSet(BaseViewSet):
+    """Anchor-scoped issue-reaction CRUD for published deploy-boards.
+
+    HTTP methods and URL patterns:
+        GET    /api/public/anchor/<str:anchor>/issues/<uuid:issue_id>/reactions/
+                  (name: ``issue-reactions``)
+        POST   (same path)
+        DELETE /api/public/anchor/<str:anchor>/issues/<uuid:issue_id>/reactions/<str:reaction_code>/
+                  (name: ``issue-reaction-delete``)
+
+    Request body (POST):
+        reaction (str, required): emoji shortcode / reaction code
+            (e.g. ``"1f44d"``); validated by
+            :class:`IssueReactionSerializer`.
+
+    Request body (DELETE):
+        None -- the reaction to delete is identified by
+        ``reaction_code`` in the URL path (NOT by primary key),
+        restricted to reactions authored by ``request.user``.
+
+    Response shape:
+        LIST 200 OK: array of :class:`IssueReactionSerializer`
+            payloads ordered by ``-created_at``.
+        POST 201 Created: :class:`IssueReactionSerializer` payload
+            OR 400 Bad Request serializer-error payload.
+        DELETE 204 No Content on success.
+        POST/DELETE 400 Bad Request: ``{"error": "Reactions are not
+            enabled for this project board"}`` when
+            ``deploy_board.is_reactions_enabled`` is False.
+
+    Permissions:
+        Inherits ``BaseViewSet.permission_classes = [IsAuthenticated]``
+        -- list/retrieve and write all require auth (unlike
+        :class:`IssueCommentPublicViewSet`, which uses a permissions
+        override to allow anonymous reads).
+
+    Queryset filter (``get_queryset``):
+        Resolves :class:`DeployBoard` by workspace ``slug`` and
+        ``project_id`` from URL kwargs (NOT by ``anchor``), gates on
+        ``is_reactions_enabled=True``, scopes to workspace + project
+        + issue, orders by ``-created_at``.
+
+    Background tasks (Celery via RabbitMQ -- NOT Redis):
+        ``issue_reaction.activity.created`` on POST,
+        ``issue_reaction.activity.deleted`` on DELETE.
+
+    Visitor tracking:
+        On every successful POST, if the actor is not already a
+        :class:`ProjectMember`, a :class:`ProjectPublicMember` row
+        is created.
+    """
+
     serializer_class = IssueReactionSerializer
     model = IssueReaction
 
     def get_queryset(self):
+        """Return :class:`IssueReaction` rows for the resolved board (gated on ``is_reactions_enabled``)."""
         try:
             project_deploy_board = DeployBoard.objects.get(
                 workspace__slug=self.kwargs.get("slug"),
@@ -364,6 +658,13 @@ class IssueReactionPublicViewSet(BaseViewSet):
             return IssueReaction.objects.none()
 
     def create(self, request, anchor, issue_id):
+        """Create a reaction on a public-board issue.
+
+        Gated on ``deploy_board.is_reactions_enabled``. Registers a
+        :class:`ProjectPublicMember` if the actor is not yet a
+        project member, then enqueues
+        ``issue_reaction.activity.created`` via Celery (RabbitMQ).
+        """
         project_deploy_board = DeployBoard.objects.get(anchor=anchor, entity_name="project")
 
         if not project_deploy_board.is_reactions_enabled:
@@ -401,6 +702,13 @@ class IssueReactionPublicViewSet(BaseViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def destroy(self, request, anchor, issue_id, reaction_code):
+        """Delete the caller's own reaction identified by ``reaction_code`` (path).
+
+        The reaction is looked up by ``actor=request.user`` +
+        ``reaction=reaction_code`` so users can only remove their own
+        reactions. Enqueues ``issue_reaction.activity.deleted`` via
+        Celery (RabbitMQ).
+        """
         project_deploy_board = DeployBoard.objects.get(anchor=anchor, entity_name="project")
 
         if not project_deploy_board.is_reactions_enabled:
@@ -428,10 +736,55 @@ class IssueReactionPublicViewSet(BaseViewSet):
 
 
 class CommentReactionPublicViewSet(BaseViewSet):
+    """Anchor-scoped comment-reaction CRUD for published deploy-boards.
+
+    HTTP methods and URL patterns:
+        GET    /api/public/anchor/<str:anchor>/comments/<uuid:comment_id>/reactions/
+                  (name: ``comment-reactions``)
+        POST   (same path)
+        DELETE /api/public/anchor/<str:anchor>/comments/<uuid:comment_id>/reactions/<str:reaction_code>/
+                  (name: ``comment-reaction-delete``)
+
+    Request body (POST):
+        reaction (str, required): emoji shortcode / reaction code;
+            validated by :class:`CommentReactionSerializer`.
+
+    Request body (DELETE):
+        None -- reaction identified by ``reaction_code`` (path) and
+        ``actor=request.user``.
+
+    Response shape:
+        LIST 200 OK: array of :class:`CommentReactionSerializer`
+            payloads ordered by ``-created_at``.
+        POST 201 Created OR 400 serializer-error payload.
+        DELETE 204 No Content on success.
+        POST/DELETE 400 Bad Request: ``{"error": "Reactions are not
+            enabled for this board"}`` when ``is_reactions_enabled``
+            is False.
+
+    Permissions:
+        Inherits ``BaseViewSet.permission_classes = [IsAuthenticated]``.
+
+    Queryset filter (``get_queryset``):
+        Resolves :class:`DeployBoard` by ``anchor`` +
+        ``entity_name``; gates on ``is_reactions_enabled``; scopes to
+        workspace + project + comment_id; orders by ``-created_at``.
+
+    Background tasks (Celery via RabbitMQ -- NOT Redis):
+        ``comment_reaction.activity.created`` on POST,
+        ``comment_reaction.activity.deleted`` on DELETE.
+
+    Visitor tracking:
+        On every successful POST, if the actor is not already a
+        :class:`ProjectMember`, a :class:`ProjectPublicMember` row
+        is created.
+    """
+
     serializer_class = CommentReactionSerializer
     model = CommentReaction
 
     def get_queryset(self):
+        """Return :class:`CommentReaction` rows for the resolved board (gated on ``is_reactions_enabled``)."""
         try:
             project_deploy_board = DeployBoard.objects.get(anchor=self.kwargs.get("anchor"), entity_name="project")
             if project_deploy_board.is_reactions_enabled:
@@ -449,6 +802,13 @@ class CommentReactionPublicViewSet(BaseViewSet):
             return CommentReaction.objects.none()
 
     def create(self, request, anchor, comment_id):
+        """Create a reaction on a public-board comment.
+
+        Gated on ``deploy_board.is_reactions_enabled``. Registers a
+        :class:`ProjectPublicMember` if the actor is not yet a
+        project member, then enqueues
+        ``comment_reaction.activity.created`` via Celery (RabbitMQ).
+        """
         project_deploy_board = DeployBoard.objects.get(anchor=anchor, entity_name="project")
 
         if not project_deploy_board.is_reactions_enabled:
@@ -486,6 +846,11 @@ class CommentReactionPublicViewSet(BaseViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def destroy(self, request, anchor, comment_id, reaction_code):
+        """Delete the caller's own comment-reaction identified by ``reaction_code``.
+
+        Author-only lookup (``actor=request.user``). Enqueues
+        ``comment_reaction.activity.deleted`` via Celery (RabbitMQ).
+        """
         project_deploy_board = DeployBoard.objects.get(anchor=anchor, entity_name="project")
         if not project_deploy_board.is_reactions_enabled:
             return Response(
@@ -520,10 +885,73 @@ class CommentReactionPublicViewSet(BaseViewSet):
 
 
 class IssueVotePublicViewSet(BaseViewSet):
+    """Anchor-scoped issue voting (1 / -1 upsert) for published deploy-boards.
+
+    HTTP methods and URL patterns:
+        GET    /api/public/anchor/<str:anchor>/issues/<uuid:issue_id>/votes/
+                  (name: ``issue-votes``)
+        POST   (same path)
+        DELETE (same path -- no ``pk`` parameter; vote is identified
+                 by actor + issue_id) (name: ``issue-vote``)
+
+    Request body (POST):
+        vote (int, optional, default=``1``): ``1`` = upvote,
+            ``-1`` = downvote. Stored on the existing
+            :class:`IssueVote` row (looked up by
+            ``(actor, project, issue)``) if present, or on a
+            newly-created row if absent -- this is an UPSERT pattern
+            via :class:`IssueVote.objects.get_or_create`.
+
+    Request body (DELETE):
+        None -- the vote to delete is uniquely identified by
+        ``actor=request.user`` + ``issue_id`` + project + workspace.
+
+    Response shape:
+        LIST 200 OK: array of :class:`IssueVoteSerializer` payloads.
+        POST 201 Created: :class:`IssueVoteSerializer` payload.
+        DELETE 204 No Content on success.
+
+        Gating on ``is_votes_enabled=False`` is enforced via
+        :func:`get_queryset` (returns ``IssueVote.objects.none()``);
+        action handlers (``create``/``destroy``) do NOT raise an
+        explicit 400 for disabled votes -- instead the create
+        proceeds and the next list call returns empty.
+
+        # INTENT UNCLEAR: ``create`` and ``destroy`` do not check
+        # ``is_votes_enabled`` (unlike comments / reactions which
+        # explicitly 400 when disabled). Inputs proceed and write
+        # rows; only LIST is gated. Observed; documented; not
+        # modified.
+
+    Permissions:
+        Inherits ``BaseViewSet.permission_classes = [IsAuthenticated]``.
+
+    Queryset filter (``get_queryset``):
+        Resolves :class:`DeployBoard` using
+        ``workspace__slug=anchor``.
+
+        # INTENT UNCLEAR: this is a NON-OBVIOUS use of the ``anchor``
+        # URL kwarg as a workspace slug filter -- verified against
+        # the source, NOT modified.
+
+        Gates on ``is_votes_enabled``; scopes to workspace + project
+        + issue_id.
+
+    Background tasks (Celery via RabbitMQ -- NOT Redis):
+        ``issue_vote.activity.created`` on POST,
+        ``issue_vote.activity.deleted`` on DELETE.
+
+    Visitor tracking:
+        On every POST, if the actor is not already a
+        :class:`ProjectMember`, a :class:`ProjectPublicMember` row
+        is created.
+    """
+
     model = IssueVote
     serializer_class = IssueVoteSerializer
 
     def get_queryset(self):
+        """Return :class:`IssueVote` rows for the resolved board (gated on ``is_votes_enabled``)."""
         try:
             project_deploy_board = DeployBoard.objects.get(
                 workspace__slug=self.kwargs.get("anchor"), entity_name="project"
@@ -541,6 +969,16 @@ class IssueVotePublicViewSet(BaseViewSet):
             return IssueVote.objects.none()
 
     def create(self, request, anchor, issue_id):
+        """Upsert the caller's vote on a public-board issue.
+
+        Uses :class:`IssueVote.objects.get_or_create` keyed on
+        ``(actor, project, issue)`` so each user can have at most
+        ONE vote row per issue; subsequent calls update the ``vote``
+        value on the existing row rather than creating duplicates.
+        Registers a :class:`ProjectPublicMember` if the actor is not
+        yet a project member, then enqueues
+        ``issue_vote.activity.created`` via Celery (RabbitMQ).
+        """
         project_deploy_board = DeployBoard.objects.get(anchor=anchor, entity_name="project")
         issue_vote, _ = IssueVote.objects.get_or_create(
             actor_id=request.user.id,
@@ -571,6 +1009,12 @@ class IssueVotePublicViewSet(BaseViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request, anchor, issue_id):
+        """Delete the caller's own vote on a public-board issue.
+
+        Vote is identified by ``actor=request.user`` + ``issue_id``
+        -- callers cannot delete other users' votes. Enqueues
+        ``issue_vote.activity.deleted`` via Celery (RabbitMQ).
+        """
         project_deploy_board = DeployBoard.objects.get(anchor=anchor, entity_name="project")
         issue_vote = IssueVote.objects.get(
             issue_id=issue_id,
@@ -592,9 +1036,88 @@ class IssueVotePublicViewSet(BaseViewSet):
 
 
 class IssueRetrievePublicEndpoint(BaseAPIView):
+    """Anchor-scoped single-issue RETRIEVE with inlined votes and reactions.
+
+    HTTP methods and URL patterns:
+        GET /api/public/anchor/<str:anchor>/issues/<uuid:issue_id>/
+            (name: ``issue-detail``)
+
+    Request body:
+        None.
+
+    Response shape:
+        200 OK: a single dict (``.values(...).first()``) projecting:
+            id, name, state_id, sort_order, description_json,
+            description_html, description_stripped,
+            description_binary, module_ids (UUID[]),
+            label_ids (UUID[]), assignee_ids (UUID[]),
+            estimate_point, priority, start_date, target_date,
+            sequence_id, project_id, parent_id, cycle_id,
+            created_by, state__group, vote_items (JSON[]),
+            reaction_items (JSON[]).
+
+        Any field may be ``None`` for the matching issue; the entire
+        response is ``None`` when no row matches (the ``.first()``
+        terminator returns ``None``; Response then returns
+        ``200 OK null`` -- this is the API's "not-found" mode for
+        the detail endpoint, which is deliberately permissive given
+        that the deploy board has already been resolved upstream).
+
+    Permissions:
+        ``permission_classes = [AllowAny]``.
+
+    Queryset filter:
+        :class:`Issue.issue_objects` (excludes archived / draft /
+        soft-deleted by default) filtered to ``pk=issue_id`` +
+        workspace slug + project_id from the resolved deploy board.
+
+    Annotations:
+        * ``cycle_id``: active :class:`CycleIssue` (NULL if none).
+        * ``label_ids`` / ``assignee_ids`` / ``module_ids``: UUID
+          arrays via :class:`ArrayAgg` + :class:`Coalesce`, with
+          DISTINCT and per-relation soft-delete filters. Projected
+          as UUID arrays (NOT as expanded member records) -- this is
+          a SECURITY BOUNDARY against leaking member PII to
+          anonymous viewers on public boards.
+        * ``vote_items``: an :class:`ArrayAgg` of
+          :class:`JSONObject` rows, each containing ``vote`` and an
+          ``actor_details`` sub-object with ``id``, ``first_name``,
+          ``last_name``, ``avatar``, ``avatar_url`` (computed:
+          prefixes ``"/api/assets/v2/static/"`` to ``avatar_asset``
+          when set, falls back to the legacy ``avatar`` URL
+          otherwise), and ``display_name``.
+        * ``reaction_items``: ditto, with ``reaction`` instead of
+          ``vote``, and the actor sub-object built from
+          ``issue_reactions__actor`` fields.
+
+        # INTENT UNCLEAR: inside the ``reaction_items`` JSONObject,
+        # the ``avatar_url`` ``Case``/``When`` branches use
+        # ``votes__actor__avatar_asset`` and
+        # ``votes__actor__avatar`` rather than the matching
+        # ``issue_reactions__actor__*`` fields. This appears to mix
+        # vote-actor and reaction-actor identities when computing
+        # the avatar URL inside the reaction_items annotation; the
+        # surrounding ``id`` / ``first_name`` / ``last_name`` /
+        # ``display_name`` fields on the same ``actor_details``
+        # block correctly use ``issue_reactions__actor__*``. Per
+        # system boundaries the SQL is documented as observed and
+        # NOT modified.
+    """
+
     permission_classes = [AllowAny]
 
     def get(self, request, anchor, issue_id):
+        """Return a single-row dict for ``issue_id`` with inlined votes/reactions.
+
+        Resolves the deploy board (raises
+        :class:`DeployBoard.DoesNotExist` -> 404 via base handler),
+        filters :class:`Issue.issue_objects` to ``pk=issue_id``, then
+        annotates ``cycle_id``, UUID arrays (``label_ids`` /
+        ``assignee_ids`` / ``module_ids``), and JSON arrays
+        (``vote_items`` / ``reaction_items``) before projecting via
+        ``.values(...)``. The UUID-array projection is a SECURITY
+        BOUNDARY against leaking member PII to anonymous viewers.
+        """
         deploy_board = DeployBoard.objects.get(anchor=anchor)
 
         issue_queryset = (
