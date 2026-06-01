@@ -2,6 +2,32 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Workspace-wide and entity-typed search endpoints for global discovery, command palette, and mention pickers.
+
+Defines two ``BaseAPIView`` subclasses:
+
+* ``GlobalSearchEndpoint`` — ``GET /api/workspaces/<slug>/search/`` — dispatches the
+  ``search`` query to per-entity helpers (workspace, project, issue, cycle, module,
+  issue_view, page, intake) and returns ``{"results": {<entity>: [...], ...}}``.
+* ``SearchEndpoint`` — ``GET /api/workspaces/<slug>/entity-search/`` — returns typed
+  result lists keyed by ``query_type`` (``user_mention``, ``project``, ``issue``,
+  ``cycle``, ``module``, ``page``), branching between project-scoped and workspace-scoped
+  variants based on whether ``project_id`` is supplied.
+
+All matching is performed with PostgreSQL ``icontains`` against indexed columns — no
+Elasticsearch / Algolia integration. Responses are **not cached**: query parameters
+(``search``, ``entities``, ``query_type``, ``count``, ``project_id``,
+``workspace_search``) yield extremely high cardinality and Redis caching would have
+near-zero hit rate. Heavy queries can route to the read replica when
+``use_read_replica = True`` is set on the view (inherited from
+``ReadReplicaControlMixin`` via ``BaseAPIView`` — not currently activated on these
+endpoints).
+
+Permission filtering is implemented inline via ``project_projectmember__member`` /
+``workspace_member__member`` joins; access to the endpoints themselves is gated by
+the default ``IsAuthenticated`` permission inherited from ``BaseAPIView``.
+"""
+
 # Python imports
 import re
 
@@ -43,11 +69,50 @@ from plane.db.models import (
 
 
 class GlobalSearchEndpoint(BaseAPIView):
-    """Endpoint to search across multiple fields in the workspace and
-    also show related workspace if found
+    """Workspace-wide multi-entity search for the global command palette / search bar.
+
+    HTTP methods:
+        GET — returns matching rows grouped by entity type.
+
+    URL pattern:
+        ``/api/workspaces/<str:slug>/search/`` registered in
+        ``apps/api/plane/app/urls/search.py`` as ``global-search``.
+
+    Query parameters:
+        search (str, optional): Substring to match against entity ``name`` and
+            (for issues / intake) ``project__identifier`` plus whole-integer
+            ``sequence_id`` tokens. When omitted or empty, every helper returns
+            its full visibility-filtered queryset.
+        entities (str, optional): Comma-separated subset of
+            ``{workspace, project, issue, cycle, module, issue_view, page,
+            intake}``. Unknown entries are silently dropped. When omitted, all
+            eight helpers run.
+        workspace_search (str, optional, default ``"false"``): When ``"false"``
+            and ``project_id`` is set, restricts most helpers to that project;
+            any other value broadens to the whole workspace.
+        project_id (str, optional): UUID of a project; only consulted when
+            ``workspace_search == "false"``.
+
+    Response shape (200 OK):
+        ``{"results": {"<entity>": [<row>, ...], ...}}`` where ``<row>`` is the
+        ``.values(...)`` projection produced by the corresponding helper.
+
+    Permissions:
+        Inherits ``permission_classes = [IsAuthenticated]`` from ``BaseAPIView``.
+        Per-entity helpers additionally enforce active project / workspace
+        membership and archive exclusion via ORM joins.
+
+    Filter logic:
+        Each ``filter_*`` helper applies (a) the ``Q(name__icontains=...) | ...``
+        chain derived from ``search``, (b) workspace slug scoping via
+        ``workspace__slug=slug``, (c) active membership scoping via
+        ``project_projectmember__member=request.user`` + ``is_active=True``, and
+        (d) archive exclusion via ``project__archived_at__isnull=True``. Issue
+        and intake results are capped at 100 rows.
     """
 
     def filter_workspaces(self, query, _slug, _project_id, _workspace_search):
+        """Return workspaces whose ``name`` matches ``query`` and where the user is a member."""
         fields = ["name"]
         q = Q()
         if query:
@@ -61,6 +126,7 @@ class GlobalSearchEndpoint(BaseAPIView):
         )
 
     def filter_projects(self, query, slug, _project_id, _workspace_search):
+        """Return active, non-archived projects in ``slug`` whose ``name``/``identifier`` matches ``query``."""
         fields = ["name", "identifier"]
         q = Q()
         if query:
@@ -80,6 +146,14 @@ class GlobalSearchEndpoint(BaseAPIView):
         )
 
     def filter_issues(self, query, slug, project_id, workspace_search):
+        r"""Return up to 100 issues matching ``query`` in the user's active projects.
+
+        Matches against issue ``name``, ``sequence_id``, and ``project__identifier``.
+        When ``workspace_search == "false"`` and ``project_id`` is supplied, results
+        are narrowed to that project. Whole-integer ``sequence_id`` tokens are
+        extracted with ``re.findall(r"\b\d+\b", ...)`` so decimal fragments are
+        not mistaken for issue IDs.
+        """
         fields = ["name", "sequence_id", "project__identifier"]
         q = Q()
         if query:
@@ -113,6 +187,10 @@ class GlobalSearchEndpoint(BaseAPIView):
         )[:100]
 
     def filter_cycles(self, query, slug, project_id, workspace_search):
+        """Return cycles matching ``query`` in the user's active projects.
+
+        Project-scoped when ``workspace_search == "false"`` and ``project_id`` is set.
+        """
         fields = ["name"]
         q = Q()
         if query:
@@ -137,6 +215,10 @@ class GlobalSearchEndpoint(BaseAPIView):
         )
 
     def filter_modules(self, query, slug, project_id, workspace_search):
+        """Return modules matching ``query`` in the user's active projects.
+
+        Project-scoped when ``workspace_search == "false"`` and ``project_id`` is set.
+        """
         fields = ["name"]
         q = Q()
         if query:
@@ -161,6 +243,14 @@ class GlobalSearchEndpoint(BaseAPIView):
         )
 
     def filter_pages(self, query, slug, project_id, workspace_search):
+        """Return pages matching ``query``, annotated with per-row project arrays.
+
+        Uses ``ArrayAgg`` + ``Coalesce`` to flatten the M2M ``projects`` relation
+        into ``project_ids`` and ``project_identifiers`` arrays. When
+        ``workspace_search == "false"`` and ``project_id`` is set, a correlated
+        ``ProjectPage`` subquery narrows results to pages explicitly linked to
+        that project.
+        """
         fields = ["name"]
         q = Q()
         if query:
@@ -207,6 +297,10 @@ class GlobalSearchEndpoint(BaseAPIView):
         )
 
     def filter_views(self, query, slug, project_id, workspace_search):
+        """Return issue views matching ``query`` in the user's active projects.
+
+        Project-scoped when ``workspace_search == "false"`` and ``project_id`` is set.
+        """
         fields = ["name"]
         q = Q()
         if query:
@@ -231,6 +325,14 @@ class GlobalSearchEndpoint(BaseAPIView):
         )
 
     def filter_intakes(self, query, slug, project_id, workspace_search):
+        """Return up to 100 intake-pending issues matching ``query``.
+
+        Restricted to ``issue_intake__status`` in {0 (pending), -2 (snoozed)}.
+        ``Issue.objects`` (the full manager) is used instead of
+        ``Issue.issue_objects`` so intake-only rows excluded by the default
+        manager are still searchable. Whole-integer ``sequence_id`` tokens are
+        extracted with ``re.findall`` for the same reason as ``filter_issues``.
+        """
         fields = ["name", "sequence_id", "project__identifier"]
         q = Q()
         if query:
@@ -268,6 +370,7 @@ class GlobalSearchEndpoint(BaseAPIView):
         )
 
     def get(self, request, slug):
+        """Dispatch ``search`` to each helper named in ``entities`` and return ``{"results": {<entity>: [...]}}``."""
         query = request.query_params.get("search", False)
         entities_param = request.query_params.get("entities")
         workspace_search = request.query_params.get("workspace_search", "false")
@@ -302,7 +405,60 @@ class GlobalSearchEndpoint(BaseAPIView):
 
 
 class SearchEndpoint(BaseAPIView):
+    """Entity-typed search for the command palette and ``@mention`` autocomplete pickers.
+
+    HTTP methods:
+        GET — returns lists keyed by the requested ``query_type``.
+
+    URL pattern:
+        ``/api/workspaces/<str:slug>/entity-search/`` registered in
+        ``apps/api/plane/app/urls/search.py`` as ``entity-search``.
+
+    Query parameters:
+        query (str, optional): Substring to match against entity-specific fields
+            (member display names for ``user_mention``; ``name``/``identifier``
+            for ``project``; ``name``/``sequence_id``/``project__identifier`` for
+            ``issue``; ``name`` for cycle / module / page). Empty / missing
+            yields the unfiltered visible set.
+        query_type (str, optional, default ``"user_mention"``): Comma-separated
+            list drawn from ``{user_mention, project, issue, cycle, module,
+            page}``. Each type is processed independently and contributes one
+            key to the response.
+        count (int, optional, default ``5``): Per-type result cap.
+        project_id (str, optional): UUID of a project. When present, selects
+            the project-scoped branch: members come from ``ProjectMember``,
+            cycles get ``status`` annotation derived from ``start_date`` /
+            ``end_date``, and pages are filtered to ``access=0`` (public) for
+            that project. When absent, selects the workspace-scoped branch:
+            members come from ``WorkspaceMember`` and pages are restricted to
+            ``access=0`` AND ``is_global=True``.
+
+    Response shape (200 OK):
+        ``{<query_type>: [<row>, ...]}`` where each row's keys depend on the
+        type. Avatar URLs are computed in-database via ``Case`` / ``When`` /
+        ``Concat(Value("/api/assets/v2/static/"), "member__avatar_asset",
+        Value("/"))`` falling back to the legacy ``member__avatar`` URL when
+        no asset is attached.
+
+    Permissions:
+        Inherits ``permission_classes = [IsAuthenticated]`` from ``BaseAPIView``.
+        Each branch enforces workspace / project membership through ORM joins
+        rather than DRF permission classes.
+
+    Cycle status annotation (project-scoped and workspace-scoped branches):
+        ``CURRENT`` when ``start_date <= now <= end_date``; ``UPCOMING`` when
+        ``start_date > now``; ``COMPLETED`` when ``end_date < now``; ``DRAFT``
+        when both dates are NULL or none of the above match. Computed with
+        timezone-aware ``timezone.now()``.
+
+    Notes:
+        Project visibility for the ``project`` query_type accepts either active
+        membership OR ``network=2`` (workspace-public projects) so that the
+        picker surfaces projects a user can browse but has not joined.
+    """
+
     def get(self, request, slug):
+        """Branch on ``project_id`` presence and return ``{<query_type>: [...]}`` for each requested type."""
         query = request.query_params.get("query", False)
         query_types = request.query_params.get("query_type", "user_mention").split(",")
         query_types = [qt.strip() for qt in query_types]
