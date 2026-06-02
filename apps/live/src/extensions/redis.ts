@@ -83,12 +83,13 @@ const getRedisClient = () => {
  *   cross-server control plane.
  *
  * Hocuspocus hooks contributed:
- * - `onConfigure(payload)` -- invoked once during server bootstrap. Subscribes to the admin
- *   channel via the inherited `this.sub` ioredis client and attaches `handleAdminMessage`
- *   to its `"message"` event.
- * - `onDestroy()` -- invoked once during server teardown. Unsubscribes from the admin
- *   channel, removes the message listener (avoiding dangling-reference memory leaks), then
- *   calls `super.onDestroy()` to tear down the base extension's pub/sub state.
+ * - `onConfigure(payload)` -- invoked once during server bootstrap. Opens a DEDICATED
+ *   subscriber connection (`adminSub`, a `.duplicate()` of the managed client), subscribes
+ *   it to the admin channel, and attaches `handleAdminMessage` to its `"message"` event --
+ *   deliberately kept off the base `this.sub` (see "Why a dedicated admin connection" below).
+ * - `onDestroy()` -- invoked once during server teardown. Unsubscribes and removes the
+ *   listener from `adminSub` (avoiding dangling-reference memory leaks), closes that
+ *   connection, then calls `super.onDestroy()` to tear down the base extension's pub/sub.
  *
  * Public API:
  * - `onAdminCommand<T>(command, handler)` -- register a handler for a specific
@@ -101,9 +102,16 @@ const getRedisClient = () => {
  *   specific document across all servers using Hocuspocus's wire encoding.
  *
  * Why subclass instead of compose: the base `@hocuspocus/extension-redis` exposes its
- * `this.sub` and `this.pub` ioredis clients as accessible fields. Subclassing is the only
- * way to share those connections for the admin channel without opening a second Redis
- * connection pool.
+ * `this.sub` and `this.pub` ioredis clients as accessible fields. Subclassing lets the admin
+ * bus reuse the base `this.pub` for publishing while controlling its own inbound path.
+ *
+ * Why a dedicated admin connection (`adminSub`): the base extension attaches a
+ * `messageBuffer` listener to `this.sub` that Yjs-decodes EVERY message delivered on that
+ * connection, ignoring the channel name. ioredis delivers messages for ALL channels a
+ * connection is subscribed to, so subscribing the admin channel on `this.sub` fed admin JSON
+ * into the base Yjs decoder, which threw lib0 errors ("Unexpected end of array" /
+ * "Invalid typed array length") as unhandled rejections (QA #2 / #5). The admin channel
+ * therefore lives on its own `.duplicate()` connection, fully isolated from document sync.
  *
  * Idempotency:
  * - `onConfigure` is safe to call multiple times because ioredis's `subscribe` is itself
@@ -125,6 +133,10 @@ const getRedisClient = () => {
 export class Redis extends HocuspocusRedis {
   private adminHandlers = new Map<AdminCommand, AdminCommandHandler>();
   private readonly ADMIN_CHANNEL = "hocuspocus:admin";
+  // Dedicated subscriber connection for `ADMIN_CHANNEL`. Isolated from the base extension's
+  // `this.sub` so its `messageBuffer` Yjs decoder never receives admin JSON -- routing admin
+  // messages through `this.sub` made that decoder throw lib0 errors (QA #2 / #5).
+  private adminSub: ReturnType<typeof getRedisClient> | null = null;
 
   constructor() {
     super({ redis: getRedisClient() });
@@ -137,10 +149,12 @@ export class Redis extends HocuspocusRedis {
    * Side effects:
    * 1. Calls `super.onConfigure(payload)` so the base extension configures its own pub/sub
    *    setup (the per-document Yjs sync channels).
-   * 2. Subscribes to `this.ADMIN_CHANNEL` via the base class's `this.sub` ioredis client
-   *    (wrapped in a Promise so the subscribe callback's error path rejects).
+   * 2. Opens a dedicated subscriber connection `this.adminSub = getRedisClient().duplicate()`
+   *    and subscribes it to `this.ADMIN_CHANNEL` (wrapped in a Promise so the subscribe
+   *    callback's error path rejects).
    * 3. Attaches the bound `handleAdminMessage` listener to the `"message"` event on
-   *    `this.sub` so incoming admin messages are dispatched to registered handlers.
+   *    `adminSub` -- NOT `this.sub` -- so admin JSON never reaches the base extension's
+   *    `messageBuffer` Yjs decoder (the cause of QA #2 / #5).
    *
    * Error handling: subscribe failures reject the Promise and propagate to Hocuspocus,
    * which fails server startup. Listener attachment failures are not caught here and would
@@ -151,9 +165,17 @@ export class Redis extends HocuspocusRedis {
   async onConfigure(payload: onConfigurePayload) {
     await super.onConfigure(payload);
 
+    // Open a DEDICATED subscriber connection for the admin channel. The base extension
+    // attaches a `messageBuffer` listener to `this.sub` that Yjs-decodes EVERY message on
+    // that connection regardless of channel; sharing `this.sub` for admin JSON made the base
+    // decoder throw lib0 errors as unhandled rejections (QA #2 / #5). A separate connection
+    // keeps the admin control-plane fully isolated from the document-sync pipeline.
+    const adminSub = getRedisClient().duplicate();
+    this.adminSub = adminSub;
+
     // Subscribe to admin channel
     await new Promise<void>((resolve, reject) => {
-      this.sub.subscribe(this.ADMIN_CHANNEL, (error: Error) => {
+      adminSub.subscribe(this.ADMIN_CHANNEL, (error: Error | null | undefined) => {
         if (error) {
           logger.error(`[Redis] Failed to subscribe to admin channel:`, error);
           reject(error);
@@ -164,8 +186,8 @@ export class Redis extends HocuspocusRedis {
       });
     });
 
-    // Listen for admin messages
-    this.sub.on("message", this.handleAdminMessage);
+    // Listen for admin messages on the dedicated connection
+    adminSub.on("message", this.handleAdminMessage);
     logger.info(`[Redis] Attached admin message listener`);
   }
 
@@ -173,9 +195,9 @@ export class Redis extends HocuspocusRedis {
    * ioredis `"message"` event handler for the admin channel. Bound as an arrow function so
    * `this` is preserved when attached and removed as a listener.
    *
-   * Trigger: fires when any message is published to a channel `this.sub` is subscribed to;
-   * the channel filter on the first line drops messages for channels other than
-   * `this.ADMIN_CHANNEL` (multiple subscriptions share the same listener pipeline).
+   * Trigger: fires when a message is published on the dedicated `adminSub` connection (only
+   * `this.ADMIN_CHANNEL` is subscribed there); the leading channel guard is retained as
+   * belt-and-suspenders in case the connection ever carries additional subscriptions.
    *
    * State read: parses `message` as JSON into `AdminCommandData`; validates `data.command`
    * against the `AdminCommand` enum. Looks up the registered handler via
@@ -286,12 +308,14 @@ export class Redis extends HocuspocusRedis {
    * Hocuspocus teardown hook -- invoked once during server shutdown, called from
    * `Server.destroy()` via the Hocuspocus `closeConnections()` cascade.
    *
-   * Cleanup sequence:
-   * 1. Unsubscribes from `this.ADMIN_CHANNEL` on `this.sub`. Unsubscribe errors are logged
-   *    but do not block teardown (the Promise always resolves).
-   * 2. Removes the `handleAdminMessage` listener from `this.sub` to prevent memory leaks
-   *    via dangling listener references on the long-lived ioredis pub/sub connection.
-   * 3. Calls `super.onDestroy()` so the base extension tears down its own pub/sub state
+   * Cleanup sequence (only when `adminSub` was opened):
+   * 1. Unsubscribes from `this.ADMIN_CHANNEL` on the dedicated `adminSub`. Unsubscribe
+   *    errors are logged but do not block teardown (the Promise always resolves).
+   * 2. Removes the `handleAdminMessage` listener from `adminSub` to prevent memory leaks
+   *    via dangling listener references.
+   * 3. Closes `adminSub` via `quit()` (guarded so a failed quit cannot break teardown) and
+   *    clears the field.
+   * 4. Calls `super.onDestroy()` so the base extension tears down its own pub/sub state
    *    (the per-document Yjs sync channels).
    *
    * The underlying ioredis connection itself is closed later by `redisManager.disconnect()`
@@ -300,19 +324,31 @@ export class Redis extends HocuspocusRedis {
    * Redis manager.
    */
   async onDestroy() {
-    // Unsubscribe from admin channel
-    await new Promise<void>((resolve) => {
-      this.sub.unsubscribe(this.ADMIN_CHANNEL, (error: Error) => {
-        if (error) {
-          logger.error(`[Redis] Error unsubscribing from admin channel:`, error);
-        }
-        resolve();
+    // Tear down the dedicated admin subscriber connection opened in onConfigure.
+    const adminSub = this.adminSub;
+    if (adminSub) {
+      // Unsubscribe from admin channel
+      await new Promise<void>((resolve) => {
+        adminSub.unsubscribe(this.ADMIN_CHANNEL, (error: Error | null | undefined) => {
+          if (error) {
+            logger.error(`[Redis] Error unsubscribing from admin channel:`, error);
+          }
+          resolve();
+        });
       });
-    });
 
-    // Remove the message listener to prevent memory leaks
-    this.sub.removeListener("message", this.handleAdminMessage);
-    logger.info(`[Redis] Removed admin message listener`);
+      // Remove the message listener to prevent memory leaks
+      adminSub.removeListener("message", this.handleAdminMessage);
+      logger.info(`[Redis] Removed admin message listener`);
+
+      // Close the dedicated connection; guarded so a failed quit never breaks teardown.
+      try {
+        await adminSub.quit();
+      } catch (error) {
+        logger.error(`[Redis] Error closing admin subscriber connection:`, error);
+      }
+      this.adminSub = null;
+    }
 
     await super.onDestroy();
   }

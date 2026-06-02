@@ -529,6 +529,14 @@ def webhook_send_task(
         # Send the webhook event
         response = requests.post(webhook.url, headers=headers, json=payload, timeout=30)
 
+        # An HTTP 5xx is a transient receiver-side failure: raise so Celery's
+        # autoretry_for=(requests.RequestException,) drives the backoff/retry and the
+        # retry-exhaustion branch deactivates the webhook (tech spec section 4.5). 4xx are
+        # permanent client errors and are intentionally left on the success path (logged,
+        # not retried).
+        if response.status_code >= 500:
+            raise requests.RequestException(f"Webhook endpoint returned server error status {response.status_code}")
+
         # Log the webhook request
         save_webhook_log(
             webhook=webhook,

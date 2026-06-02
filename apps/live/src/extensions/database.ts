@@ -256,8 +256,14 @@ const storeDocument = async ({
 
       const closeCode = errorCode === "content_too_large" ? CloseCode.DOCUMENT_TOO_LARGE : CloseCode.FORCE_CLOSE;
 
-      // force close connections and unload document
-      await forceCloseDocumentAcrossServers(instance, pageId, reason, closeCode);
+      // Force-close is best-effort teardown: guard it so an unexpected failure here can
+      // never reject the store hook and surface as an unhandled rejection / process crash.
+      try {
+        await forceCloseDocumentAcrossServers(instance, pageId, reason, closeCode);
+      } catch (forceCloseError) {
+        const forceCloseAppError = new AppError(forceCloseError, { context: { pageId } });
+        logger.error("Error during force close after store failure:", forceCloseAppError);
+      }
 
       // Don't throw after force close - document is already unloaded
       // Throwing would cause hocuspocus's finally block to access the null document

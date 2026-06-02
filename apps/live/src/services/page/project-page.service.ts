@@ -113,6 +113,9 @@ export class ProjectPageService extends PageService {
    *   - `setHeader("Cookie", params.cookie)` — stores the cookie in the inherited
    *     in-memory header bag so every subsequent inherited HTTP call attaches it
    *     automatically (canonical cookie-reuse pattern across multiple calls).
+   *   - `setHeader("X-CSRFToken", <csrftoken>)` — echoes the session's `csrftoken`
+   *     cookie value back as the header `apps/api` expects, so unsafe (PATCH) calls
+   *     pass Django's restored CSRF enforcement instead of being rejected with 403.
    *   - Assigns `this.basePath = /api/workspaces/<workspaceSlug>/projects/<projectId>`
    *     — the REST prefix for all project-scoped page endpoints on `apps/api`.
    *
@@ -129,7 +132,32 @@ export class ProjectPageService extends PageService {
     if (!params.cookie) throw new AppError("Cookie is required.");
     // set cookie
     this.setHeader("Cookie", params.cookie);
+    // apps/api restored DRF CSRF enforcement, so unsafe service-to-service PATCHes are
+    // rejected with 403 unless the session's csrftoken is echoed in the X-CSRFToken header.
+    const csrfToken = ProjectPageService.extractCsrfToken(params.cookie);
+    if (csrfToken) {
+      this.setHeader("X-CSRFToken", csrfToken);
+    }
     // set base path
     this.basePath = `/api/workspaces/${workspaceSlug}/projects/${projectId}`;
+  }
+
+  /**
+   * Extract Django's CSRF token from a forwarded `Cookie` header value.
+   *
+   * `apps/api` uses Django's default CSRF configuration (cookie `csrftoken`, header
+   * `X-CSRFToken`, `CSRF_USE_SESSIONS` disabled), so the cookie value can be echoed
+   * verbatim as the header value to satisfy CSRF on unsafe (PATCH) requests. The
+   * `csrftoken` cookie is `HttpOnly` but is still present in the cookie string this
+   * service forwards from the WebSocket handshake (HttpOnly blocks browser JS reads,
+   * not server-side transmission).
+   *
+   * @param cookie - The raw `Cookie` header string forwarded from the WebSocket handshake.
+   * @returns The `csrftoken` value, or `null` when the cookie is absent.
+   */
+  private static extractCsrfToken(cookie: string): string | null {
+    // Anchor on a cookie boundary (start or "; ") so a key like "csrftoken_x" cannot match.
+    const match = cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    return match ? match[1] : null;
   }
 }

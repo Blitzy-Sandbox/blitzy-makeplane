@@ -41,6 +41,7 @@ See tech spec §4.6 NOTIFICATION PIPELINE WORKFLOW.
 
 # Python imports
 import json
+import logging
 import uuid
 from uuid import UUID
 
@@ -66,6 +67,10 @@ from django.db.models import Subquery
 # Third Party imports
 from celery import shared_task
 from bs4 import BeautifulSoup
+
+# Shared worker logger so notification failures surface with a full traceback in the
+# Celery worker logs (and any attached Sentry handler) instead of a bare stdout print.
+logger = logging.getLogger("plane.worker")
 
 
 # =========== Issue Description Html Parsing and notification Functions ======================
@@ -804,5 +809,7 @@ def notifications(
             EmailNotificationLog.objects.bulk_create(bulk_email_logs, batch_size=100, ignore_conflicts=True)
         return
     except Exception as e:
-        print(e)
+        # Emit a full traceback via the worker logger (Sentry-aware) instead of a bare
+        # print; the task stays fire-and-forget (no re-raise) per its documented contract.
+        logger.exception("Notification task failed: %s", e)
         return
