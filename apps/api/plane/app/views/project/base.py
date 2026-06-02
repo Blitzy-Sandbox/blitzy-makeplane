@@ -178,9 +178,13 @@ class ProjectViewSet(BaseViewSet):
           ``level="WORKSPACE"`` (any active workspace member).
         * ``create`` -- ``[ROLE.ADMIN, ROLE.MEMBER]`` at
           ``level="WORKSPACE"`` (workspace guests cannot create).
-        * ``partial_update`` / ``destroy`` -- inline permission
-          check via ``WorkspaceMember`` + ``ProjectMember`` queries
-          (workspace admin OR project admin).
+        * ``update`` / ``partial_update`` / ``destroy`` -- inline
+          permission check via ``WorkspaceMember`` + ``ProjectMember``
+          queries (workspace admin OR project admin). ``update`` (PUT)
+          delegates to ``partial_update`` so both verbs share one
+          authoritative permission path; do NOT remove the override
+          or DRF's default ``UpdateModelMixin.update`` will re-emerge
+          unprotected (OWASP A01:2021 Broken Access Control).
 
     Webhook integration:
         ``webhook_event = "project"`` -- mutations are surfaced to
@@ -539,6 +543,18 @@ class ProjectViewSet(BaseViewSet):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    def update(self, request, slug, pk=None, *args, **kwargs):
+        """Full-replace update of a project; routes to :meth:`partial_update` to enforce identical authorization.
+
+        DRF's :class:`UpdateModelMixin` would otherwise inject an
+        unprotected default ``update()`` that bypasses the inline
+        workspace/project admin gating applied to :meth:`partial_update`
+        and :meth:`destroy`, allowing cross-workspace PUT mutation
+        (OWASP A01:2021 Broken Access Control). Delegating here ensures
+        PUT and PATCH share one authoritative permission path.
+        """
+        return self.partial_update(request, slug=slug, pk=pk)
+
     def partial_update(self, request, slug, pk=None):
         """Partial update of a project with inline workspace/project admin gating; archived projects reject all updates.
 
@@ -548,6 +564,9 @@ class ProjectViewSet(BaseViewSet):
         ``inbox_view=True`` lazily creates a default :class:`Intake`
         when none exists. Emits a ``model_activity`` Celery task
         (RabbitMQ) carrying the pre-edit serialized snapshot.
+
+        Also serves as the implementation backend for :meth:`update`
+        (PUT) so both verbs share one authoritative permission path.
         """
         # try:
         is_workspace_admin = WorkspaceMember.objects.filter(

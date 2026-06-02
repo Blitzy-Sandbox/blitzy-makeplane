@@ -58,6 +58,9 @@ from django.utils.http import url_has_allowed_host_and_scheme
 # Module imports
 from plane.authentication.provider.credentials.email import EmailProvider
 from plane.authentication.utils.login import user_login
+from plane.authentication.views.app.email import (
+    _is_authentication_rate_limited,
+)
 from plane.license.models import Instance
 from plane.authentication.utils.host import base_host
 from plane.db.models import User
@@ -66,6 +69,26 @@ from plane.authentication.adapter.error import (
     AuthenticationException,
 )
 from plane.utils.path_validator import get_safe_redirect_url, validate_next_path, get_allowed_hosts
+
+
+def _rate_limited_space_redirect(request, next_path):
+    """Return a 302 carrying the ``RATE_LIMIT_EXCEEDED`` error envelope for the space surface.
+
+    Mirrors the app-surface helper but targets
+    ``base_host(request, is_space=True)`` so the SPA-side error handler
+    sees the same redirect contract whether the throttle fires on the app
+    or space credential views.
+    """
+    exc = AuthenticationException(
+        error_code=AUTHENTICATION_ERROR_CODES["RATE_LIMIT_EXCEEDED"],
+        error_message="RATE_LIMIT_EXCEEDED",
+    )
+    url = get_safe_redirect_url(
+        base_url=base_host(request=request, is_space=True),
+        next_path=next_path,
+        params=exc.get_error_dict(),
+    )
+    return HttpResponseRedirect(url)
 
 
 class SignInAuthSpaceEndpoint(View):
@@ -78,6 +101,15 @@ class SignInAuthSpaceEndpoint(View):
         Django :class:`~django.views.View` subclass (not DRF) — no
         ``permission_classes`` declaration applies. Anonymous access is the
         whole point: this view ESTABLISHES the session.
+
+    Rate limit:
+        30 requests / minute per source IP via
+        :func:`plane.authentication.views.app.email._is_authentication_rate_limited`.
+        After the 30th request in any 60-second window, additional POSTs
+        short-circuit with the standard 302 redirect carrying
+        ``RATE_LIMIT_EXCEEDED``. Shares its cache key prefix with the app
+        surface so a single IP cannot bypass throttling by ping-ponging
+        between ``/auth/sign-in/`` and ``/auth/spaces/sign-in/``.
 
     Request body (POST form):
         * ``email`` (str, required) — normalized to ``email.strip().lower()``
@@ -97,8 +129,9 @@ class SignInAuthSpaceEndpoint(View):
 
     Error codes:
         ``INSTANCE_NOT_CONFIGURED``, ``REQUIRED_EMAIL_PASSWORD_SIGN_IN``,
-        ``INVALID_EMAIL_SIGN_IN``, ``USER_DOES_NOT_EXIST``, plus any code
-        raised by :meth:`EmailProvider.authenticate`.
+        ``INVALID_EMAIL_SIGN_IN``, ``USER_DOES_NOT_EXIST``,
+        ``RATE_LIMIT_EXCEEDED``, plus any code raised by
+        :meth:`EmailProvider.authenticate`.
 
     Side effects:
         * On success: :func:`user_login` with ``is_space=True`` writes
@@ -118,6 +151,11 @@ class SignInAuthSpaceEndpoint(View):
     def post(self, request):
         """Verify credentials and either redirect to ``next_path`` or back with an error code."""
         next_path = request.POST.get("next_path")
+        # Enforce the per-IP 30/min credential-attempt cap BEFORE any DB
+        # lookup so brute-force traffic cannot drive password-hash work or
+        # leak user-existence timing.
+        if _is_authentication_rate_limited(request):
+            return _rate_limited_space_redirect(request, next_path)
         # Check instance configuration
         instance = Instance.objects.first()
         if instance is None or not instance.is_setup_done:
@@ -211,6 +249,13 @@ class SignUpAuthSpaceEndpoint(View):
         ``permission_classes`` declaration applies. Anonymous access is
         required; this view CREATES the user.
 
+    Rate limit:
+        30 requests / minute per source IP via
+        :func:`plane.authentication.views.app.email._is_authentication_rate_limited`.
+        Prevents mass account creation from a single source IP. Shares
+        the cache key prefix with the app sign-up surface so the
+        combined limit applies across both view classes.
+
     Request body (POST form):
         * ``email`` (str, required) — normalized to ``email.strip().lower()``
           and validated by Django :func:`validate_email`.
@@ -225,8 +270,9 @@ class SignUpAuthSpaceEndpoint(View):
 
     Error codes:
         ``INSTANCE_NOT_CONFIGURED``, ``REQUIRED_EMAIL_PASSWORD_SIGN_UP``,
-        ``INVALID_EMAIL_SIGN_UP``, ``USER_ALREADY_EXIST``, plus any code
-        raised by :meth:`EmailProvider.authenticate` with ``is_signup=True``.
+        ``INVALID_EMAIL_SIGN_UP``, ``USER_ALREADY_EXIST``,
+        ``RATE_LIMIT_EXCEEDED``, plus any code raised by
+        :meth:`EmailProvider.authenticate` with ``is_signup=True``.
 
     Side effects:
         * Creates a ``User`` row via
@@ -246,6 +292,11 @@ class SignUpAuthSpaceEndpoint(View):
     def post(self, request):
         """Create a new user, log them in, and redirect to ``next_path`` (or back with an error)."""
         next_path = request.POST.get("next_path")
+        # Enforce the per-IP 30/min sign-up cap BEFORE any DB lookup so a
+        # single source IP cannot script bulk account creation against the
+        # space surface.
+        if _is_authentication_rate_limited(request):
+            return _rate_limited_space_redirect(request, next_path)
         # Check instance configuration
         instance = Instance.objects.first()
         if instance is None or not instance.is_setup_done:

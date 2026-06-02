@@ -100,7 +100,7 @@ class WorkspaceViewViewSet(BaseViewSet):
         * ``GET    /api/workspaces/<slug>/views/``                 -> list
         * ``POST   /api/workspaces/<slug>/views/``                 -> create
         * ``GET    /api/workspaces/<slug>/views/<uuid:pk>/``       -> retrieve
-        * ``PUT    /api/workspaces/<slug>/views/<uuid:pk>/``       -> update (inherited from ``ModelViewSet``)
+        * ``PUT    /api/workspaces/<slug>/views/<uuid:pk>/``       -> update (delegates to partial_update)
         * ``PATCH  /api/workspaces/<slug>/views/<uuid:pk>/``       -> partial_update
         * ``DELETE /api/workspaces/<slug>/views/<uuid:pk>/``       -> destroy
 
@@ -142,9 +142,13 @@ class WorkspaceViewViewSet(BaseViewSet):
         * :meth:`retrieve`       -- ``[IsAuthenticated]`` only (no
           ``allow_permission`` decorator); ``get_queryset`` filters
           enforce visibility.
-        * :meth:`partial_update` -- creator-only (``allowed_roles=[]``,
-          ``creator=True``) **and** the in-method owner check rejects
-          non-owners.
+        * :meth:`update` / :meth:`partial_update` -- creator-only
+          (``allowed_roles=[]``, ``creator=True``) **and** the in-method
+          owner check rejects non-owners. ``update`` (PUT) delegates
+          to ``partial_update`` so both verbs share one authoritative
+          permission path; do NOT remove the override or DRF's default
+          ``UpdateModelMixin.update`` will re-emerge unprotected
+          (OWASP A01:2021 Broken Access Control).
         * :meth:`destroy`        -- workspace ADMIN **or** the view's
           creator (``allowed_roles=[ROLE.ADMIN]``, ``creator=True``);
           additionally requires the user to be the owner OR a
@@ -225,6 +229,19 @@ class WorkspaceViewViewSet(BaseViewSet):
         return Response(views, status=status.HTTP_200_OK)
 
     @allow_permission(allowed_roles=[], level="WORKSPACE", creator=True, model=IssueView)
+    def update(self, request, slug, pk=None, *args, **kwargs):
+        """Full-replace update of a workspace view; routes to :meth:`partial_update` to share authorization.
+
+        DRF's :class:`UpdateModelMixin` would otherwise inject an
+        unprotected default ``update()`` that bypasses the
+        ``@allow_permission`` gate applied to :meth:`partial_update`,
+        allowing cross-workspace PUT mutation (OWASP A01:2021 Broken
+        Access Control). Delegating here ensures PUT and PATCH share
+        one authoritative permission path.
+        """
+        return self.partial_update(request, slug=slug, pk=pk)
+
+    @allow_permission(allowed_roles=[], level="WORKSPACE", creator=True, model=IssueView)
     def partial_update(self, request, slug, pk):
         """Update a workspace-level view inside a transaction.
 
@@ -232,6 +249,9 @@ class WorkspaceViewViewSet(BaseViewSet):
         rejects the request with HTTP 400 if the view is ``is_locked``,
         and rejects non-owner requests with HTTP 400 even when the
         creator-only decorator would otherwise grant access.
+
+        Also serves as the implementation backend for :meth:`update`
+        (PUT) so both verbs share one authoritative permission path.
         """
         with transaction.atomic():
             workspace_view = IssueView.objects.select_for_update().get(pk=pk, workspace__slug=slug)
@@ -525,7 +545,7 @@ class IssueViewViewSet(BaseViewSet):
         * ``GET    /api/workspaces/<slug>/projects/<project_id>/views/``                 -> list
         * ``POST   /api/workspaces/<slug>/projects/<project_id>/views/``                 -> create
         * ``GET    /api/workspaces/<slug>/projects/<project_id>/views/<uuid:pk>/``       -> retrieve
-        * ``PUT    /api/workspaces/<slug>/projects/<project_id>/views/<uuid:pk>/``       -> update (inherited)
+        * ``PUT    /api/workspaces/<slug>/projects/<project_id>/views/<uuid:pk>/``       -> update (delegates to partial_update)
         * ``PATCH  /api/workspaces/<slug>/projects/<project_id>/views/<uuid:pk>/``       -> partial_update
         * ``DELETE /api/workspaces/<slug>/projects/<project_id>/views/<uuid:pk>/``       -> destroy
 
@@ -546,9 +566,11 @@ class IssueViewViewSet(BaseViewSet):
         * :meth:`list`           -- ADMIN, MEMBER, GUEST.
         * :meth:`retrieve`       -- ADMIN, MEMBER, GUEST (with the
           guest-visibility narrowing applied in-method).
-        * :meth:`partial_update` -- creator-only
+        * :meth:`update` / :meth:`partial_update` -- creator-only
           (``allowed_roles=[]``, ``creator=True``) **and** the in-method
-          owner check rejects non-owners.
+          owner check rejects non-owners. ``update`` (PUT) delegates
+          to ``partial_update`` so both verbs share one authoritative
+          permission path.
         * :meth:`destroy`        -- project ADMIN
           (``ProjectMember.role == 20``, ``is_active=True``) **or** the
           view's creator.
@@ -707,6 +729,20 @@ class IssueViewViewSet(BaseViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @allow_permission(allowed_roles=[], creator=True, model=IssueView)
+    def update(self, request, slug, project_id, pk=None, *args, **kwargs):
+        """Full-replace update of a project view; routes to :meth:`partial_update` to share authorization.
+
+        DRF's :class:`UpdateModelMixin` would otherwise inject an
+        unprotected default ``update()`` that bypasses the
+        ``@allow_permission`` gate applied to :meth:`partial_update`.
+        While ``get_queryset`` filters currently block cross-project
+        PUT mutation by returning 404 to non-members (defense-in-depth),
+        sharing the same authorization path eliminates any future drift
+        risk if the queryset filter changes (OWASP A01:2021).
+        """
+        return self.partial_update(request, slug=slug, project_id=project_id, pk=pk)
+
+    @allow_permission(allowed_roles=[], creator=True, model=IssueView)
     def partial_update(self, request, slug, project_id, pk):
         """Update a project-level view inside a transaction.
 
@@ -714,6 +750,9 @@ class IssueViewViewSet(BaseViewSet):
         view, rejects the request with HTTP 400 if the view is
         ``is_locked``, and rejects non-owner requests with HTTP 400 even
         when the creator-only decorator would otherwise grant access.
+
+        Also serves as the implementation backend for :meth:`update`
+        (PUT) so both verbs share one authoritative permission path.
         """
         with transaction.atomic():
             issue_view = IssueView.objects.select_for_update().get(pk=pk, workspace__slug=slug, project_id=project_id)

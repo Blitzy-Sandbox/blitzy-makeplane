@@ -75,7 +75,11 @@ Architectural notes
     happen in ``magic.py`` / ``password_management.py``, not here.
 """
 
+# Python imports
+import time
+
 # Django imports
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.http import HttpResponseRedirect
@@ -96,6 +100,85 @@ from plane.authentication.adapter.error import (
 from plane.utils.path_validator import get_safe_redirect_url
 
 
+# Per-IP authentication rate limit applied to the credential views below.
+# Matches the DRF ``AuthenticationThrottle`` cap of 30 requests / minute
+# enforced on the magic-link, password-reset, and email-check endpoints so
+# every public credential-acceptance path shares one ceiling. Stored in the
+# Django default cache (``django_redis``) under the same ``throttle_*`` key
+# prefix DRF uses, which lets ``manage.py clear_cache`` flush both surfaces.
+_AUTH_RATE_LIMIT_REQUESTS = 30
+_AUTH_RATE_LIMIT_DURATION_SECONDS = 60
+_AUTH_RATE_LIMIT_CACHE_FORMAT = "throttle_authentication_app_{ident}"
+
+
+def _get_client_ident(request):
+    """Return the requesting client's IP, preferring ``X-Forwarded-For`` head.
+
+    Mirrors DRF's :meth:`rest_framework.throttling.BaseThrottle.get_ident`
+    behavior: when a proxy chain forwards the client address through
+    ``X-Forwarded-For`` use that, otherwise fall back to ``REMOTE_ADDR``. The
+    returned string is used as the per-IP throttle cache key suffix.
+    """
+    xff = request.META.get("HTTP_X_FORWARDED_FOR")
+    remote_addr = request.META.get("REMOTE_ADDR", "")
+    return "".join(xff.split()) if xff else remote_addr
+
+
+def _is_authentication_rate_limited(request):
+    """Return ``True`` when the requesting IP has exceeded the auth rate limit.
+
+    Implements a sliding-window counter equivalent to DRF's
+    :class:`~rest_framework.throttling.SimpleRateThrottle`:
+    each call records the current ``time.time()`` timestamp in a per-IP
+    list, then evicts entries older than the configured duration. If the
+    surviving history length reaches the request cap, the call returns
+    ``True`` so the caller can short-circuit with HTTP 429.
+
+    The cache value is stored with a TTL equal to the throttle duration so
+    idle IPs free their entry naturally; the list is at most
+    ``_AUTH_RATE_LIMIT_REQUESTS`` items long.
+    """
+    ident = _get_client_ident(request)
+    if not ident:
+        # No identifier (e.g. test client with no REMOTE_ADDR) -- do not throttle.
+        return False
+    key = _AUTH_RATE_LIMIT_CACHE_FORMAT.format(ident=ident)
+    now = time.time()
+    history = cache.get(key, [])
+    # Drop entries that have aged past the window
+    while history and history[-1] <= now - _AUTH_RATE_LIMIT_DURATION_SECONDS:
+        history.pop()
+    if len(history) >= _AUTH_RATE_LIMIT_REQUESTS:
+        # Refresh the TTL so the throttle persists until the oldest entry expires.
+        cache.set(key, history, _AUTH_RATE_LIMIT_DURATION_SECONDS)
+        return True
+    history.insert(0, now)
+    cache.set(key, history, _AUTH_RATE_LIMIT_DURATION_SECONDS)
+    return False
+
+
+def _rate_limited_redirect(request, next_path):
+    """Return a 302 carrying the standard ``RATE_LIMIT_EXCEEDED`` error envelope.
+
+    Matches the rest of the credential-error surface in this module:
+    every 4xx case returns a 302 redirect to
+    ``base_host(request=request, is_app=True)`` with query params built
+    from :meth:`AuthenticationException.get_error_dict`. Using the same
+    redirect contract keeps the SPA-side error handler unchanged when this
+    branch fires.
+    """
+    exc = AuthenticationException(
+        error_code=AUTHENTICATION_ERROR_CODES["RATE_LIMIT_EXCEEDED"],
+        error_message="RATE_LIMIT_EXCEEDED",
+    )
+    url = get_safe_redirect_url(
+        base_url=base_host(request=request, is_app=True),
+        next_path=next_path,
+        params=exc.get_error_dict(),
+    )
+    return HttpResponseRedirect(url)
+
+
 class SignInAuthEndpoint(View):
     """Verify an existing user's email + password and refresh the app session.
 
@@ -110,9 +193,13 @@ class SignInAuthEndpoint(View):
         ``permission_classes`` is declared on the class (DRF permission
         machinery does not apply to ``django.views.View``); effectively
         anonymous-accessible because a pre-login client must be able to
-        POST credentials. Throttling is also not applied here -- the
-        DRF-based throttle classes are only honored on DRF endpoints
-        such as :class:`EmailCheckEndpoint`.
+        POST credentials. DRF throttle classes do not apply here either,
+        so the module-level :func:`_is_authentication_rate_limited`
+        helper enforces the same 30-request/minute per-IP cap that DRF's
+        :class:`~plane.authentication.rate_limit.AuthenticationThrottle`
+        applies to :class:`EmailCheckEndpoint` and the magic-link
+        endpoints -- preventing brute-force password attacks against
+        valid email addresses.
 
     Request body (form-encoded ``application/x-www-form-urlencoded``):
         * ``email`` (str, required) -- read via
@@ -131,6 +218,14 @@ class SignInAuthEndpoint(View):
           (which in turn calls
           :func:`plane.utils.path_validator.validate_next_path` to
           defeat open-redirect attacks).
+
+    Rate limit:
+        30 requests / minute per source IP. After the 30th request in any
+        60-second window, additional POSTs short-circuit with the
+        standard 302 redirect carrying ``RATE_LIMIT_EXCEEDED`` in the
+        query string -- the SPA surfaces the same error message the
+        EmailCheck / forgot-password endpoints display when their DRF
+        throttle fires.
 
     Pre-condition:
         A :class:`plane.db.models.User` with the submitted ``email`` MUST
@@ -188,6 +283,11 @@ class SignInAuthEndpoint(View):
     def post(self, request):
         """Verify email/password, refresh the app session, and redirect to ``next_path``."""
         next_path = request.POST.get("next_path")
+        # Enforce the per-IP 30/min credential-attempt cap BEFORE any DB
+        # lookup so brute-force traffic cannot drive password-hash work or
+        # leak user-existence timing.
+        if _is_authentication_rate_limited(request):
+            return _rate_limited_redirect(request, next_path)
         # Check instance configuration
         instance = Instance.objects.first()
         if instance is None or not instance.is_setup_done:
@@ -308,7 +408,11 @@ class SignUpAuthEndpoint(View):
         ``permission_classes`` is declared on the class (DRF permission
         machinery does not apply to ``django.views.View``); effectively
         anonymous-accessible because a pre-signup client must be able to
-        POST. DRF throttle classes likewise do not apply.
+        POST. DRF throttle classes likewise do not apply, so the
+        module-level :func:`_is_authentication_rate_limited` helper
+        enforces the same 30-request/minute per-IP cap as
+        :class:`SignInAuthEndpoint` -- preventing mass account creation
+        from a single source IP.
 
     Request body (form-encoded ``application/x-www-form-urlencoded``):
         * ``email`` (str, required) -- read via
@@ -377,6 +481,10 @@ class SignUpAuthEndpoint(View):
     def post(self, request):
         """Create a new account, refresh the app session, and redirect to ``next_path``."""
         next_path = request.POST.get("next_path")
+        # Enforce the per-IP 30/min sign-up cap BEFORE any DB lookup so a
+        # single source IP cannot script bulk account creation.
+        if _is_authentication_rate_limited(request):
+            return _rate_limited_redirect(request, next_path)
         # Check instance configuration
         instance = Instance.objects.first()
         if instance is None or not instance.is_setup_done:

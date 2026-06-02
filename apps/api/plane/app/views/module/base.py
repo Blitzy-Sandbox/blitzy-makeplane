@@ -140,8 +140,11 @@ class ModuleViewSet(BaseViewSet):
         PATCH  /api/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:pk>/
         DELETE /api/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:pk>/
 
-        The PUT path falls through to the DRF ``ModelViewSet`` default
-        ``update`` method (not overridden in this class).
+        The PUT path delegates to :meth:`partial_update` so PUT and
+        PATCH share one authoritative permission path; do NOT remove
+        the :meth:`update` override or DRF's default
+        ``UpdateModelMixin.update`` will re-emerge unprotected
+        (OWASP A01:2021 Broken Access Control).
 
     Request body (POST / PATCH):
         name (str, required for POST, max 255): module name -- unique
@@ -237,7 +240,8 @@ class ModuleViewSet(BaseViewSet):
             * ``retrieve``       -- ROLE.ADMIN, ROLE.MEMBER (GUEST
               excluded because retrieve returns aggregate analytics
               that may include data the GUEST cannot otherwise see)
-            * ``partial_update`` -- ROLE.ADMIN, ROLE.MEMBER
+            * ``update`` / ``partial_update`` -- ROLE.ADMIN, ROLE.MEMBER
+              (``update`` delegates to ``partial_update``)
             * ``destroy``        -- ROLE.ADMIN (with ``creator=True,
               model=Module`` -- a non-admin MEMBER may delete a
               module they themselves created)
@@ -922,11 +926,27 @@ class ModuleViewSet(BaseViewSet):
         return Response(data, status=status.HTTP_200_OK)
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
+    def update(self, request, slug, project_id, pk=None, *args, **kwargs):
+        """Full-replace update of a module; routes to :meth:`partial_update` to share authorization.
+
+        DRF's :class:`UpdateModelMixin` would otherwise inject an
+        unprotected default ``update()`` that bypasses the
+        ``@allow_permission`` gate applied to :meth:`partial_update`,
+        allowing cross-workspace PUT mutation (OWASP A01:2021 Broken
+        Access Control). Delegating here ensures PUT and PATCH share
+        one authoritative permission path.
+        """
+        return self.partial_update(request, slug=slug, project_id=project_id, pk=pk)
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def partial_update(self, request, slug, project_id, pk):
         """Patch a module and queue a ``model_activity`` Celery audit event.
 
         Archived modules reject with HTTP 400. Captures pre-edit state as
         the ``current_instance`` JSON for downstream diff tracking.
+
+        Also serves as the implementation backend for :meth:`update`
+        (PUT) so both verbs share one authoritative permission path.
         """
         module_queryset = self.get_queryset().filter(pk=pk)
 

@@ -858,6 +858,19 @@ class IssueViewSet(BaseViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], creator=True, model=Issue)
+    def update(self, request, slug, project_id, pk=None, *args, **kwargs):
+        """Full-replace update of an issue; routes to :meth:`partial_update` to share authorization.
+
+        DRF's :class:`UpdateModelMixin` would otherwise inject an
+        unprotected default ``update()`` that bypasses the
+        ``@allow_permission`` gate applied to :meth:`partial_update`,
+        allowing cross-workspace PUT mutation (OWASP A01:2021 Broken
+        Access Control). Delegating here ensures PUT and PATCH share
+        one authoritative permission path.
+        """
+        return self.partial_update(request, slug=slug, project_id=project_id, pk=pk)
+
+    @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], creator=True, model=Issue)
     def partial_update(self, request, slug, project_id, pk=None):
         """Patch the issue and fan out activity, webhook, and version tasks.
 
@@ -866,6 +879,9 @@ class IssueViewSet(BaseViewSet):
         :func:`issue_description_version_task` whenever ``description_html``
         changes. The ``skip_activity`` request flag suppresses activity
         / webhook emission for migration-style description updates.
+
+        Also serves as the implementation backend for :meth:`update`
+        (PUT) so both verbs share one authoritative permission path.
         """
         queryset = self.get_queryset()
         queryset = self.apply_annotations(queryset)
