@@ -85,7 +85,7 @@
  *   - apps/web/core/components/issues/issue-layouts/list/roots/module-root.tsx
  *   - apps/web/core/components/issues/issue-layouts/kanban/roots/module-root.tsx
  *   - apps/web/core/components/issues/issue-layouts/calendar/roots/module-root.tsx
- *   - apps/web/core/components/issues/issue-layouts/gantt/roots/module-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/gantt/base-gantt-root.tsx
  *   - apps/web/core/components/issues/issue-layouts/spreadsheet/base-spreadsheet-root.tsx
  *   - apps/web/core/components/issues/issue-layouts/roots/module-layout-root.tsx
  *   - apps/web/core/components/issues/issue-layouts/filters/** (filter widgets)

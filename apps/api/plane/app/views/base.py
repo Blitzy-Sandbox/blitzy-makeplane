@@ -153,7 +153,7 @@ class BaseViewSet(TimezoneMixin, ReadReplicaControlMixin, ModelViewSet, BasePagi
     Cross-references:
         - Mixins: ``apps/api/plane/utils/timezone_converter.py``
           (``TimezoneMixin``),
-          ``apps/api/plane/db/router.py`` (``ReadReplicaControlMixin``),
+          ``apps/api/plane/utils/core/mixins/view.py`` (``ReadReplicaControlMixin``),
           ``apps/api/plane/utils/paginator.py`` (``BasePaginator``).
         - DRF defaults inherited: ``rest_framework.viewsets.ModelViewSet``,
           ``rest_framework.permissions.IsAuthenticated``,
@@ -342,7 +342,7 @@ class BaseAPIView(TimezoneMixin, ReadReplicaControlMixin, APIView, BasePaginator
     Cross-references:
         - Mixins: ``apps/api/plane/utils/timezone_converter.py``
           (``TimezoneMixin``),
-          ``apps/api/plane/db/router.py`` (``ReadReplicaControlMixin``),
+          ``apps/api/plane/utils/core/mixins/view.py`` (``ReadReplicaControlMixin``),
           ``apps/api/plane/utils/paginator.py`` (``BasePaginator``).
         - DRF defaults inherited: ``rest_framework.views.APIView``,
           ``rest_framework.permissions.IsAuthenticated``,

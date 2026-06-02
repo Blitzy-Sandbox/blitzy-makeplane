@@ -7,16 +7,16 @@
 /**
  * Y.js (CRDT) encoding, decoding, and merging utilities for the `@plane/editor` package.
  *
- * # CRDT semantics
+ * CRDT semantics:
  * Yjs converges replicas through its CRDT / state-vector model: each update encodes the originating client and Lamport-style clock, and `Y.applyUpdate` merges concurrent updates structurally so no edits are dropped on either side. There is **no explicit application-level conflict resolver** registered by this package or by `apps/live` — convergence is built into the CRDT, so two clients applying the same update set in any order produce byte-identical documents.
  *
- * # Binary update format
+ * Binary update format:
  * Y.js encodes incremental updates as binary buffers (`Uint8Array`). `Y.applyUpdate(doc, update)` merges a buffer into a document atomically — the merge is commutative, associative, and idempotent, so applying the same update twice is a no-op.
  *
- * # Persistence lifecycle (tech spec §5.2.5.4)
+ * Persistence lifecycle (tech spec §5.2.5.4):
  * Encoded updates produced by the helpers in this module flow to `apps/live` for persistence with a **10-second debounce** (`apps/live/src/extensions/database.ts`). On first edit of legacy content that lacks a binary representation, `apps/live` performs an **HTML→binary backfill** using `getBinaryDataFromDocumentEditorHTMLString` so the document gains a CRDT baseline.
  *
- * # Schema split
+ * Schema split:
  * Two extension sets back two ProseMirror schemas: `RICH_TEXT_EDITOR_EXTENSIONS` (issue comments, descriptions) and `DOCUMENT_EDITOR_EXTENSIONS` (full-fidelity pages). Helper variants exist for each so encoded binaries round-trip through the schema they were produced for. Encoded binaries are NOT interchangeable across schemas.
  */
 
