@@ -4,6 +4,38 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Top-level compositor for the issue calendar layout. Assembles the header,
+ * weekday strip, month/week body, mobile day surface, and registers
+ * Atlaskit pragmatic auto-scroll-for-drag on the scrollable container.
+ *
+ * Props (Props type, line 46):
+ *   - issuesFilterStore: filter store for the active route
+ *     (project | module | cycle | project view).
+ *   - issues, groupedIssueIds, layout ("month" | "week" | undefined),
+ *     showWeekends, issueCalendarView.
+ *   - loadMoreIssues, getPaginationData, getGroupIssueCount — pagination plumbing.
+ *   - quickActions (render-prop), quickAddCallback, addIssuesToView.
+ *   - handleDragAndDrop — drag-to-reschedule persistence callback.
+ *   - readOnly, updateFilters, canEditProperties, isEpic.
+ *
+ * Stores read:
+ *   - useIssues(EIssuesStoreType.PROJECT).issues.viewFlags — enableIssueCreation
+ *     and enableQuickAdd flags (intentionally fixed to PROJECT viewFlags
+ *     regardless of caller, since calendar layout always uses the project-level
+ *     project-wide capability flags).
+ *
+ * Side effects:
+ *   - Registers @atlaskit/pragmatic-drag-and-drop autoScrollForElements on
+ *     the scrollable container while drag is in progress.
+ *   - Wraps content in IssueLayoutHOC; the HOC intentionally does NOT short-circuit
+ *     to IssueLayoutEmptyState for the CALENDAR layout (see ../issue-layout-HOC.tsx
+ *     L57-L59) — the date grid IS the empty visual.
+ *
+ * Consumers:
+ *   - ./base-calendar-root.tsx (BaseCalendarRoot).
+ */
+
 import { useEffect, useRef, useState } from "react";
 import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
 import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-scroll/element";
@@ -72,6 +104,7 @@ type Props = {
   isEpic?: boolean;
 };
 
+/** Renders the month/week issue calendar shell, including mobile day surface and drag auto-scroll. */
 export const CalendarChart = observer(function CalendarChart(props: Props) {
   const {
     issuesFilterStore,

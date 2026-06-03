@@ -4,6 +4,32 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Applied cycle filter chips.
+ *
+ * Rendered purpose: renders one removable chip per currently-applied cycle ID in the issue layout's
+ * applied-filters bar. Each chip shows the cycle's status icon (via `CycleGroupIcon`) and name.
+ *
+ * Props (`Props`):
+ *   - `handleRemove` (`(val: string) => void`, required): invoked with the cycle ID that should be
+ *     removed from the active filter. The parent aggregator is responsible for invoking
+ *     `issuesFilter.updateFilters(workspaceSlug, projectId, EIssueFilterType.FILTERS, { cycle: <next> })`.
+ *   - `values` (`string[]`, required): currently-applied cycle IDs.
+ *   - `editable` (`boolean | undefined`, required): when truthy, renders the close button; when
+ *     falsy/undefined, the chip is read-only (used in read-only views such as archived issues or
+ *     shared spaces).
+ *
+ * MobX stores read:
+ *   - `useCycle().getCycleById(cycleId)` → resolves `ICycle` for name + status. Wrapped with `observer`
+ *     from `mobx-react` so re-renders react to cycle map mutations.
+ *
+ * Derived state (inline):
+ *   - `cycleStatus`: defaults to `"draft"` when the resolved cycle has no `status`; otherwise lowercases
+ *     the status for `CycleGroupIcon`'s `TCycleGroups` union.
+ *
+ * Side effects: none — render-only; the only outbound interaction is `handleRemove(cycleId)` on click.
+ */
+
 import { observer } from "mobx-react";
 import { CloseIcon, CycleGroupIcon } from "@plane/propel/icons";
 import type { TCycleGroups } from "@plane/types";
@@ -28,6 +54,7 @@ export const AppliedCycleFilters = observer(function AppliedCycleFilters(props: 
       {values.map((cycleId) => {
         const cycleDetails = getCycleById(cycleId) ?? null;
 
+        // Skip rendering when the cycle has not loaded yet OR has been deleted — prevents stale chip UI.
         if (!cycleDetails) return null;
 
         const cycleStatus = (cycleDetails?.status ? cycleDetails?.status.toLocaleLowerCase() : "draft") as TCycleGroups;

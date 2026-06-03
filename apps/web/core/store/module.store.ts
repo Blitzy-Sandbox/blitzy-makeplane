@@ -4,6 +4,125 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Module domain store: per-project module cache, lifecycle CRUD, archive
+ * workflows, and link / favorite coordination for the web client. Owns the
+ * source-of-truth `IModule` records keyed by id and exposes derived selectors
+ * consumed by `apps/web/core/components/modules/**`.
+ *
+ * State slice:
+ *   - loader: boolean — in-flight indicator for project-scoped fetches
+ *   - moduleMap: Record<string, IModule> — all known modules keyed by module id
+ *   - plotType: Record<string, TModulePlotType> — burndown / burnup chart
+ *     selection per module (mirrored to the analytics sidebar)
+ *   - fetchedMap: Record<string, boolean> — per-project "modules loaded" flag
+ *     gating `null` versus `[]` semantics in selectors
+ *
+ * Computed:
+ *   - projectModuleIds — non-archived module ids for `rootStore.router.projectId`
+ *     sorted by `sort_order`; recomputes when `moduleMap`, `fetchedMap`, or the
+ *     active `router.projectId` change
+ *   - projectArchivedModuleIds — archived counterpart of the above with the
+ *     same recomputation inputs
+ *
+ * Computed actions (`computedFn` from mobx-utils — memoized per argument):
+ *   - getModulesFetchStatusByProjectId(projectId): boolean — `fetchedMap` lookup
+ *   - getFilteredModuleIds(projectId): string[] | null — applies
+ *     `rootStore.moduleFilter.{getDisplayFiltersByProjectId,
+ *     getFiltersByProjectId, searchQuery}` to non-archived modules; orders via
+ *     `orderModules` from `@plane/utils`
+ *   - getFilteredArchivedModuleIds(projectId): string[] | null — same as above
+ *     but reads `moduleFilter.{getArchivedFiltersByProjectId,
+ *     archivedModulesSearchQuery}` and limits to archived rows
+ *   - getModuleById(moduleId): IModule | null — direct `moduleMap` lookup
+ *   - getModuleNameById(moduleId): string | undefined — name accessor
+ *   - getProjectModuleDetails(projectId): IModule[] | null — sorted non-archived
+ *     rows for the supplied project
+ *   - getProjectModuleIds(projectId): string[] | null — id projection of the above
+ *
+ * Actions:
+ *   - setPlotType(moduleId, plotType): void
+ *       Mutates `plotType[moduleId]`.
+ *   - getPlotTypeByModuleId(moduleId): TModulePlotType
+ *       Reads `plotType[moduleId]`; falls back to `"burndown"` when estimates
+ *       are disabled via `rootStore.projectEstimate.areEstimateEnabledByProjectId`.
+ *   - updateModuleDistribution(distributionUpdates, moduleId): void
+ *       Local-only mutation of `moduleMap[moduleId]` via the `updateDistribution`
+ *       helper; reflects issue-state changes without a refetch.
+ *   - fetchWorkspaceModules(workspaceSlug): Promise<IModule[]>
+ *       Calls `ModuleService.getWorkspaceModules`; mutates `moduleMap` and sets
+ *       `fetchedMap` for every project id observed in the response.
+ *   - fetchModules(workspaceSlug, projectId): Promise<undefined | IModule[]>
+ *       Calls `ModuleService.getModules`; mutates `moduleMap`,
+ *       `fetchedMap[projectId]`, and toggles `loader`.
+ *   - fetchModulesSlim(workspaceSlug, projectId): Promise<undefined | IModule[]>
+ *       Calls `ModuleService.getWorkspaceModules` then client-side filters by
+ *       `projectId`; same observable mutations as `fetchModules`.
+ *   - fetchArchivedModules(workspaceSlug, projectId): Promise<undefined | IModule[]>
+ *       Calls `ModuleArchiveService.getArchivedModules`; mutates `moduleMap`
+ *       and toggles `loader`.
+ *   - fetchArchivedModuleDetails(workspaceSlug, projectId, moduleId): Promise<IModule>
+ *       Calls `ModuleArchiveService.getArchivedModuleDetails`; mutates
+ *       `moduleMap[id]`.
+ *   - fetchModuleDetails(workspaceSlug, projectId, moduleId): Promise<IModule>
+ *       Calls `ModuleService.getModuleDetails`; mutates `moduleMap[id]`.
+ *   - createModule(workspaceSlug, projectId, data): Promise<IModule>
+ *       Calls `ModuleService.createModule`; inserts into `moduleMap`.
+ *   - updateModuleDetails(workspaceSlug, projectId, moduleId, data): Promise<IModule>
+ *       Optimistic patch of `moduleMap[id]` then `ModuleService.patchModule`;
+ *       reverts to the pre-update snapshot on error.
+ *   - deleteModule(workspaceSlug, projectId, moduleId): Promise<void>
+ *       Calls `ModuleService.deleteModule`; removes from `moduleMap` and, when
+ *       a favorite row exists, calls `rootStore.favorite.removeFavoriteFromStore`.
+ *   - createModuleLink / updateModuleLink / deleteModuleLink: per-link CRUD on
+ *       `moduleMap[id].link_module` via `ModuleService.{createModuleLink,
+ *       updateModuleLink, deleteModuleLink}`; `updateModuleLink` is optimistic
+ *       with error-revert.
+ *   - addModuleToFavorites(workspaceSlug, projectId, moduleId): Promise<void>
+ *       Optimistic flip of `is_favorite` then `rootStore.favorite.addFavorite`;
+ *       reverts on error.
+ *   - removeModuleFromFavorites(workspaceSlug, projectId, moduleId): Promise<void>
+ *       Optimistic flip then `rootStore.favorite.removeFavoriteEntity`;
+ *       reverts on error.
+ *   - archiveModule(workspaceSlug, projectId, moduleId): Promise<void>
+ *       Calls `ModuleArchiveService.archiveModule`; sets `archived_at` from the
+ *       response and removes any favorite via
+ *       `rootStore.favorite.removeFavoriteFromStore`.
+ *   - restoreModule(workspaceSlug, projectId, moduleId): Promise<void>
+ *       Calls `ModuleArchiveService.restoreModule`; clears `archived_at`.
+ *
+ * Cross-store reads (via `this.rootStore`):
+ *   - router.projectId
+ *   - moduleFilter.{getDisplayFiltersByProjectId, getFiltersByProjectId,
+ *     getArchivedFiltersByProjectId, searchQuery, archivedModulesSearchQuery}
+ *   - projectEstimate.areEstimateEnabledByProjectId
+ *   - favorite.{entityMap, addFavorite, removeFavoriteEntity,
+ *     removeFavoriteFromStore}
+ *
+ * Wired services (instantiated in the constructor and held as private fields):
+ *   - moduleService: ModuleService (`@/services/module.service`) — backs every
+ *     non-archive read/write listed above (list, slim list, details, create,
+ *     patch, delete, link CRUD).
+ *   - moduleArchiveService: ModuleArchiveService
+ *     (`@/services/module_archive.service`) — archive-only endpoints
+ *     (archived list, archived details, archive, restore).
+ *   - projectService: ProjectService (`@/services/project`)
+ *       // INTENT UNCLEAR: instantiated on the store but no action below
+ *       // currently invokes any ProjectService method. Retained for
+ *       // cross-store project orchestration that may attach to this store in
+ *       // the future; removal would be a behavioral change outside this
+ *       // documentation pass.
+ *
+ * Consumers:
+ *   - apps/web/core/components/modules/** (list, modal, view header, quick
+ *     actions, links, archived modules, analytics sidebar)
+ *   - apps/web/core/store/issue/module/** (cross-store reads from the issue layer)
+ *   - apps/web/core/store/module_filter.store.ts (supplies the filter, search,
+ *     and ordering inputs consumed by the `getFiltered*` selectors above)
+ *   - apps/web/core/store/root.store.ts (composition root — registers
+ *     `module: IModuleStore`)
+ */
+
 import { update, concat, set, sortBy } from "lodash-es";
 import { action, computed, observable, makeObservable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";

@@ -1,6 +1,7 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Django management command to interactively provision a workspace and generate dummy data in-process."""
 
 # Django imports
 from typing import Any
@@ -11,9 +12,40 @@ from plane.db.models import User, Workspace, WorkspaceMember
 
 
 class Command(BaseCommand):
+    """Interactively bootstrap a workspace with members and run per-project dummy-data generation in-process.
+
+    CLI signature:
+        ``python manage.py create_dummy_data``
+
+    Console interaction:
+        Blocking ``input()`` prompts collect workspace name, slug, creator email,
+        comma-separated member emails, project count, and per-project entity counts
+        (issues, cycles, modules, pages, intake issues).
+
+    Side effects:
+        - Creates one ``Workspace`` row owned by the creator.
+        - Creates one ``WorkspaceMember`` for the creator (role=20, Admin) and bulk-
+          creates additional ``WorkspaceMember`` rows for the named member emails.
+        - For each requested project, invokes
+          ``plane.bgtasks.dummy_data_task.create_dummy_data`` directly. The task is
+          decorated with ``@shared_task`` but the management command calls the
+          underlying function (not ``.delay()`` / ``.apply_async()``), so the
+          entity generation runs synchronously in the management-command process
+          and blocks until the project is fully seeded. No Celery broker
+          (RabbitMQ) interaction occurs.
+
+    Idempotency:
+        NOT idempotent — the command rejects existing workspace slugs but otherwise
+        creates fresh rows and runs fresh generation on every invocation.
+
+    Trigger context:
+        Operator-invoked manual seeding for developer / staging environments.
+    """
+
     help = "Create dump issues, cycles etc. for a project in a given workspace"
 
     def handle(self, *args: Any, **options: Any) -> str | None:
+        """Prompt for workspace/project parameters and synchronously run dummy-data generation per project."""
         try:
             workspace_name = input("Workspace Name: ")
             workspace_slug = input("Workspace slug: ")

@@ -2,6 +2,31 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Declarative field/schema primitives for the export pipeline.
+
+Defines :class:`ExportField` and its typed subclasses
+(:class:`StringField`, :class:`NumberField`, :class:`DateField`,
+:class:`DateTimeField`, :class:`BooleanField`, :class:`ListField`,
+:class:`JSONField`), the :class:`ExportSchemaMeta` metaclass that
+captures declared fields in source order into ``_declared_fields``, and
+the :class:`ExportSchema` base class that turns object/queryset input
+into per-format-ready dictionaries.
+
+Each ``ExportField`` carries a ``source`` (dotted-path on the model
+instance, resolved via :meth:`ExportField._resolve_dotted_path`), a
+``label`` (column header used by the formatters), a ``default`` returned
+when the raw value is ``None``, and a typed ``_format_value`` override
+that coerces the raw attribute into the output type required by
+:mod:`plane.utils.exporters.formatters`. Subclasses of
+:class:`ExportSchema` may additionally define ``prepare_<field_name>``
+methods to override per-field serialization with arbitrary Python (used
+extensively by
+:class:`~plane.utils.exporters.schemas.issue.IssueExportSchema`), and
+may override the classmethod :meth:`ExportSchema.get_context_data` to
+precompute queryset-wide lookups (e.g., reverse-join dictionaries)
+before per-row serialization.
+"""
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -17,6 +42,12 @@ class ExportField:
     label: Optional[str] = None  # Display name for export headers
 
     def get_value(self, obj: Any, context: Dict[str, Any]) -> Any:
+        """Resolve and format the field value from ``obj``.
+
+        Walks the dotted ``self.source`` path on ``obj`` (or returns
+        ``obj`` itself when ``source`` is unset) and coerces the result
+        through :meth:`_format_value`.
+        """
         raw: Any
         if self.source:
             raw = self._resolve_dotted_path(obj, self.source)
@@ -145,7 +176,21 @@ class JSONField(ExportField):
 
 
 class ExportSchemaMeta(type):
+    """Capture declared :class:`ExportField` attributes into ``_declared_fields`` in source order.
+
+    The resulting ordered mapping is the introspection surface consumed
+    by :class:`plane.utils.exporters.formatters.BaseFormatter` to emit
+    column headers and row values in the same order they appear on the
+    schema subclass.
+    """
+
     def __new__(mcls, name, bases, attrs):
+        """Build the schema class with merged ``_declared_fields``.
+
+        Pops ``ExportField`` attributes from ``attrs``, merges them with
+        inherited ``_declared_fields`` from bases, and attaches the
+        resulting ordered mapping to the new class.
+        """
         declared: Dict[str, ExportField] = {
             key: value for key, value in list(attrs.items()) if isinstance(value, ExportField)
         }
@@ -170,6 +215,7 @@ class ExportSchema(metaclass=ExportSchemaMeta):
     """
 
     def __init__(self, context: Optional[Dict[str, Any]] = None) -> None:
+        """Initialize the schema instance with an optional shared ``context`` mapping; defaults to ``{}``."""
         self.context = context or {}
 
     def serialize(self, obj: Any, fields: Optional[List[str]] = None) -> Dict[str, Any]:

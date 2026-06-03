@@ -4,6 +4,22 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Right-click context menu root container with positioning logic.
+ *
+ * Implements the public `ContextMenu` component, the recursive `TContextMenuItem` data shape
+ * driving menu entries, the local `Portal` helper, and the `ContextMenuContext` used by nested
+ * items to register their `closeSubmenu` callbacks. The internal `ContextMenuWithoutPortal`
+ * controller subscribes to native `contextmenu` events on the parent ref, computes viewport-
+ * aware coordinates (flipping left/up when the menu would overflow), and installs Escape,
+ * Arrow, and Enter key handlers for keyboard navigation.
+ *
+ * The optional `#context-menu-portal` host element (if present in the DOM) is preferred as the
+ * mount target; otherwise the controller is rendered inline. The host's presence is read
+ * synchronously inside `ContextMenu`, so the document must already have it before the menu
+ * mounts.
+ */
+
 import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 // hooks
@@ -13,6 +29,25 @@ import { cn } from "../../utils";
 // components
 import { ContextMenuItem } from "./item";
 
+/**
+ * Recursive item descriptor for a context-menu entry. Each item may render a custom React
+ * node (`customContent`), a default `title` + `description` layout with optional `icon`, or
+ * none of the above (the renderer simply skips items with `shouldRender === false`).
+ *
+ * Fields:
+ *   - `key` (required): React reconciliation key; must be unique within a menu level.
+ *   - `action` (required): invoked on click or Enter; for nested-only entries pass a no-op.
+ *   - `customContent`: full render override; when set, `title`/`description`/`icon` are ignored.
+ *   - `title`, `description`, `icon`: default render slots used when `customContent` is absent.
+ *   - `shouldRender`: when `false`, the item is filtered out before render and before keyboard
+ *     navigation accounting (so arrow keys skip hidden rows).
+ *   - `closeOnClick` (default `true`): when `false`, clicking the row does NOT close the menu —
+ *     useful for items that mutate state and want the menu to remain open.
+ *   - `disabled`: greys the row and blocks `action`.
+ *   - `className` / `iconClassName`: Tailwind class overrides on the row button / icon.
+ *   - `nestedMenuItems`: when present and non-empty, the row becomes a submenu trigger and
+ *     renders a chevron affordance; nested items follow the same descriptor recursively.
+ */
 export type TContextMenuItem = {
   key: string;
   customContent?: React.ReactNode;
@@ -34,6 +69,18 @@ interface PortalProps {
   container?: Element | null;
 }
 
+/**
+ * Client-only portal helper used by `ContextMenuItem` to mount nested submenu panels into
+ * `document.body` (or `container` if provided) so they escape parent overflow/transform
+ * stacking contexts.
+ *
+ * Rendering is deferred until first mount (`useEffect` flips `mounted` from `false` to `true`)
+ * so SSR output is `null` and the portal only attaches after hydration.
+ *
+ * Props (local `PortalProps`):
+ *   - `children` (required): subtree to portal.
+ *   - `container`: target element; defaults to `document.body`.
+ */
 export function Portal({ children, container }: PortalProps) {
   const [mounted, setMounted] = React.useState(false);
 
@@ -50,6 +97,17 @@ export function Portal({ children, container }: PortalProps) {
   return ReactDOM.createPortal(children, targetContainer);
 }
 
+/**
+ * React context shared between `ContextMenu` (controller) and `ContextMenuItem` (rows).
+ * Surfaces:
+ *   - `closeAllSubmenus`: invokes every registered submenu's close callback. The controller
+ *     calls this when the user opens a new menu or dismisses the entire context menu.
+ *   - `registerSubmenu`: each `ContextMenuItem` with nested items registers its
+ *     `closeNestedMenu` callback here on mount and unregisters on unmount. Returns the
+ *     unregister function so the effect can clean up.
+ *   - `portalContainer`: optional DOM element passed through to nested-menu `Portal`
+ *     instances; defaults to `document.body` when omitted.
+ */
 // Context for managing nested menus
 export const ContextMenuContext = React.createContext<{
   closeAllSubmenus: () => void;
@@ -63,6 +121,26 @@ type ContextMenuProps = {
   portalContainer?: Element | null;
 };
 
+/**
+ * Internal controller for `ContextMenu`. Owns the open/closed state, calculated `{x, y}`
+ * position, active item index for keyboard navigation, and the set of registered nested-submenu
+ * close callbacks.
+ *
+ * Behavior:
+ *   - Subscribes to native `contextmenu` events on `parentRef.current`, preventing the
+ *     browser's default menu and storing the click coordinates. Skips entirely on mobile
+ *     (`isMobile` from `usePlatformOS`) — touch devices do not trigger right-click context menus.
+ *   - Flips the menu's `top` / `left` when the calculated position would overflow the viewport.
+ *   - Installs a window-level `keydown` listener for Escape (close), ArrowDown / ArrowUp (cycle
+ *     active item), and Enter (invoke `items[activeItemIndex].action` and conditionally close).
+ *   - Installs a document-level `mousedown` capture listener that closes the menu on outside
+ *     clicks. Clicks on `[data-context-submenu="true"]` (nested-menu elements) and clicks inside
+ *     `contextMenuRef.current` are explicitly preserved as "inside" so they do not collapse the menu.
+ *
+ * The rendered root is a fullscreen pointer-events-`none` overlay that becomes interactive
+ * (`pointer-events-auto`, `opacity-100`) only when `isOpen` is true; this preserves transition
+ * timing without unmounting the menu DOM.
+ */
 function ContextMenuWithoutPortal(props: ContextMenuProps) {
   const { parentRef, items, portalContainer } = props;
   // states
@@ -235,6 +313,25 @@ function ContextMenuWithoutPortal(props: ContextMenuProps) {
   );
 }
 
+/**
+ * Top-level public component for right-click context menus. Wraps the internal
+ * `ContextMenuWithoutPortal` controller and optionally mounts it into the
+ * `#context-menu-portal` host element when that element exists in the DOM.
+ *
+ * Consumers attach the menu to a target by passing a `parentRef` (any DOM element ref):
+ * `contextmenu` events fired on that element open the menu at the click coordinates.
+ *
+ * Props (local `ContextMenuProps`):
+ *   - `parentRef` (required): React ref pointing at the element to listen for `contextmenu` on.
+ *   - `items` (required): the `TContextMenuItem[]` to render; nested items create submenus.
+ *   - `portalContainer`: optional override passed down through `ContextMenuContext` so nested
+ *     submenu panels can portal into a non-default container.
+ *
+ * Accessibility: keyboard activation requires the parent element to have focus; ArrowUp /
+ * ArrowDown cycle, Enter activates, Escape closes. INTENT UNCLEAR: there is no explicit
+ * `role="menu"` / `role="menuitem"` ARIA wiring on the rendered overlay; assistive tech will
+ * announce the buttons but not their grouping as a menu.
+ */
 export function ContextMenu(props: ContextMenuProps) {
   let contextMenu = <ContextMenuWithoutPortal {...props} />;
   const portal = document.querySelector("#context-menu-portal");

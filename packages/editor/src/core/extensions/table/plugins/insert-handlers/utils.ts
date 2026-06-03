@@ -4,6 +4,28 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Support layer for the table insert-handler plugin (`./plugin.ts`).
+ *
+ * Provides three concerns:
+ *   1. Factory functions for the inline "+" buttons that overlay the right
+ *      edge (column insert) and bottom edge (row insert) of every rendered
+ *      `<table>`. Each button accepts BOTH a click (insert one column/row at
+ *      the end) AND a press-and-drag gesture (continuous insert/remove driven
+ *      by pointer distance from the press point).
+ *   2. DOM-to-document mapping helpers — `findAllTables` and
+ *      `getCurrentTableInfo` — that walk the editor DOM to resolve each
+ *      rendered `<table>` back to its ProseMirror node and document position.
+ *   3. Safe wrappers around the canonical ProseMirror table commands
+ *      (`addColumn`, `removeColumn`, `addRow`, `removeRow`) with conservative
+ *      guard rails: the remove helpers refuse to drop the last remaining
+ *      row/column and refuse to drop a non-empty trailing row/column.
+ *
+ * Consumers: `./plugin.ts` (the `TableInsertPlugin` ProseMirror plugin that
+ * mounts these buttons on every rendered table and tracks them in a
+ * `Map<HTMLElement, TableInfo>`).
+ */
+
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { addColumn, removeColumn, addRow, removeRow, TableMap } from "@tiptap/pm/tables";
@@ -18,6 +40,19 @@ const addSvg = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmln
 />
 </svg>`;
 
+/**
+ * Per-table tracking record for {@link TableInsertPlugin}'s
+ * `Map<HTMLElement, TableInfo>`. Captures the rendered `<table>` element, the
+ * corresponding ProseMirror node, its document start position, and cached
+ * references to the affordance DOM nodes the plugin appended to that table.
+ *
+ * @property tableElement                - The rendered `<table>` DOM element.
+ * @property tableNode                   - The ProseMirror node for this table.
+ * @property tablePos                    - The table's start position in the document.
+ * @property columnButtonElement         - The "+" column-insert button (set after mount).
+ * @property rowButtonElement            - The "+" row-insert button (set after mount).
+ * @property dragMarkerContainerElement  - The drop/drag marker container (set after mount).
+ */
 export type TableInfo = {
   tableElement: HTMLElement;
   tableNode: ProseMirrorNode;
@@ -27,6 +62,39 @@ export type TableInfo = {
   dragMarkerContainerElement?: HTMLElement;
 };
 
+/**
+ * Creates the "+" button affordance that lets the user insert a new column at
+ * the END of the given table. The returned `HTMLElement` is owned by the
+ * caller (the `TableInsertPlugin`), which appends it to the `<table>` element
+ * and stores the reference on the `TableInfo.columnButtonElement` field.
+ *
+ * Interaction model — the button supports BOTH a click AND a drag gesture:
+ *   - Click (no drag past `DRAG_THRESHOLD = 5px`): inserts one column via
+ *     `insertColumnAfterLast(...)`.
+ *   - Press-and-drag horizontally:
+ *       * Rightward total distance ≥ `ACTION_THRESHOLD = 150px` from the last
+ *         action point triggers `insertColumnAfterLast(...)` and resets the
+ *         reference point so continued dragging keeps inserting.
+ *       * Leftward total distance ≥ 150px from the last action point triggers
+ *         `removeLastColumn(...)` and resets only if a column was actually
+ *         removed (the guard rails in `removeLastColumn` may refuse).
+ *   - Vertical pointer movement is ignored for the column button.
+ *
+ * Side-channel hygiene during a drag: the context menu and native text
+ * selection are suppressed (`contextmenu` and `selectstart` listeners call
+ * `preventDefault`) and `document.body.style.userSelect` is set to `none`
+ * while `isDragging` is true.
+ *
+ * WHY a custom gesture (not HTML5 drag-and-drop): the native DnD API binds a
+ * drag to a payload and disables click semantics, but this affordance must
+ * accept a single click OR initiate a column action depending on pointer
+ * distance — so the button rolls its own `mousedown`/`mousemove`/`mouseup`
+ * state machine.
+ *
+ * @param editor    - The TipTap editor instance to dispatch transactions through.
+ * @param tableInfo - The tracking record for the table this button operates on.
+ * @returns The `<button>` element ready to be appended to the `<table>`.
+ */
 export const createColumnInsertButton = (editor: Editor, tableInfo: TableInfo): HTMLElement => {
   const button = document.createElement("button");
   button.type = "button";
@@ -125,6 +193,32 @@ export const createColumnInsertButton = (editor: Editor, tableInfo: TableInfo): 
   return button;
 };
 
+/**
+ * Creates the "+" button affordance that lets the user insert a new row at
+ * the END of the given table. Symmetric to {@link createColumnInsertButton}
+ * but tracks VERTICAL pointer movement.
+ *
+ * Interaction model:
+ *   - Click (no drag past `DRAG_THRESHOLD = 5px`): inserts one row via
+ *     `insertRowAfterLast(...)`.
+ *   - Press-and-drag vertically:
+ *       * Downward total distance ≥ `ACTION_THRESHOLD = 40px` from the last
+ *         action point triggers `insertRowAfterLast(...)` and resets the
+ *         reference point so continued dragging keeps inserting rows.
+ *         (The 40 px threshold is intentionally smaller than the column
+ *         button's 150 px because table rows are visually much shorter than
+ *         columns are wide.)
+ *       * Upward total distance ≥ 40px from the last action point triggers
+ *         `removeLastRow(...)` and resets only if a row was actually removed.
+ *   - Horizontal pointer movement is ignored for the row button.
+ *
+ * Side-channel hygiene during a drag: context menu and native text selection
+ * are suppressed, matching the column button.
+ *
+ * @param editor    - The TipTap editor instance to dispatch transactions through.
+ * @param tableInfo - The tracking record for the table this button operates on.
+ * @returns The `<button>` element ready to be appended to the `<table>`.
+ */
 export const createRowInsertButton = (editor: Editor, tableInfo: TableInfo): HTMLElement => {
   const button = document.createElement("button");
   button.type = "button";
@@ -223,6 +317,26 @@ export const createRowInsertButton = (editor: Editor, tableInfo: TableInfo): HTM
   return button;
 };
 
+/**
+ * Scans the editor view DOM for `<table>` elements and resolves each one back
+ * to its ProseMirror table node + document start position.
+ *
+ * Algorithm: query `view.dom.querySelectorAll("table")`, then for each found
+ * `<table>` walk the document via `state.doc.descendants` to locate a node
+ * whose `tableRole === "table"` whose DOM (resolved through
+ * `view.domAtPos(...)`) is the same element. Iteration short-circuits once
+ * the matching node is found.
+ *
+ * WHY DOM scanning rather than walking the whole document: most documents
+ * contain few tables, so scanning the DOM is cheaper than running a full
+ * descendant walk for every reconciliation pass, and the editor DOM is the
+ * authoritative source of "which tables are currently rendered."
+ *
+ * @param editor - The TipTap editor instance to scan.
+ * @returns One {@link TableInfo} per discovered `<table>`, with `tableElement`,
+ *          `tableNode`, and `tablePos` populated. The button/marker fields
+ *          are left undefined for the plugin to fill in.
+ */
 export const findAllTables = (editor: Editor): TableInfo[] => {
   const tables: TableInfo[] = [];
   const tableElements = editor.view.dom.querySelectorAll("table");
@@ -267,6 +381,17 @@ export const findAllTables = (editor: Editor): TableInfo[] => {
   return tables;
 };
 
+/**
+ * Refreshes a cached {@link TableInfo}'s `node` and `pos` by re-running
+ * {@link findAllTables} and returning the entry that matches the same
+ * `tableElement`. Falls back to the input record if the table is no longer
+ * present in the DOM.
+ *
+ * WHY: the cached `node`/`pos` go stale after every document mutation; the
+ * insert/remove helpers call this before each command so they operate on the
+ * current ProseMirror state, not the snapshot captured when the button was
+ * created.
+ */
 const getCurrentTableInfo = (editor: Editor, tableInfo: TableInfo): TableInfo => {
   // Refresh table info to get latest state
   const tables = findAllTables(editor);
@@ -275,6 +400,16 @@ const getCurrentTableInfo = (editor: Editor, tableInfo: TableInfo): TableInfo =>
 };
 
 // Column functions
+/**
+ * Inserts a new column at the end of the table by wrapping the canonical
+ * ProseMirror `addColumn(...)` command. Builds the {@link TableMap} and a
+ * full-table {@link TableRect}, calls `addColumn` with the last-column index,
+ * and dispatches the resulting transaction through the editor view.
+ *
+ * Side effects: dispatches one ProseMirror transaction; performs no DOM
+ * manipulation directly (the affordance buttons are re-positioned by the
+ * plugin's `update` reconciliation on the next tick).
+ */
 const insertColumnAfterLast = (editor: Editor, tableInfo: TableInfo) => {
   const currentTableInfo = getCurrentTableInfo(editor, tableInfo);
   const { tableNode, tablePos } = currentTableInfo;
@@ -296,6 +431,24 @@ const insertColumnAfterLast = (editor: Editor, tableInfo: TableInfo) => {
   editor.view.dispatch(newTr);
 };
 
+/**
+ * Removes the LAST column of the table by wrapping the canonical ProseMirror
+ * `removeColumn(...)` command. Returns whether the removal was actually
+ * dispatched.
+ *
+ * Safety guards (both must pass before the transaction is dispatched):
+ *   1. The table must have MORE than one column — a table must always retain
+ *      at least one column.
+ *   2. The last column must be EMPTY per `isColumnEmpty(...)` (every cell in
+ *      the column passes `isCellEmpty` from the table helpers).
+ *
+ * WHY conservative: the drag-gesture from the "+" button is an
+ * undo-unfriendly UX path (the user is mid-drag, not deliberately deleting),
+ * so silently destroying populated content would be a hazard. Both guards
+ * cause the function to return `false` without dispatching anything.
+ *
+ * @returns `true` if a column was removed, `false` if either guard refused.
+ */
 const removeLastColumn = (editor: Editor, tableInfo: TableInfo): boolean => {
   const currentTableInfo = getCurrentTableInfo(editor, tableInfo);
   const { tableNode, tablePos } = currentTableInfo;
@@ -347,6 +500,14 @@ const isColumnEmpty = (tableInfo: TableInfo, columnIndex: number): boolean => {
 };
 
 // Row functions
+/**
+ * Inserts a new row at the end of the table by wrapping the canonical
+ * ProseMirror `addRow(...)` command. Symmetric to
+ * {@link insertColumnAfterLast} but operating on rows.
+ *
+ * Side effects: dispatches one ProseMirror transaction; performs no DOM
+ * manipulation directly.
+ */
 const insertRowAfterLast = (editor: Editor, tableInfo: TableInfo) => {
   const currentTableInfo = getCurrentTableInfo(editor, tableInfo);
   const { tableNode, tablePos } = currentTableInfo;
@@ -368,6 +529,17 @@ const insertRowAfterLast = (editor: Editor, tableInfo: TableInfo) => {
   editor.view.dispatch(newTr);
 };
 
+/**
+ * Removes the LAST row of the table by wrapping the canonical ProseMirror
+ * `removeRow(...)` command. Symmetric to {@link removeLastColumn} but
+ * operating on rows.
+ *
+ * Safety guards (both must pass):
+ *   1. The table must have MORE than one row.
+ *   2. The last row must be EMPTY per `isRowEmpty(...)`.
+ *
+ * @returns `true` if a row was removed, `false` if either guard refused.
+ */
 const removeLastRow = (editor: Editor, tableInfo: TableInfo): boolean => {
   const currentTableInfo = getCurrentTableInfo(editor, tableInfo);
   const { tableNode, tablePos } = currentTableInfo;

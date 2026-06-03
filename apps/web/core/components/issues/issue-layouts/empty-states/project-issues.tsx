@@ -4,6 +4,25 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Empty-state surface for the project work items layout. Renders one of two variants:
+ *   (1) Filtered empty — when `projectWorkItemFilter.hasActiveFilters` is true (offers Clear filters).
+ *   (2) Default project empty — primary CTA opens the create-issue modal (PROJECT store).
+ *
+ * Hooks read:
+ *   - useCommandPalette().toggleCreateIssueModal                  (open create-issue modal)
+ *   - useUserPermissions().allowPermissions                       (CTA permission gate)
+ *   - useWorkItemFilterInstance(PROJECT, projectId)               (hasActiveFilters, clearFilters)
+ *   - useTranslation() / useParams()                              (copy + route binding)
+ *
+ * Side effects:
+ *   - toggleCreateIssueModal(true, EIssuesStoreType.PROJECT) → opens global create-issue modal.
+ *   - projectWorkItemFilter.clearFilters() → store-level filter reset.
+ *   - No API calls or navigations are triggered directly here.
+ *
+ * Consumed by: `./index.tsx` (IssueLayoutEmptyState) when storeType === PROJECT.
+ */
+
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 // plane imports
@@ -16,6 +35,17 @@ import { useCommandPalette } from "@/hooks/store/use-command-palette";
 import { useUserPermissions } from "@/hooks/store/user";
 import { useWorkItemFilterInstance } from "@/hooks/store/work-item-filters/use-work-item-filter-instance";
 
+/**
+ * Renders the empty-state UI for the project work items layout.
+ *
+ * Props: none — `projectId` is read from the route via `useParams()`.
+ *
+ * Variant selection:
+ *   - When `projectWorkItemFilter.hasActiveFilters` is true → "Clear filters" secondary action.
+ *   - Otherwise → "New work item" primary CTA that opens the create-issue modal (PROJECT store).
+ *
+ * Permission gate: requires PROJECT-level ADMIN or MEMBER (`EUserProjectRoles`).
+ */
 export const ProjectEmptyState = observer(function ProjectEmptyState() {
   // router
   const { projectId: routerProjectId } = useParams();

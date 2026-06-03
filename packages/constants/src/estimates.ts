@@ -4,28 +4,63 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Estimate-system catalog and input limits consumed by project estimate settings
+ * in `apps/web/core/components/estimates/**` and the estimate MobX store.
+ */
+
 // plane imports
 import type { TEstimateSystems } from "@plane/types";
 
+/**
+ * Maximum character length accepted for a single estimate-point value — the
+ * user-typed label for one point (e.g., "13", "XL", "Very Hard").
+ *
+ * Enforced in the estimate point create/update input handlers in
+ * `apps/web/core/components/estimates/points/{create,update}.tsx`.
+ */
 export const MAX_ESTIMATE_POINT_INPUT_LENGTH = 20;
 
+/**
+ * Supported estimate systems (POINTS/CATEGORIES/TIME) — values mirror backend
+ * `Estimate.EstimateType` text choices; `TIME` is enterprise-only (see `is_ee`).
+ * Consumer: `apps/web/core/components/estimates/**`.
+ */
 export enum EEstimateSystem {
   POINTS = "points",
   CATEGORIES = "categories",
   TIME = "time",
 }
 
+/**
+ * Estimate edit/switch wizard stage (CREATE / EDIT / SWITCH) — `SWITCH` triggers
+ * data migration to a different system or template.
+ * Consumer: `apps/web/core/components/estimates/**` (paired with `TEstimateUpdateStageKeys`).
+ */
 export enum EEstimateUpdateStages {
   CREATE = "create",
   EDIT = "edit",
   SWITCH = "switch",
 }
 
+/**
+ * Inclusive lower and upper bounds for the number of estimate points an estimate
+ * system may contain.
+ *
+ * Enforced by the estimate create/edit forms in
+ * `apps/web/core/components/estimates/**` when adding or removing points.
+ */
 export const estimateCount = {
   min: 2,
   max: 6,
 };
 
+/**
+ * Estimate-system template catalog keyed by `EEstimateSystem` — `is_ee=true` gates
+ * to enterprise (currently `time` only); `templates[*].hide=true` omits from picker
+ * but remains selectable as "custom" starting point.
+ * Consumer: `apps/web/core/components/estimates/**`.
+ */
 export const ESTIMATE_SYSTEMS: TEstimateSystems = {
   points: {
     name: "Points",

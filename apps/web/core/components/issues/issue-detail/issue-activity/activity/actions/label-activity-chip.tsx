@@ -4,6 +4,28 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Compact visual chip used by label activity rows to display a label's name
+ * with its color dot and a hover tooltip showing the full label name.
+ *
+ * This is NOT an activity row itself — it is a presentation helper rendered by
+ * `IssueLabelActivity` (`label.tsx`) in place of the bare label name.
+ *
+ * Props:
+ *   - name (string, optional): label name shown both inline and inside the tooltip.
+ *   - color (string, optional): hex color string for the leading dot; falls back
+ *     to `#000000` when undefined (typical for deleted labels whose color can no
+ *     longer be resolved via `useLabel().getLabelById`).
+ *
+ * MobX stores read: none (pure prop-driven).
+ *
+ * Side effects: none. Read-only / presentational.
+ *
+ * Accessibility: the colored dot uses `aria-hidden="true"` because the label
+ * name is also rendered as visible text — screen readers therefore announce
+ * the name once, not duplicated through the decorative dot.
+ */
+
 import { Tooltip } from "@plane/propel/tooltip";
 
 type TIssueLabelPill = { name?: string; color?: string };

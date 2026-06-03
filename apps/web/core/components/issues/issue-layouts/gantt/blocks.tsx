@@ -4,6 +4,68 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Per-issue row renderers for the gantt issue layout.
+ *
+ * Provides two MobX `observer`-wrapped components that visualize an individual issue inside the gantt
+ * chart shell composed by `./base-gantt-root.tsx`:
+ *
+ *   - `IssueGanttBlock`: the timeline block rendered on the date track; state-colored, peek-overview
+ *     on click, hover popover with a `WorkItemPreviewCard`, optional `IssueStats` overlay for epics
+ *   - `IssueGanttSidebarBlock`: the compact sidebar row rendered next to the timeline; project identifier,
+ *     truncated title with tooltip, generated work-item link wrapped in `ControlLink` so click-handling
+ *     routes through the peek-overview redirection
+ *
+ * Shared props (Props):
+ *   - issueId (string, required): id of the issue to render — used as the key for store reads and as the
+ *     DOM id (`issue-${issueId}`) for highlight-on-drop and scroll-into-view targeting
+ *   - isEpic (boolean, optional, default=false): swaps the renderer into epic mode — affects work-item
+ *     link generation and toggles the `IssueStats` overlay on the timeline block
+ *
+ * MobX stores read:
+ *   - `useIssueDetail().issue.getIssueById(issueId)`: returns the `TIssue` for both blocks
+ *   - `useProjectState().getProjectStates(project_id)`: timeline block only — used to find the state's
+ *     hex color, which is the source of `blockStyle.backgroundColor`
+ *   - `useIssues(storeType as GanttStoreType).issuesFilter.issueFilters.displayProperties`: sidebar block
+ *     only — passed to `IssueIdentifier` so the identifier respects the layout's display-property filters
+ *   - `useProject().getProjectIdentifierById(project_id)`: sidebar block only — used to build the
+ *     work-item link slug
+ *
+ * Other hook-driven state:
+ *   - `usePlatformOS().isMobile`: forwarded to `useIssuePeekOverviewRedirection` and to the `Tooltip`
+ *     primitive so peek-overview behavior switches to a mobile-friendly drawer on small screens
+ *   - `useIssueStoreType()`: resolves the active `EIssuesStoreType` from React context — narrowed to
+ *     `GanttStoreType` (declared in `./base-gantt-root.tsx`) by the sidebar block
+ *   - `useIssuePeekOverviewRedirection(isEpic)`: returns `handleRedirection(workspaceSlug, issue, isMobile)`
+ *     which decides between peek-overview drawer (desktop) and full-page navigation (mobile)
+ *
+ * Side effects:
+ *   - On click (both blocks): `handleRedirection` opens the peek-overview drawer or navigates to the
+ *     work-item detail page; sidebar block additionally calls `e.stopPropagation(true)` and
+ *     `e.preventDefault()` to prevent the underlying `ControlLink`'s `<a>` navigation from firing
+ *   - Hover on timeline block: opens a `Popover` containing `WorkItemPreviewCard` (fetches/uses store
+ *     data for full preview, no direct API call from this file)
+ *   - `ControlLink` href: derived via `generateWorkItemLink(...)` from `@plane/utils` — produces a
+ *     deterministic URL for keyboard navigation and middle-click "open in new tab", even though the
+ *     primary click path uses peek-overview redirection
+ *
+ * Derived state:
+ *   - `blockStyle`: derived by `getBlockViewDetails(issueDetails, stateColor)` from `../utils.tsx` —
+ *     computes background gradient and width based on start_date / target_date and state color
+ *   - `duration`: `findTotalDaysInRange(start_date, target_date)` from `@plane/utils` — controls whether
+ *     `IssueStats.showProgressText` displays the textual percentage (only when duration >= 2 days)
+ *
+ * Consumers (via `./base-gantt-root.tsx` → `GanttChartRoot.blockToRender` / `IssueGanttSidebar`):
+ *   - The gantt issue layout mounted by project, cycle, module, project-view, and epic roots
+ *
+ * Architectural notes:
+ *   - The `Popover` and `Tooltip` primitives come from `@plane/propel`, the design-system package.
+ *   - `ControlLink` from `@plane/ui` is the keyboard/middle-click safe link wrapper that delegates
+ *     primary clicks to its `onClick` handler while preserving native browser link behaviors.
+ *   - `IssueIdentifier` and `IssueStats` come from the plane-web overlay (`@/plane-web/...`) — these
+ *     are the proprietary extensions of the open-source primitives.
+ */
+
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 // plane imports
@@ -29,11 +91,19 @@ import { WorkItemPreviewCard } from "../../preview-card";
 import { getBlockViewDetails } from "../utils";
 import type { GanttStoreType } from "./base-gantt-root";
 
+/** Shared props for `IssueGanttBlock` and `IssueGanttSidebarBlock`. */
 type Props = {
   issueId: string;
   isEpic?: boolean;
 };
 
+/**
+ * Renders a single issue as a colored block on the gantt timeline track.
+ *
+ * Click opens the peek-overview drawer (or navigates to detail on mobile). Hover opens a `Popover`
+ * containing the full `WorkItemPreviewCard`. When `isEpic` is true, the epic-specific `IssueStats`
+ * overlay is layered on the right side of the block.
+ */
 export const IssueGanttBlock = observer(function IssueGanttBlock(props: Props) {
   const { issueId, isEpic } = props;
   // router
@@ -53,6 +123,7 @@ export const IssueGanttBlock = observer(function IssueGanttBlock(props: Props) {
   const stateDetails =
     issueDetails && getProjectStates(issueDetails?.project_id)?.find((state) => state?.id == issueDetails?.state_id);
 
+  /** Memoizes block width, gradient, and state-color tint; recomputes whenever the issue or state changes. */
   const { blockStyle } = getBlockViewDetails(issueDetails, stateDetails?.color ?? "");
 
   const handleIssuePeekOverview = () => handleRedirection(workspaceSlug, issueDetails, isMobile);
@@ -104,7 +175,14 @@ export const IssueGanttBlock = observer(function IssueGanttBlock(props: Props) {
   );
 });
 
-// rendering issues on gantt sidebar
+/**
+ * Renders a single issue as a compact row in the gantt sidebar (project identifier + truncated title).
+ *
+ * Wrapped in `ControlLink` so middle-click and keyboard activation use the standard `<a>` semantics
+ * (href is derived via `generateWorkItemLink`), while primary clicks route through the peek-overview
+ * redirection. Temporary issues — those with a `tempId`, created optimistically before the server
+ * confirms — disable the link to avoid navigating to a not-yet-persisted URL.
+ */
 export const IssueGanttSidebarBlock = observer(function IssueGanttSidebarBlock(props: Props) {
   const { issueId, isEpic = false } = props;
   // router
@@ -126,6 +204,11 @@ export const IssueGanttSidebarBlock = observer(function IssueGanttSidebarBlock(p
   const issueDetails = getIssueById(issueId);
   const projectIdentifier = getProjectIdentifierById(issueDetails?.project_id);
 
+  /**
+   * Intercepts the click that would otherwise let `ControlLink` navigate, then opens the peek-overview
+   * drawer via the shared redirection hook. `stopPropagation(true)` is necessary because the surrounding
+   * `GanttChartRoot` row also has click handlers that would conflict with peek-overview.
+   */
   const handleIssuePeekOverview = (e: any) => {
     e.stopPropagation(true);
     e.preventDefault();
@@ -142,6 +225,10 @@ export const IssueGanttSidebarBlock = observer(function IssueGanttSidebarBlock(p
   });
 
   return (
+    /**
+     * `disabled={!!issueDetails?.tempId}`: temporary issues (optimistically created, not yet persisted)
+     * cannot navigate to their detail URL — the URL will 404 until the server confirms.
+     */
     <ControlLink
       id={`issue-${issueId}`}
       href={workItemLink}

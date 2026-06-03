@@ -2,13 +2,24 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""
-Database routing utilities for read replica selection.
-This module provides request-scoped context management for database routing,
-specifically for determining when to use read replicas vs primary database.
-Used in conjunction with middleware and DRF views that set use_read_replica=True.
-The context is maintained per request to ensure proper isolation between
-concurrent requests in async environments.
+"""Request-scoped flag for read-replica database routing.
+
+Stores a per-request boolean indicating whether the active HTTP
+request may serve its reads from the read replica. The flag is
+written by ``plane.middleware.db_routing.ReadReplicaRoutingMiddleware``
+during ``process_view`` and read by
+``plane.utils.core.dbrouters.ReadReplicaRouter.db_for_read`` for
+every ORM read; the middleware also clears the flag in a
+``finally`` block to prevent leakage between requests on a reused
+worker thread or task.
+
+Backing storage is an ``asgiref.local.Local`` instance, which is
+backed by a ``ContextVar`` and therefore isolates state across
+concurrent async tasks as well as threads. Code paths that run
+outside an HTTP request (Celery workers, management commands,
+signal handlers fired outside the request cycle) never set the
+flag and therefore always observe ``False``, which keeps every
+read on the primary database.
 """
 
 from asgiref.local import Local
@@ -26,49 +37,49 @@ _db_routing_context = Local()
 
 
 def set_use_read_replica(use_replica: bool) -> None:
-    """
-    Mark the current request context to use read replica database.
-    This function sets a request-scoped flag that determines database routing.
-    The context is isolated per request to ensure thread safety in async environments.
-    This function is typically called from:
-    - Middleware that detects read-only operations
-    - DRF views with use_read_replica=True attribute
-    - API endpoints that only perform read operations
+    """Mark the current request as opting into (or out of) the read replica.
+
+    Called by ``ReadReplicaRoutingMiddleware`` before the view runs:
+    ``True`` for read-only HTTP methods (``GET`` / ``HEAD`` /
+    ``OPTIONS``) on views that mix in ``ReadReplicaControlMixin``
+    with ``use_read_replica = True``, ``False`` for everything else.
+    The value is stored on a request-scoped ``asgiref.local.Local``
+    carrier, so concurrent requests on the same worker do not see
+    one another's state.
+
     Args:
-        use_replica (bool): True to route database queries to read replica,
-                           False to use primary database
-    Note:
-        The context is automatically isolated per request and should be
-        cleared at the end of each request using clear_read_replica_context().
+        use_replica: ``True`` to route subsequent ORM reads through
+            the replica connection for this request, ``False`` to
+            keep them on the primary.
     """
     _db_routing_context.use_read_replica = bool(use_replica)
 
 
 def should_use_read_replica() -> bool:
-    """
-    Check if the current request should use read replica database.
-    This function reads the request-scoped context to determine database routing.
-    It's called by the database router to decide which connection to use.
+    """Return the current request's read-replica routing flag.
+
+    Consulted by ``ReadReplicaRouter.db_for_read`` on every ORM
+    read. Returns ``False`` when the carrier has no attribute for
+    the current context -- the case for any code path that runs
+    outside an HTTP request (Celery tasks, management commands,
+    signal handlers fired outside the request cycle) -- which
+    keeps those reads on the primary database.
+
     Returns:
-        bool: True if queries should be routed to read replica,
-              False if they should use primary database (default)
-    Note:
-        Returns False by default if no context is set for the current request.
-        The context is automatically isolated per request.
+        ``True`` if the active request has been opted into the
+        read replica, otherwise ``False``.
     """
     return getattr(_db_routing_context, "use_read_replica", False)
 
 
 def clear_read_replica_context() -> None:
-    """
-    Clear the read replica context for the current request.
-    This function should be called at the end of each request to ensure
-    that context doesn't leak between requests. Typically called from
-    middleware during request cleanup.
-    This is important for:
-    - Preventing context leakage between requests
-    - Ensuring clean state for each new request
-    - Proper memory management in long-running processes
+    """Drop the read-replica flag for the current request context.
+
+    Called from ``ReadReplicaRoutingMiddleware`` in a ``finally``
+    block (and again from ``process_exception``) so that one
+    request's routing choice cannot leak to the next request
+    handled by the same worker thread or task. Idempotent: a
+    missing attribute on the carrier is swallowed silently.
     """
     try:
         delattr(_db_routing_context, "use_read_replica")

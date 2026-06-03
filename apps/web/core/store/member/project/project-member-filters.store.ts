@@ -4,6 +4,37 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Project member filters store — per-project filter state and filtered-id memoization.
+ *
+ * State slice:
+ *   - filtersMap: Record<string, IMemberFilters> (observable) — keyed by projectId; each entry is
+ *     an IMemberFilters object (`{ order_by?, roles? }`) from `../utils`.
+ *
+ * Actions:
+ *   - updateFilters(projectId, filters: Partial<IMemberFilters>): void (decorated `action`) —
+ *     shallow-merges (`{ ...current, ...filters }`) onto `filtersMap[projectId]` so callers can
+ *     update one field without losing existing selections. No service calls; purely in-memory.
+ *   - getFilters(projectId): IMemberFilters | undefined — non-action selector returning
+ *     `filtersMap[projectId]` (may be undefined).
+ *
+ * Computed actions (memoized via `computedFn` from `mobx-utils`):
+ *   - getFilteredMemberIds(members, memberDetailsMap, getMemberKey, projectId): string[] —
+ *     short-circuits to `[]` when `members` is empty; otherwise delegates to `sortProjectMembers`
+ *     with the active filter and maps the result back to id strings via `getMemberKey`.
+ *     Recomputes when `filtersMap[projectId]`, the `members` reference, or the
+ *     `memberDetailsMap` reference changes.
+ *
+ * Consumers:
+ *   - apps/web/core/store/member/project/base-project-member.store.ts
+ *     (instantiates `new ProjectMemberFiltersStore()` in its constructor and reads via
+ *     `filters.getFilteredMemberIds(...)` / `filters.updateFilters(...)`)
+ *   - apps/web/core/components/project/applied-filters/members.tsx
+ *   - apps/web/core/components/project/dropdowns/filters/members.tsx
+ *   - apps/web/core/components/project/dropdowns/filters/lead.tsx
+ *   - apps/web/core/components/project/settings/member-columns.tsx
+ */
+
 import { action, makeObservable, observable } from "mobx";
 import { computedFn } from "mobx-utils";
 // types

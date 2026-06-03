@@ -4,6 +4,17 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Responsive breadcrumb navigation rendering an ordered trail of links with truncation
+ * and dropdown collapse for narrow viewports.
+ *
+ * Exposes a `Breadcrumbs` parent plus attached primitives (`Item`, `Icon`, `Label`,
+ * `Separator`, `ItemWrapper`) and a `BreadcrumbItemLoader` skeleton. Consumers compose
+ * breadcrumb trails by passing items as children; the parent switches between full-trail
+ * rendering and a collapsed (`...` back-affordance + terminal segment) layout at a 640px
+ * viewport breakpoint.
+ */
+
 import * as React from "react";
 import { ChevronRightIcon } from "@plane/propel/icons";
 import { Tooltip } from "@plane/propel/tooltip";
@@ -16,6 +27,13 @@ type BreadcrumbsProps = {
   isLoading?: boolean;
 };
 
+/**
+ * Skeleton placeholder rendered in place of a breadcrumb item while its data is loading.
+ *
+ * Used internally by `Breadcrumbs` when its `isLoading` prop is true; can also be rendered
+ * by consumers that need a standalone breadcrumb skeleton. Pulses a 16px-wide icon stub
+ * and a 64px-wide label stub at `bg-layer-1` to mirror a typical icon+label item shape.
+ */
 export function BreadcrumbItemLoader() {
   return (
     <div className="flex h-7 animate-pulse items-center gap-2">
@@ -27,6 +45,22 @@ export function BreadcrumbItemLoader() {
   );
 }
 
+/**
+ * Root breadcrumb container that lays out child items horizontally with responsive collapse at ≤640px.
+ *
+ * Subscribes to `window` resize events to drive an internal `isSmallScreen` flag. On wide
+ * viewports (>640px) it renders every child sequentially and injects `isLast` into the
+ * terminal item so descendants can suppress separators or mark themselves as current. On
+ * narrow viewports (≤640px) it collapses the intermediate trail to a `...` back affordance
+ * (when `onBack` is provided) plus the terminal segment to preserve horizontal space. When
+ * `isLoading` is true, every slot in the wide layout is replaced with `BreadcrumbItemLoader`.
+ *
+ * @param props.className - Optional extra classes applied to the outer flex container.
+ * @param props.children - Breadcrumb items composed via `Breadcrumbs.Item`, `Breadcrumbs.ItemWrapper`, or one of the dropdown variants.
+ * @param props.onBack - Optional callback invoked when the user taps the `...` collapsed affordance on small screens.
+ * @param props.isLoading - When true, every visible slot in the wide layout is replaced with `BreadcrumbItemLoader` (default: false).
+ */
+// INTENT UNCLEAR: a `nav` landmark with `aria-label="Breadcrumb"` and `aria-current="page"` on the terminal item are not implemented here; consumers relying on screen-reader semantics must layer these externally.
 function Breadcrumbs({ className, children, onBack, isLoading = false }: BreadcrumbsProps) {
   const [isSmallScreen, setIsSmallScreen] = React.useState(false);
 
@@ -99,6 +133,16 @@ type BreadcrumbItemProps = {
   isLast?: boolean;
 };
 
+/**
+ * Single segment within a breadcrumb trail rendering its `component` and an optional trailing chevron separator.
+ *
+ * The parent `Breadcrumbs` injects `isLast` via `React.cloneElement` for the terminal
+ * segment; this prop is what suppresses the separator on that final item.
+ *
+ * @param props.component - The visual content for this segment (typically a `Breadcrumbs.ItemWrapper`-wrapped link).
+ * @param props.showSeparator - Whether to append a `BreadcrumbSeparator` after the segment when it is not the last item (default: true).
+ * @param props.isLast - Set by the parent `Breadcrumbs` for the terminal segment to suppress the separator (default: false).
+ */
 function BreadcrumbItem(props: BreadcrumbItemProps) {
   const { component, showSeparator = true, isLast = false } = props;
   return (
@@ -115,6 +159,12 @@ type BreadcrumbIconProps = {
   className?: string;
 };
 
+/**
+ * Fixed 16×16 icon slot for a breadcrumb segment, clipping any overflow.
+ *
+ * @param props.children - The icon node (typically a `lucide-react` or `@plane/propel/icons` icon).
+ * @param props.className - Optional additional Tailwind classes applied to the slot wrapper.
+ */
 function BreadcrumbIcon(props: BreadcrumbIconProps) {
   const { children, className } = props;
   return <div className={cn("flex size-4 items-center justify-start overflow-hidden", className)}>{children}</div>;
@@ -126,6 +176,12 @@ type BreadcrumbLabelProps = {
   className?: string;
 };
 
+/**
+ * Text label for a breadcrumb segment, capped at 150px width and truncated with an ellipsis on overflow.
+ *
+ * @param props.children - The label content (commonly a workspace, project, or entity name).
+ * @param props.className - Optional additional Tailwind classes for typography or width overrides.
+ */
 function BreadcrumbLabel(props: BreadcrumbLabelProps) {
   const { children, className } = props;
   return (
@@ -143,6 +199,14 @@ type BreadcrumbSeparatorProps = {
   showDivider?: boolean;
 };
 
+/**
+ * Chevron-right separator drawn between adjacent breadcrumb segments.
+ *
+ * @param props.className - Optional classes applied to the outer wrapper (height/padding adjustments).
+ * @param props.containerClassName - Optional classes applied to the inner icon container (background/hover overrides).
+ * @param props.iconClassName - Optional classes applied to the chevron itself (color or rotation transitions).
+ * @param props.showDivider - When true, renders a thin vertical bar at the left edge to visually segment dropdown-style triggers (default: false).
+ */
 function BreadcrumbSeparator(props: BreadcrumbSeparatorProps) {
   const { className, containerClassName, iconClassName, showDivider = false } = props;
   return (
@@ -170,6 +234,22 @@ type BreadcrumbItemWrapperProps = {
   isLast?: boolean;
 };
 
+/**
+ * Wraps breadcrumb segment content in a tooltip plus a hover-styled container, switching tone for the terminal item.
+ *
+ * Terminal items (`isLast === true`) render in `text-primary` and skip the hover affordance
+ * to signal "you are here". Non-terminal `type="link"` items render in `text-tertiary` and
+ * gain a hover state (`hover:bg-layer-transparent-hover`, `hover:text-primary`) to signal
+ * that they are navigable. `type="text"` items render flat without the hover affordance
+ * regardless of `isLast`.
+ *
+ * @param props.label - Tooltip content shown on hover; the tooltip is disabled when this is empty/undefined or when `disableTooltip` is true.
+ * @param props.disableTooltip - Forces the tooltip off regardless of `label` (default: false).
+ * @param props.children - Visual content (typically `Breadcrumbs.Icon` + `Breadcrumbs.Label`).
+ * @param props.className - Optional extra classes merged into the container.
+ * @param props.type - `"link"` enables the hover affordance for non-terminal items; `"text"` renders flat (default: `"link"`).
+ * @param props.isLast - Marks the segment as the current page so it renders in primary text color without the hover affordance (default: false).
+ */
 function BreadcrumbItemWrapper(props: BreadcrumbItemWrapperProps) {
   const { label, disableTooltip = false, children, className, type = "link", isLast = false } = props;
   return (

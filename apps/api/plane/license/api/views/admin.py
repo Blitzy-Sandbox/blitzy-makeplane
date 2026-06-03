@@ -2,6 +2,29 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Instance-admin lifecycle endpoints (CRUD + sign-up/in/out + me/session).
+
+Implements the bootstrap and ongoing-admin endpoints that the standalone
+admin UI uses to manage the singleton ``Instance``. Endpoints fall into
+two protocol families intentionally:
+
+* DRF JSON endpoints (extend the local ``BaseAPIView``):
+  ``InstanceAdminEndpoint``, ``InstanceAdminUserMeEndpoint``,
+  ``InstanceAdminUserSessionEndpoint``.
+
+* Browser-form Django ``View`` endpoints (``HttpResponseRedirect``-based
+  flows for the admin login UI): ``InstanceAdminSignUpEndpoint``,
+  ``InstanceAdminSignInEndpoint``, ``InstanceAdminSignOutEndpoint``.
+
+Both families share the same auth substrate
+(``plane.authentication.utils.login.user_login`` with ``is_admin=True``)
+and invalidate ``/api/instances/`` on writes so the DRF JSON surface
+stays consistent with the Django form-redirect surface. The migrator
+container is responsible for creating the underlying ``Instance``,
+``InstanceAdmin`` and ``User``/``Profile`` tables before any of these
+endpoints become reachable.
+"""
+
 # Python imports
 from urllib.parse import urlencode, urljoin
 import uuid
@@ -42,11 +65,50 @@ from plane.utils.path_validator import get_safe_redirect_url
 
 
 class InstanceAdminEndpoint(BaseAPIView):
+    """CRUD on the singleton instance's ``InstanceAdmin`` roster.
+
+    HTTP methods + URL patterns:
+        GET    /api/instances/admins/
+        POST   /api/instances/admins/
+        DELETE /api/instances/admins/<uuid:pk>/
+
+    Request body (POST):
+        email (str, required): email of an existing ``User`` to promote.
+        role  (int, optional, default 20): role code for the new admin.
+
+    Response shape:
+        GET 200: list of ``InstanceAdminSerializer`` payloads (each carries
+            a nested ``user_detail`` from ``UserAdminLiteSerializer``).
+        POST 201: serialized newly-created ``InstanceAdmin`` row.
+        POST 400: ``{"error": "Email is required"}`` when ``email`` is
+            missing.
+        403: ``{"error": "Instance is not registered yet"}`` on GET or
+            POST when no singleton ``Instance`` exists.
+        DELETE 204: empty body on success (no-op if ``pk`` does not exist).
+
+    Permissions:
+        ``permission_classes = [InstanceAdminPermission]``.
+
+    Caching:
+        GET wraps a 2-hour server-side cache (``cache_response(60*60*2,
+        user=False)``). POST and DELETE invalidate ``/api/instances/`` via
+        ``@invalidate_cache``.
+
+    Notes:
+        Extends the local ``BaseAPIView`` (``views/base.py``); ``get_queryset``
+        is not overridden — admins are read via
+        ``InstanceAdmin.objects.filter(instance=Instance.objects.first())``.
+        DELETE returns 204 even when ``pk`` matches nothing; POST surfaces
+        ``User.DoesNotExist`` through the local ``BaseAPIView``'s shared
+        ``handle_exception`` translation as a generic 404.
+    """
+
     permission_classes = [InstanceAdminPermission]
 
     @invalidate_cache(path="/api/instances/", user=False)
     # Create an instance admin
     def post(self, request):
+        """Promote an existing user (by email) to ``InstanceAdmin`` on the singleton instance."""
         email = request.data.get("email", False)
         role = request.data.get("role", 20)
 
@@ -69,6 +131,7 @@ class InstanceAdminEndpoint(BaseAPIView):
 
     @cache_response(60 * 60 * 2, user=False)
     def get(self, request):
+        """Return every ``InstanceAdmin`` row scoped to the singleton instance."""
         instance = Instance.objects.first()
         if instance is None:
             return Response(
@@ -81,16 +144,57 @@ class InstanceAdminEndpoint(BaseAPIView):
 
     @invalidate_cache(path="/api/instances/", user=False)
     def delete(self, request, pk):
+        """Remove the ``InstanceAdmin`` row identified by ``pk`` from the singleton instance."""
         instance = Instance.objects.first()
         InstanceAdmin.objects.filter(instance=instance, pk=pk).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class InstanceAdminSignUpEndpoint(View):
+    """One-shot bootstrap signup that creates the first ``InstanceAdmin``.
+
+    HTTP methods + URL patterns:
+        POST /api/instances/admins/sign-up/
+
+    Request body (POST form-encoded):
+        email (str, required): admin email (lower-cased server-side).
+        password (str, required): plaintext password (zxcvbn score >= 3).
+        first_name (str, required): admin first name.
+        last_name (str, optional, default ""): admin last name.
+        company_name (str, optional, default ""): persisted on the new
+            ``Profile`` and as ``Instance.instance_name``.
+        is_telemetry_enabled (any, optional, default True): persisted on
+            the singleton ``Instance``.
+
+    Response shape:
+        HTTP 302 redirects (success or failure) — this is a Django
+        ``View`` flow, not a DRF JSON endpoint:
+            success -> ``<base_host>/general/`` with session set.
+            failure -> ``<base_host>/?<urlencoded error dict>``.
+
+    Permissions:
+        ``permission_classes = [AllowAny]`` — must be public because the
+        endpoint is only reachable BEFORE any admin exists.
+
+    Side effects:
+        Creates a ``User`` with ``is_password_autoset=False`` plus a
+        ``Profile`` row; promotes the user to ``InstanceAdmin``; flips
+        ``instance.is_setup_done = True`` and persists ``instance_name``
+        and ``is_telemetry_enabled``; logs the user in via
+        ``user_login(... is_admin=True)``; invalidates ``/api/instances/``.
+
+    Notes:
+        NON-idempotent — once an admin exists the endpoint refuses with
+        ``ADMIN_ALREADY_EXIST``. Failure cases use redirect-with-error
+        rather than DRF error responses because this view is consumed by
+        the admin browser UI form post.
+    """
+
     permission_classes = [AllowAny]
 
     @invalidate_cache(path="/api/instances/", user=False)
     def post(self, request):
+        """Create the bootstrap admin user + profile and mark the instance setup-done."""
         # Check instance first
         instance = Instance.objects.first()
         if instance is None:
@@ -240,10 +344,47 @@ class InstanceAdminSignUpEndpoint(View):
 
 
 class InstanceAdminSignInEndpoint(View):
+    """Browser-form admin sign-in flow for existing ``InstanceAdmin`` users.
+
+    HTTP methods + URL patterns:
+        POST /api/instances/admins/sign-in/
+
+    Request body (POST form-encoded):
+        email (str, required): admin email.
+        password (str, required): plaintext password.
+
+    Response shape:
+        HTTP 302 redirects (success or failure):
+            success -> ``<base_host>/general/`` with session cookie set.
+            failure -> ``<base_host>/?<urlencoded error dict>`` with one
+                of: ``INSTANCE_NOT_CONFIGURED``,
+                ``REQUIRED_ADMIN_EMAIL_PASSWORD``, ``INVALID_ADMIN_EMAIL``,
+                ``ADMIN_USER_DOES_NOT_EXIST``, ``ADMIN_USER_DEACTIVATED``,
+                ``ADMIN_AUTHENTICATION_FAILED``.
+
+    Permissions:
+        ``permission_classes = [AllowAny]`` — a sign-in flow cannot
+        require a signed-in admin.
+
+    Side effects:
+        Updates ``last_active``, ``last_login_time``, ``last_login_ip``,
+        ``last_login_uagent``, ``token_updated_at`` on the matched
+        ``User``; calls ``user_login(... is_admin=True)`` to establish the
+        admin session; invalidates ``/api/instances/``.
+
+    Notes:
+        Extends Django's ``View`` (not DRF) because the admin UI posts an
+        HTML form and follows redirects. The ``permission_classes``
+        attribute is declared for documentation parity with DRF endpoints
+        but is NOT honoured by Django's ``View`` dispatch — auth gating
+        is implicit in the validation chain.
+    """
+
     permission_classes = [AllowAny]
 
     @invalidate_cache(path="/api/instances/", user=False)
     def post(self, request):
+        """Authenticate an admin and establish the session, redirecting on success or error."""
         # Check instance first
         instance = Instance.objects.first()
         if instance is None:
@@ -359,17 +500,69 @@ class InstanceAdminSignInEndpoint(View):
 
 
 class InstanceAdminUserMeEndpoint(BaseAPIView):
+    """Return the signed-in admin's user payload for the admin console.
+
+    HTTP methods + URL patterns:
+        GET /api/instances/admins/me/
+
+    Request body:
+        Empty.
+
+    Response shape:
+        200: ``InstanceAdminMeSerializer(request.user).data`` — the 15
+        admin-safe fields from ``User`` (no password hash, no sensitive
+        token state).
+
+    Permissions:
+        ``permission_classes = [InstanceAdminPermission]``.
+
+    Notes:
+        Extends the local ``BaseAPIView`` (``views/base.py``);
+        ``get_queryset`` is not overridden (this is a DRF ``APIView``,
+        not a ``ModelViewSet``).
+    """
+
     permission_classes = [InstanceAdminPermission]
 
     def get(self, request):
+        """Return the serialized admin profile for ``request.user``."""
         serializer = InstanceAdminMeSerializer(request.user)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class InstanceAdminUserSessionEndpoint(BaseAPIView):
+    """Probe endpoint reporting whether the current session is an admin session.
+
+    HTTP methods + URL patterns:
+        GET /api/instances/admins/session/
+
+    Request body:
+        Empty.
+
+    Response shape:
+        200 when authenticated AND row exists in ``InstanceAdmin``:
+            {"is_authenticated": True, "user": <InstanceAdminMeSerializer>}
+        200 otherwise:
+            {"is_authenticated": False}
+
+    Permissions:
+        ``permission_classes = [AllowAny]`` — the endpoint is the probe
+        the admin shell uses to decide whether to render the login form
+        or the authenticated console, so it must be callable without an
+        active admin session.
+
+    Notes:
+        Extends the local ``BaseAPIView`` (``views/base.py``);
+        ``get_queryset`` is not overridden. The check is a two-step
+        ``request.user.is_authenticated`` AND existence probe over
+        ``InstanceAdmin`` — a regular signed-in user (non-admin) returns
+        ``{"is_authenticated": False}``.
+    """
+
     permission_classes = [AllowAny]
 
     def get(self, request):
+        """Report whether the active session belongs to an ``InstanceAdmin``."""
         if request.user.is_authenticated and InstanceAdmin.objects.filter(user=request.user).exists():
             serializer = InstanceAdminMeSerializer(request.user)
             data = {"is_authenticated": True}
@@ -380,9 +573,41 @@ class InstanceAdminUserSessionEndpoint(BaseAPIView):
 
 
 class InstanceAdminSignOutEndpoint(View):
+    """Browser-form admin sign-out flow that clears the admin session.
+
+    HTTP methods + URL patterns:
+        POST /api/instances/admins/sign-out/
+
+    Request body:
+        Empty.
+
+    Response shape:
+        HTTP 302 to ``<base_host>`` (safe-redirect-validated). Always
+        redirects — even on internal exception — so the admin browser is
+        never left on a JSON error page.
+
+    Permissions:
+        ``permission_classes = [InstanceAdminPermission]`` is declared as
+        an attribute but Django's ``View`` dispatch does NOT consult it;
+        the effective gate is the session check inside ``post`` —
+        unauthenticated callers hit the ``except Exception`` branch and
+        receive the same safe redirect.
+
+    Side effects:
+        Records ``last_logout_ip`` and ``last_logout_time`` on the
+        ``User``; calls ``django.contrib.auth.logout(request)`` to clear
+        the session cookie.
+
+    Notes:
+        Extends Django's ``View`` for protocol parity with the sign-up
+        and sign-in flows. The exception-swallowing redirect ensures the
+        admin UI can always finish a logout transition.
+    """
+
     permission_classes = [InstanceAdminPermission]
 
     def post(self, request):
+        """Clear the admin session cookie and redirect to the admin base host."""
         # Get user
         try:
             user = User.objects.get(pk=request.user.id)

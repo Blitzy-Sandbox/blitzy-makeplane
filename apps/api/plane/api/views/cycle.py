@@ -1,6 +1,16 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Cycle endpoints for the external ``/api/v1/`` API.
+
+Cycles are time-boxed iterations of work within a project (similar to
+sprints). This file exposes CRUD over ``Cycle`` rows, bulk add/remove of
+issues to a cycle, archive/unarchive of completed cycles, and the
+transfer of incomplete issues from one cycle to another.
+
+Authentication is via the ``X-Api-Key`` header (see
+``plane.api.middleware.api_authentication.APIKeyAuthentication``).
+"""
 
 # Python imports
 import json
@@ -78,7 +88,47 @@ from plane.utils.openapi import (
 
 
 class CycleListCreateAPIEndpoint(BaseAPIView):
-    """Cycle List and Create Endpoint"""
+    """List or create cycles within a project.
+
+    HTTP methods + URL pattern:
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/
+
+    Request body (POST) -- see ``CycleSerializer``:
+        name            (str, required)
+        description     (str, optional)
+        start_date      (date, optional, ISO ``YYYY-MM-DD``)
+        end_date        (date, optional, ISO ``YYYY-MM-DD``)
+        owned_by        (uuid, optional)   -- User pk; defaults to the
+            requesting user.
+        view_props      (object, optional) -- Per-user view preferences.
+        external_id     (str, optional)
+        external_source (str, optional)
+
+    Response shape:
+        - GET: paginated array via ``CycleSerializer`` with the
+          annotations enumerated in ``get_queryset`` (issue counts by
+          state group and estimate-point sums).
+        - POST: created cycle via ``CycleSerializer``.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectEntityPermission`` -- SAFE methods require project
+        membership; mutations require project ``ADMIN`` or ``MEMBER``.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Constraints on POST:
+        Returns ``409 Conflict`` on duplicate ``(external_id,
+        external_source)`` with the existing cycle's id.
+
+    Side effects on POST:
+        Writes ``Cycle`` row; dispatches ``model_activity`` via
+        Celery+RabbitMQ; fires ``cycle`` webhook events if active.
+    """
 
     serializer_class = CycleSerializer
     model = Cycle
@@ -87,6 +137,25 @@ class CycleListCreateAPIEndpoint(BaseAPIView):
     use_read_replica = True
 
     def get_queryset(self):
+        """Return cycles in the project annotated with issue and estimate rollups.
+
+        Annotations attached:
+
+        - ``total_issues`` -- total ``CycleIssue`` count (``distinct``).
+        - ``completed_issues`` -- issues in a ``completed`` state group.
+        - ``cancelled_issues`` -- issues in a ``cancelled`` state group.
+        - ``started_issues`` -- issues in a ``started`` state group.
+        - ``unstarted_issues`` -- issues in an ``unstarted`` state group.
+        - ``backlog_issues`` -- issues in a ``backlog`` state group.
+        - ``total_estimates`` -- sum of estimate points across all cycle
+          issues.
+        - ``completed_estimates`` -- sum across completed-state issues.
+        - ``started_estimates`` -- sum across started-state issues.
+
+        All ``Count``/``Sum`` annotations use ``distinct=True`` to avoid
+        duplication from m2m joins. ``select_related`` and
+        ``prefetch_related`` are applied to commonly accessed FKs.
+        """
         return (
             Cycle.objects.filter(workspace__slug=self.kwargs.get("slug"))
             .filter(project_id=self.kwargs.get("project_id"))
@@ -188,10 +257,11 @@ class CycleListCreateAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, project_id):
-        """List cycles
+        """List cycles in the project, optionally filtered by ``cycle_view``.
 
-        Retrieve all cycles in a project.
-        Supports filtering by cycle status like current, upcoming, completed, or draft.
+        Supports the ``cycle_view`` query parameter with values
+        ``current``, ``upcoming``, ``completed``, ``draft``,
+        ``incomplete``, or ``all`` (default).
         """
         project = Project.objects.get(workspace__slug=slug, pk=project_id)
         queryset = self.get_queryset().filter(archived_at__isnull=True)
@@ -297,10 +367,11 @@ class CycleListCreateAPIEndpoint(BaseAPIView):
         },
     )
     def post(self, request, slug, project_id):
-        """Create cycle
+        """Create a cycle in the URL's project.
 
-        Create a new development cycle with specified name, description, and date range.
-        Supports external ID tracking for integration purposes.
+        Returns ``409 Conflict`` on duplicate ``(external_id,
+        external_source)``. Dispatches ``model_activity`` via
+        Celery+RabbitMQ and fires cycle webhooks.
         """
         if (request.data.get("start_date", None) is None and request.data.get("end_date", None) is None) or (
             request.data.get("start_date", None) is not None and request.data.get("end_date", None) is not None
@@ -354,8 +425,44 @@ class CycleListCreateAPIEndpoint(BaseAPIView):
 
 
 class CycleDetailAPIEndpoint(BaseAPIView):
-    """
-    This viewset automatically provides `retrieve`, `update` and `destroy` actions related to cycle.
+    """Retrieve, partially update, or delete a single cycle.
+
+    HTTP methods + URL pattern:
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:pk>/
+        PATCH   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:pk>/
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:pk>/
+
+    Request body (PATCH) -- partial ``CycleSerializer`` payload.
+
+    Response shape:
+        - GET: cycle via ``CycleSerializer`` (with annotations).
+        - PATCH: updated cycle via ``CycleSerializer``.
+        - DELETE: HTTP 204 with empty body.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectEntityPermission`` -- SAFE methods require project
+        membership; mutations require project ``ADMIN`` or ``MEMBER``.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Constraints on PATCH:
+        - Archived cycle (``archived_at IS NOT NULL``) only permits
+          modification of ``sort_order``; other fields return ``400``.
+        - Completed cycle (``end_date < timezone.now()``) only permits
+          modification of ``sort_order`` and ``description``; the cycle's
+          schedule and status are frozen.
+
+    Constraints on DELETE:
+        Restricted to the cycle's ``owned_by`` user or project
+        ``ADMIN``; other roles return ``403 Forbidden``.
+
+    Side effects on PATCH / DELETE:
+        Dispatches ``model_activity`` via Celery+RabbitMQ; fires cycle
+        webhook events.
     """
 
     serializer_class = CycleSerializer
@@ -365,6 +472,7 @@ class CycleDetailAPIEndpoint(BaseAPIView):
     use_read_replica = True
 
     def get_queryset(self):
+        """Return the single cycle with the same annotations as the list endpoint."""
         return (
             Cycle.objects.filter(workspace__slug=self.kwargs.get("slug"))
             .filter(project_id=self.kwargs.get("project_id"))
@@ -457,11 +565,7 @@ class CycleDetailAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, project_id, pk):
-        """List or retrieve cycles
-
-        Retrieve all cycles in a project or get details of a specific cycle.
-        Supports filtering by cycle status like current, upcoming, completed, or draft.
-        """
+        """Retrieve the cycle with its issue and estimate rollup annotations."""
         project = Project.objects.get(workspace__slug=slug, pk=project_id)
         queryset = self.get_queryset().filter(archived_at__isnull=True).get(pk=pk)
         data = CycleSerializer(
@@ -489,10 +593,11 @@ class CycleDetailAPIEndpoint(BaseAPIView):
         },
     )
     def patch(self, request, slug, project_id, pk):
-        """Update cycle
+        """Apply a partial update to the cycle.
 
-        Modify an existing cycle's properties like name, description, or date range.
-        Completed cycles can only have their sort order changed.
+        Archived cycles only permit ``sort_order`` changes; completed
+        cycles only permit ``sort_order`` and ``description`` changes;
+        other modifications return ``400 Bad Request``.
         """
         cycle = Cycle.objects.get(workspace__slug=slug, project_id=project_id, pk=pk)
 
@@ -561,11 +666,7 @@ class CycleDetailAPIEndpoint(BaseAPIView):
         },
     )
     def delete(self, request, slug, project_id, pk):
-        """Delete cycle
-
-        Permanently remove a cycle and all its associated issue relationships.
-        Only admins or the cycle creator can perform this action.
-        """
+        """Hard-delete the cycle. Restricted to the owner or project ``ADMIN``."""
         cycle = Cycle.objects.get(workspace__slug=slug, project_id=project_id, pk=pk)
         if cycle.owned_by_id != request.user.id and (
             not ProjectMember.objects.filter(
@@ -606,12 +707,55 @@ class CycleDetailAPIEndpoint(BaseAPIView):
 
 
 class CycleArchiveUnarchiveAPIEndpoint(BaseAPIView):
-    """Cycle Archive and Unarchive Endpoint"""
+    """List archived cycles, archive a cycle, or unarchive a cycle.
+
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/cycle.py``):
+        POST    /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/archive/
+                    (name ``cycle-archive-unarchive``)
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/archived-cycles/
+                    (name ``cycle-archive-unarchive``)
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/archived-cycles/<uuid:cycle_id>/unarchive/
+                    (name ``cycle-archive-unarchive``)
+
+    Response shape:
+        - POST: ``{archived_at: <ISO timestamp>}``.
+        - GET: paginated list of archived cycles (``archived_at IS NOT
+          NULL``) with the same rollup annotations as the list endpoint.
+        - DELETE: HTTP 204 with empty body.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectEntityPermission`` -- mutations require project ``ADMIN``
+        or ``MEMBER``.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Constraints:
+        Only cycles that are completed (``end_date < timezone.now()``)
+        may be archived; otherwise POST returns ``400 Bad Request``.
+
+    Side effects:
+        - POST: writes the ``archived_at`` field on the cycle and
+          dispatches ``model_activity`` via Celery+RabbitMQ for the
+          audit feed.
+        - GET: read-only.
+        - DELETE: clears the ``archived_at`` field (unarchive).
+    """
 
     permission_classes = [ProjectEntityPermission]
     use_read_replica = True
 
     def get_queryset(self):
+        """Return only archived cycles in the project with rollup annotations.
+
+        Restricts to ``archived_at IS NOT NULL`` and attaches the same
+        issue/estimate rollup annotations as the list endpoint so the
+        archived-cycle response includes completion metrics.
+        """
         return (
             Cycle.objects.filter(workspace__slug=self.kwargs.get("slug"))
             .filter(project_id=self.kwargs.get("project_id"))
@@ -731,10 +875,11 @@ class CycleArchiveUnarchiveAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, project_id):
-        """List archived cycles
+        """List archived cycles in the project with rollup annotations.
 
-        Retrieve all cycles that have been archived in the project.
-        Returns paginated results with cycle statistics and completion data.
+        Returns paginated results sourced from ``get_queryset`` which
+        restricts to ``archived_at IS NOT NULL`` and attaches issue and
+        estimate rollups.
         """
         return self.paginate(
             request=request,
@@ -753,10 +898,10 @@ class CycleArchiveUnarchiveAPIEndpoint(BaseAPIView):
         },
     )
     def post(self, request, slug, project_id, cycle_id):
-        """Archive cycle
+        """Archive the cycle by setting ``archived_at``.
 
-        Move a completed cycle to archived status for historical tracking.
-        Only cycles that have ended can be archived.
+        Only cycles past their ``end_date`` may be archived; otherwise
+        returns ``400 Bad Request``.
         """
         cycle = Cycle.objects.get(pk=cycle_id, project_id=project_id, workspace__slug=slug)
         if cycle.end_date >= timezone.now():
@@ -784,11 +929,7 @@ class CycleArchiveUnarchiveAPIEndpoint(BaseAPIView):
         },
     )
     def delete(self, request, slug, project_id, cycle_id):
-        """Unarchive cycle
-
-        Restore an archived cycle to active status, making it available for regular use.
-        The cycle will reappear in active cycle lists.
-        """
+        """Unarchive the cycle by clearing ``archived_at``."""
         cycle = Cycle.objects.get(pk=cycle_id, project_id=project_id, workspace__slug=slug)
         cycle.archived_at = None
         cycle.save()
@@ -796,7 +937,41 @@ class CycleArchiveUnarchiveAPIEndpoint(BaseAPIView):
 
 
 class CycleIssueListCreateAPIEndpoint(BaseAPIView):
-    """Cycle Issue List and Create Endpoint"""
+    """List or bulk-add issues to a cycle.
+
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/cycle.py``):
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/cycle-issues/
+                  (name ``cycle-issues``)
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/cycle-issues/
+                  (name ``cycle-issues``)
+
+    Request body (POST):
+        issues (list[uuid], required) -- Issue pks to associate with the
+            cycle. Issues already linked are silently de-duplicated.
+
+    Response shape:
+        - GET: paginated array of issues in the cycle via
+          ``IssueSerializer``.
+        - POST: array of created ``CycleIssue`` rows.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectEntityPermission`` -- SAFE methods require project
+        membership; mutations require project ``ADMIN`` or ``MEMBER``.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Side effects on POST:
+        - Writes ``CycleIssue`` rows for issues not already associated.
+        - Dispatches ``issue_activity`` via Celery+RabbitMQ for each new
+          association so the issue's activity feed records the cycle
+          assignment.
+        - Fires ``cycle_issue`` webhook events if active.
+    """
 
     serializer_class = CycleIssueSerializer
     model = CycleIssue
@@ -805,6 +980,7 @@ class CycleIssueListCreateAPIEndpoint(BaseAPIView):
     use_read_replica = True
 
     def get_queryset(self):
+        """Filter issues to those associated with the URL's cycle."""
         return (
             CycleIssue.objects.annotate(
                 sub_issues_count=Issue.issue_objects.filter(parent=OuterRef("issue_id"))
@@ -844,11 +1020,7 @@ class CycleIssueListCreateAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, project_id, cycle_id):
-        """List or retrieve cycle work items
-
-        Retrieve all work items assigned to a cycle or get details of a specific cycle work item.
-        Returns paginated results with work item details, assignees, and labels.
-        """
+        """List issues associated with the cycle."""
         # List
         order_by = request.GET.get("order_by", "created_at")
         issues = (
@@ -910,10 +1082,11 @@ class CycleIssueListCreateAPIEndpoint(BaseAPIView):
         },
     )
     def post(self, request, slug, project_id, cycle_id):
-        """Add cycle issues
+        """Bulk-add issues to the cycle.
 
-        Assign multiple work items to a cycle or move them from another cycle.
-        Automatically handles bulk creation and updates with activity tracking.
+        De-duplicates against existing ``CycleIssue`` rows. Dispatches
+        ``issue_activity`` via Celery for each new association so the
+        issue's activity feed records the cycle change.
         """
         issues = request.data.get("issues", [])
 
@@ -1003,10 +1176,34 @@ class CycleIssueListCreateAPIEndpoint(BaseAPIView):
 
 
 class CycleIssueDetailAPIEndpoint(BaseAPIView):
-    """
-    This viewset automatically provides `list`, `create`,
-    and `destroy` actions related to cycle issues.
+    """Retrieve or remove an issue's cycle association.
 
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/cycle.py``):
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/cycle-issues/<uuid:issue_id>/
+                    (name ``cycle-issues``)
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/cycle-issues/<uuid:issue_id>/
+                    (name ``cycle-issues``)
+
+    Response shape:
+        - GET: the ``CycleIssue`` row via ``CycleIssueSerializer``.
+        - DELETE: HTTP 204 with empty body.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectEntityPermission`` -- SAFE methods require project
+        membership; mutations require project ``ADMIN`` or ``MEMBER``.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Side effects:
+        - GET: read-only.
+        - DELETE: hard-deletes the ``CycleIssue`` row; dispatches
+          ``issue_activity`` via Celery+RabbitMQ; fires ``cycle_issue``
+          webhook events.
     """
 
     serializer_class = CycleIssueSerializer
@@ -1017,6 +1214,7 @@ class CycleIssueDetailAPIEndpoint(BaseAPIView):
     use_read_replica = True
 
     def get_queryset(self):
+        """Filter ``CycleIssue`` rows to the URL's cycle within the project."""
         return (
             CycleIssue.objects.annotate(
                 sub_issues_count=Issue.issue_objects.filter(parent=OuterRef("issue_id"))
@@ -1053,11 +1251,7 @@ class CycleIssueDetailAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, project_id, cycle_id, issue_id):
-        """Retrieve cycle work item
-
-        Retrieve details of a specific cycle work item.
-        Returns paginated results with work item details, assignees, and labels.
-        """
+        """Retrieve a single cycle-issue association by ``(cycle_id, issue_id)``."""
         cycle_issue = CycleIssue.objects.get(
             workspace__slug=slug,
             project_id=project_id,
@@ -1076,10 +1270,10 @@ class CycleIssueDetailAPIEndpoint(BaseAPIView):
         },
     )
     def delete(self, request, slug, project_id, cycle_id, issue_id):
-        """Remove cycle work item
+        """Remove the issue from the cycle.
 
-        Remove a work item from a cycle while keeping the work item in the project.
-        Records the removal activity for tracking purposes.
+        Hard-deletes the ``CycleIssue`` association row and dispatches
+        ``issue_activity`` via Celery for the audit feed.
         """
         cycle_issue = CycleIssue.objects.get(
             issue_id=issue_id,
@@ -1107,9 +1301,41 @@ class CycleIssueDetailAPIEndpoint(BaseAPIView):
 
 
 class TransferCycleIssueAPIEndpoint(BaseAPIView):
-    """
-    This viewset provides `create` actions for transferring the issues into a particular cycle.
+    """Transfer incomplete issues from one cycle to another.
 
+    HTTP methods + URL pattern:
+        POST  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/cycles/<uuid:cycle_id>/transfer-issues/
+
+    Request body:
+        new_cycle_id (uuid, required) -- Destination cycle pk.
+
+    Response shape:
+        HTTP 200 with ``{"message": "...", "transferred": <int>}`` or
+        similar success payload from
+        ``plane.utils.cycle_transfer_issues.transfer_cycle_issues``.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectEntityPermission`` -- mutations require project ``ADMIN``
+        or ``MEMBER``.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Semantics:
+        Moves only incomplete issues (state not in ``completed`` or
+        ``cancelled`` state groups) from the source cycle to the
+        destination. Completed and cancelled issues remain on the source
+        cycle so they continue to count toward its completion metrics.
+        Delegates to ``transfer_cycle_issues`` for the actual move.
+
+    Side effects:
+        Updates the ``cycle_id`` foreign key on each transferred
+        ``CycleIssue`` row; dispatches ``issue_activity`` via
+        Celery+RabbitMQ for each transferred issue; fires
+        ``cycle_issue`` webhook events.
     """
 
     permission_classes = [ProjectEntityPermission]
@@ -1157,10 +1383,10 @@ class TransferCycleIssueAPIEndpoint(BaseAPIView):
         },
     )
     def post(self, request, slug, project_id, cycle_id):
-        """Transfer cycle issues
+        """Transfer incomplete issues from the source cycle to ``new_cycle_id``.
 
-        Move incomplete issues from the current cycle to a new target cycle.
-        Captures progress snapshot and transfers only unfinished work items.
+        Delegates to ``transfer_cycle_issues``. Completed and cancelled
+        issues remain on the source cycle.
         """
         new_cycle_id = request.data.get("new_cycle_id", False)
 

@@ -4,6 +4,39 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Spreadsheet cell editor for the `cycle_id` issue property.
+ *
+ * Rendered purpose: renders a `<CycleDropdown>` that lets the user assign or remove the cycle for
+ * an issue from a spreadsheet row. Unlike most editor cells this one bypasses the parent `onChange`
+ * callback and calls the issues-store actions directly because cycle assignment is a separate
+ * relation (it triggers a dedicated POST/DELETE endpoint rather than a PATCH on the issue body).
+ * Mounted only when `WithDisplayPropertiesHOC` approves the `cycle` property AND the project has
+ * cycles enabled (the latter gate is enforced upstream in `SpreadsheetView`).
+ *
+ * Props (Props):
+ *   - issue (TIssue, required): the issue row this cell belongs to; reads `cycle_id`, `project_id`
+ *   - onClose (() => void, required): focus-restoration callback invoked when the dropdown closes
+ *   - disabled (boolean, required): when true, the dropdown is rendered read-only
+ *
+ * MobX stores read:
+ *   - `useIssuesStore()` exposes the active issues slice's `addCycleToIssue` and
+ *     `removeCycleFromIssue` actions; the active store is resolved from React context (varies
+ *     between project / module / cycle / view contexts)
+ *
+ * Side effects:
+ *   - When the user selects a cycle, calls `addCycleToIssue(workspaceSlug, projectId, cycleId,
+ *     issueId)` which POSTs to `/api/workspaces/<slug>/projects/<id>/cycles/<cycleId>/cycle-issues/`
+ *     via the cycle service.
+ *   - When the user clears the cycle, calls `removeCycleFromIssue(workspaceSlug, projectId, issueId)`
+ *     which DELETEs the relation.
+ *   - Both calls are short-circuited when `issue.cycle_id === cycleId` (idempotent no-op).
+ *
+ * Consumers:
+ *   - Indirectly via the `SPREADSHEET_COLUMNS` registry, instantiated by `../issue-column.tsx`
+ *     when the `cycle` property is enabled.
+ */
+
 import { useCallback } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
@@ -14,12 +47,14 @@ import { CycleDropdown } from "@/components/dropdowns/cycle";
 // hooks
 import { useIssuesStore } from "@/hooks/use-issue-layout-store";
 
+/** Props for `SpreadsheetCycleColumn`. */
 type Props = {
   issue: TIssue;
   onClose: () => void;
   disabled: boolean;
 };
 
+/** Inline cycle selector cell; see the module-level JSDoc for full semantics. */
 export const SpreadsheetCycleColumn = observer(function SpreadsheetCycleColumn(props: Props) {
   const { issue, disabled, onClose } = props;
   // router

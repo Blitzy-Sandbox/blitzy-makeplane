@@ -4,10 +4,21 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Auth constants barrel — login-medium labels, password policy, auth page/mode/step
+ * enums, and structured auth error contracts shared by `apps/{web,admin,space}` auth flows.
+ */
+
 import type { TLoginMediums } from "@plane/types";
 import { CORE_LOGIN_MEDIUM_LABELS } from "./core";
 import { EXTENDED_LOGIN_MEDIUM_LABELS } from "./extended";
 
+/**
+ * Password strength state identifiers (EMPTY / LENGTH_NOT_VALID / STRENGTH_NOT_VALID /
+ * STRENGTH_VALID) driving criteria-met UI and submit-button enablement.
+ * Consumers: `packages/ui/src/{auth-form,form-fields/password}/**`,
+ * `apps/web/core/components/account/auth-forms/**`, `apps/{space,admin}` auth forms.
+ */
 export enum E_PASSWORD_STRENGTH {
   EMPTY = "empty",
   LENGTH_NOT_VALID = "length_not_valid",
@@ -15,8 +26,16 @@ export enum E_PASSWORD_STRENGTH {
   STRENGTH_VALID = "strength_valid",
 }
 
+/**
+ * Minimum password length (bound to `min_8_char` in `SPACE_PASSWORD_CRITERIA`).
+ */
 export const PASSWORD_MIN_LENGTH = 8;
 
+/**
+ * Password validation rules (`{key,label,isCriteriaValid}` triples); only `min_8_char`
+ * is enabled today (upper-case/number/special-char checks commented out for future).
+ * Consumers: `packages/ui/src/form-fields/password/**`, `packages/utils/src/auth.ts`.
+ */
 export const SPACE_PASSWORD_CRITERIA = [
   {
     key: "min_8_char",
@@ -40,6 +59,11 @@ export const SPACE_PASSWORD_CRITERIA = [
   // },
 ];
 
+/**
+ * Page-level auth requirement classification (PUBLIC / NON_AUTHENTICATED /
+ * SET_PASSWORD / ONBOARDING / AUTHENTICATED) consumed by route wrappers for redirects.
+ * Consumer: `apps/web/core/lib/wrappers/authentication-wrapper.tsx`.
+ */
 export enum EAuthPageTypes {
   PUBLIC = "PUBLIC",
   NON_AUTHENTICATED = "NON_AUTHENTICATED",
@@ -48,6 +72,11 @@ export enum EAuthPageTypes {
   AUTHENTICATED = "AUTHENTICATED",
 }
 
+/**
+ * Bootstrap auth-wrapper state (INIT / PUBLIC / NON_AUTHENTICATED / ONBOARDING /
+ * AUTHENTICATED) used during user/instance fetch before a final `EAuthPageTypes` renders.
+ * Consumer: `apps/web/core/lib/wrappers/authentication-wrapper.tsx`.
+ */
 export enum EPageTypes {
   INIT = "INIT",
   PUBLIC = "PUBLIC",
@@ -56,17 +85,30 @@ export enum EPageTypes {
   AUTHENTICATED = "AUTHENTICATED",
 }
 
+/**
+ * Auth flow variant selector (SIGN_IN / SIGN_UP) for the shared auth form.
+ * Consumers: `apps/{web,space}/core/components/account/auth-forms/**`.
+ */
 export enum EAuthModes {
   SIGN_IN = "SIGN_IN",
   SIGN_UP = "SIGN_UP",
 }
 
+/**
+ * Multi-step auth form progression (EMAIL → PASSWORD for password flow or EMAIL →
+ * UNIQUE_CODE for magic-code flow).
+ * Consumers: `apps/{web,space}/core/components/account/auth-forms/**`.
+ */
 export enum EAuthSteps {
   EMAIL = "EMAIL",
   PASSWORD = "PASSWORD",
   UNIQUE_CODE = "UNIQUE_CODE",
 }
 
+/**
+ * Auth error surface rendering discriminator (BANNER / TOAST / INLINE per field).
+ * Consumers: `apps/{web,space}/helpers/authentication.helper.tsx`, `packages/utils/src/auth.ts`.
+ */
 export enum EErrorAlertType {
   BANNER_ALERT = "BANNER_ALERT",
   TOAST_ALERT = "TOAST_ALERT",
@@ -76,6 +118,11 @@ export enum EErrorAlertType {
   INLINE_EMAIL_CODE = "INLINE_EMAIL_CODE",
 }
 
+/**
+ * Structured auth-error payload (`type`/`code`/`title`/`message`) where `message`
+ * accepts React nodes to embed localized links/formatting.
+ * Consumers: `apps/{web,space}/helpers/authentication.helper.tsx`.
+ */
 export type TAuthErrorInfo = {
   type: EErrorAlertType;
   code: EAuthErrorCodes;
@@ -83,6 +130,11 @@ export type TAuthErrorInfo = {
   message: string | React.ReactNode;
 };
 
+/**
+ * Admin-instance auth error codes (stringified 5150–5190) mirroring backend admin
+ * authentication endpoint responses; parity with admin section of `EAuthErrorCodes`.
+ * Consumer: `apps/admin/app/(all)/(home)/**`.
+ */
 export enum EAdminAuthErrorCodes {
   // Admin
   ADMIN_ALREADY_EXIST = "5150",
@@ -96,6 +148,10 @@ export enum EAdminAuthErrorCodes {
   ADMIN_USER_DEACTIVATED = "5190",
 }
 
+/**
+ * Admin-instance counterpart to `TAuthErrorInfo` typed against `EAdminAuthErrorCodes`.
+ * Consumer: `apps/admin/app/(all)/(home)/**`.
+ */
 export type TAdminAuthErrorInfo = {
   type: EErrorAlertType;
   code: EAdminAuthErrorCodes;
@@ -103,6 +159,12 @@ export type TAdminAuthErrorInfo = {
   message: string | React.ReactNode;
 };
 
+/**
+ * End-user auth error codes (stringified backend codes) — see inline `// Group`
+ * markers below for ranges (Global 5000s, Password 5020s, Sign Up 5030s, Sign In
+ * 5060s, Magic 5090s, OAuth 5104+, Reset 5125+, Change 5135+, Set 5145, Admin 5150s, Rate 5900).
+ * Consumers: `apps/{web,space}/helpers/authentication.helper.tsx`, `packages/utils/src/auth.ts`.
+ */
 export enum EAuthErrorCodes {
   // Global
   INSTANCE_NOT_CONFIGURED = "5000",
@@ -168,6 +230,11 @@ export enum EAuthErrorCodes {
   RATE_LIMIT_EXCEEDED = "5900",
 }
 
+/**
+ * Unified `TLoginMediums` → label map (merge of core + extended); the canonical
+ * lookup for translating login-medium keys (`email`, `github`, …) into display text.
+ * Consumer: `apps/web/ce/components/workspace/settings/useMemberColumns.tsx`.
+ */
 export const LOGIN_MEDIUM_LABELS: Record<TLoginMediums, string> = {
   ...CORE_LOGIN_MEDIUM_LABELS,
   ...EXTENDED_LOGIN_MEDIUM_LABELS,

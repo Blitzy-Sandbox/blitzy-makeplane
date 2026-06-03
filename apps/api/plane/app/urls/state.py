@@ -2,6 +2,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for project-state endpoints.
+
+Maps the state ViewSets from ``plane.app.views`` to project-state CRUD,
+intake-state lookup, and mark-as-default routes scoped under
+``workspaces/<slug>/projects/<project_id>/states/``.
+"""
+
 from django.urls import path
 
 

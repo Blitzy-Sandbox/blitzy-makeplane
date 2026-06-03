@@ -4,6 +4,109 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Module-scoped issue collection store. Owns the issue list, pagination,
+ * creation, mutation, archive, and parent-module statistics for issues
+ * displayed in a single module's view, and keeps module membership in sync
+ * with the parent module via the inherited module-issue lifecycle helpers.
+ *
+ * Extends BaseIssuesStore (`../helpers/base-issues.store`), which already
+ * registers MobX observability for `addIssue`, `removeIssueFromList`,
+ * `clear`, `setLoader`, `issueUpdate`, `issueArchive`, `removeBulkIssues`,
+ * `bulkArchiveIssues`, `bulkUpdateProperties`, `addCycleToIssue`,
+ * `addIssuesToModule`, `removeIssuesFromModule`, `addModulesToIssue`, and
+ * `changeModulesInIssue`, and owns the shared `IssueService` /
+ * `IssueArchiveService` instances reused here. Stores are injected via
+ * React context (MobX exclusively — not Redux) per AAP §0.2.2.
+ *
+ * State slice (observable):
+ *   - viewFlags: ViewFlags — fixed `{ enableQuickAdd, enableIssueCreation,
+ *     enableInlineEditing }` with all three `true`; gates UI capabilities on
+ *     module issue screens.
+ *   - issueFilterStore: IModuleIssuesFilter — injected companion filter
+ *     store used to compose request parameters via `getFilterParams`.
+ *   - Inherited from BaseIssuesStore: `issues`, `groupedIssueIds`,
+ *     `groupedIssueCount`, `loader`, `paginationOptions`, `controller`,
+ *     plus the issue-detail accessors. See base class for full slice.
+ *
+ * Actions (own — registered in `makeObservable` here):
+ *   - fetchIssues(workspaceSlug, projectId, loadType, options, moduleId,
+ *     isExistingPaginationOptions?): Promise<TIssuesResponse | undefined>
+ *       Side effects: sets loader, conditionally clears the local list,
+ *       builds params via `issueFilterStore.getFilterParams`, calls
+ *       `issueService.getIssues` with `controller.signal`, then delegates
+ *       to inherited `onfetchIssues` to populate `rootIssueStore.issues`
+ *       and the grouped indices.
+ *   - fetchNextIssues(workspaceSlug, projectId, moduleId, groupId?,
+ *     subGroupId?): Promise<TIssuesResponse | undefined>
+ *       Side effects: cursor-based next-page fetch using stored
+ *       `paginationOptions` and `getNextCursor(groupId, subGroupId)`;
+ *       no-op when `paginationOptions` is unset or
+ *       `nextPageResults === false`; delegates to inherited
+ *       `onfetchNexIssues`.
+ *   - fetchIssuesWithExistingPagination(workspaceSlug, projectId, loadType,
+ *     moduleId): Promise<TIssuesResponse | undefined>
+ *       Side effects: re-fetches page 1 with the cached `paginationOptions`;
+ *       called by `ModuleIssuesFilter` after filter/group/order changes.
+ *   - quickAddIssue(workspaceSlug, projectId, data, moduleId):
+ *     Promise<TIssue | undefined>
+ *       Side effects: optimistic — inserts a temp row via inherited
+ *       `addIssue`, calls the overridden `createIssue`, then removes the
+ *       temp row in `runInAction` and (if `data.cycle_id` is set and not
+ *       `"None"`) wires the new issue to the cycle via inherited
+ *       `addCycleToIssue`.
+ *
+ * Actions (own — NOT in `makeObservable` here, but observed via base or
+ * declared as class fields):
+ *   - createIssue(workspaceSlug, projectId, data, moduleId): Promise<TIssue>
+ *       Overrides `BaseIssuesStore.createIssue`. Side effects: calls
+ *       `super.createIssue(..., isAddIssue=false)` then attaches the new
+ *       issue to one or more modules via inherited `addModulesToIssue`
+ *       (defaults to `[moduleId]` when no `data.module_ids` provided,
+ *       otherwise uses `data.module_ids` when length > 1).
+ *   - fetchParentStats(workspaceSlug, projectId?, id?): void
+ *       Side effects: triggers
+ *       `rootIssueStore.rootStore.module.fetchModuleDetails` to refresh
+ *       module stats after issue list changes.
+ *   - updateParentStats(prevIssueState?, nextIssueState?, id?): void
+ *       Side effects: computes distribution deltas via
+ *       `getDistributionPathsPostUpdate` (against state map and the active
+ *       project estimate's `estimatePointById`) and pushes them into
+ *       `rootIssueStore.rootStore.module.updateModuleDistribution` for
+ *       optimistic module-stat refresh before the next server fetch.
+ *   - archiveBulkIssues = this.bulkArchiveIssues — module-oriented alias.
+ *   - updateIssue = this.issueUpdate — module-oriented alias.
+ *   - archiveIssue = this.issueArchive — module-oriented alias.
+ *   - Inherited (NOT redefined here, exposed verbatim via the
+ *     `IBaseIssuesStore` contract): `getIssueIds`, `removeBulkIssues`,
+ *     `bulkUpdateProperties`, `addIssuesToModule`, `removeIssuesFromModule`,
+ *     `changeModulesInIssue`, `addCycleToIssue`, `addIssue`,
+ *     `removeIssueFromList`, `clear`, `setLoader`.
+ *
+ * Computed:
+ *   - None defined on this class. Derived state for pagination
+ *     (`getPaginationData`, `getNextCursor`) is owned by `BaseIssuesStore`
+ *     and is `computedFn`-based there.
+ *
+ * Consumers:
+ *   - apps/web/core/components/issues/issue-layouts/list/roots/module-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/kanban/roots/module-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/calendar/roots/module-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/gantt/base-gantt-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/spreadsheet/base-spreadsheet-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/roots/module-layout-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/empty-states/module.tsx
+ *   - apps/web/core/components/issues/issue-layouts/quick-action-dropdowns/module-issue.tsx
+ *   - apps/web/core/components/issues/issue-modal/base.tsx
+ *   - apps/web/core/hooks/store/use-issues.ts (selects via
+ *     `EIssuesStoreType.MODULE`)
+ *   - apps/web/core/store/issue/issue-details/issue.store.ts — cross-store
+ *     reader of `rootIssueStore.moduleIssues.changeModulesInIssue` and
+ *     `removeIssuesFromModule` for issue-detail module mutations.
+ *   - apps/web/core/store/issue/root.store.ts — singleton wiring under
+ *     `moduleIssues` (constructed with `(this, this.moduleIssuesFilter)`).
+ */
+
 import { action, makeObservable, runInAction } from "mobx";
 // base class
 import type {

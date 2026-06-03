@@ -4,6 +4,119 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for workspace-level draft issues — a workspace-scoped scratch pad of unfinished
+ * issues that lives OUTSIDE the regular project issue lifecycle until promoted to a real
+ * `TIssue` via `moveIssue`. Drafts have a simplified mutation surface (no grouped views, no
+ * archive, no cycle/module membership, no bulk operations); the unsupported surface is
+ * satisfied by deliberate no-op methods so this store still implements the broader
+ * issue-store interface used by polymorphic consumers.
+ *
+ * Local constants:
+ *   - paginatedCount = 50 — fixed page size; sole source of truth for the cursor stride
+ *       used by `generateNotificationQueryParams`.
+ *
+ * State slice (registered on `makeObservable`):
+ *   - loader: TWorkspaceDraftIssueLoader (observable.ref) — async/mutation indicator
+ *       (`init-loader` | `mutation` | `pagination` | `loaded` | `create` | `update` |
+ *       `delete` | `move` | `empty-state` | undefined).
+ *   - paginationInfo: Omit<TWorkspaceDraftPaginationInfo<TWorkspaceDraftIssue>, "results">
+ *       | undefined (observable) — cursor + counts snapshot from the most recent server
+ *       response; drives the workspace drafts count chip in the header.
+ *   - issuesMap: Record<string, TWorkspaceDraftIssue> (observable) — issue id -> draft
+ *       issue cache; primary store for fetched drafts.
+ *   - issueMapIds: Record<string, string[]> (observable) — workspaceSlug -> ordered list
+ *       of draft issue ids in this workspace; new ids are prepended on create/fetch.
+ *
+ * Non-observable references:
+ *   - issueStore: IIssueRootStore — back-reference held on `this`; supplies the reactive
+ *       `issueStore.workspaceSlug` route read and the cross-store mutation target on
+ *       `rootStore.user.permission.workspaceUserInfo`.
+ *
+ * Computed:
+ *   - issueIds — sorted view of `issueMapIds[workspaceSlug]` ordered by
+ *       `issuesMap[id].created_at` DESC (via `convertToISODateString`); recomputes when
+ *       `issueMapIds`, `issuesMap`, or `issueStore.workspaceSlug` change.
+ *   - getIssueById(issueId) — `computedFn` memoized lookup returning the cached
+ *       `TWorkspaceDraftIssue` or `undefined`; recomputes per id when `issuesMap` changes.
+ *
+ * Helper actions (cache-only, NO backend call):
+ *   - addIssue(issues) — upserts each draft into `issuesMap` via `lodash.set` on miss and
+ *       `lodash.update` (shallow-merge) on hit.
+ *   - mutateIssue(issueId, partial) — patches an existing entry and stamps `updated_at`
+ *       with `getCurrentDateTimeInISO()`; no-op if the id is not cached.
+ *   - removeIssue(issueId) — `unset` from `issuesMap`; no-op if absent.
+ *     * INTENT UNCLEAR: removeIssue only evicts from the local cache; backend deletion is
+ *       handled by `deleteIssue`, so callers must NOT use `removeIssue` as a standalone
+ *       delete path.
+ *   - generateNotificationQueryParams(paramType, filterParams) — builds the `per_page` +
+ *       `cursor` payload for INIT / CURRENT / NEXT / default modes against the current
+ *       `paginationInfo.next_cursor`.
+ *
+ * Async actions (registered on `makeObservable` as `action`; the MobX-aware mutation site
+ * is the `runInAction` embedded inside each body):
+ *   - fetchIssues(workspaceSlug, loadType, paginationType = INIT) → workspaceDraftService.getIssues.
+ *       Side effects: writes `results` into `issuesMap`, prepends NEW ids to
+ *       `issueMapIds[workspaceSlug]` (existing ids preserved), snapshots `paginationInfo`;
+ *       sets loader to `undefined` on success or `"empty-state"` when no results; on error
+ *       resets loader and re-throws.
+ *   - createIssue(workspaceSlug, payload) → workspaceDraftService.createIssue.
+ *       Side effects: caches the new draft, prepends its id, increments
+ *       `paginationInfo.total_count`, and increments
+ *       `workspaceUserInfo[workspaceSlug].draft_issue_count` via the private
+ *       `updateWorkspaceUserDraftIssueCount(+1)` helper (cross-store mutation on the user
+ *       permission store).
+ *   - updateIssue(workspaceSlug, issueId, payload) → workspaceDraftService.updateIssue.
+ *       Optimistically merges payload + stamps `updated_at`; on error reverts the cache to
+ *       the pre-update snapshot and re-throws.
+ *   - deleteIssue(workspaceSlug, issueId) → workspaceDraftService.deleteIssue.
+ *       Side effects: removes id from `issueMapIds[workspaceSlug]` and `issuesMap`,
+ *       decrements `paginationInfo.total_count`, and decrements `draft_issue_count` via
+ *       `updateWorkspaceUserDraftIssueCount(-1)`.
+ *   - moveIssue(workspaceSlug, issueId, payload) → workspaceDraftService.moveIssue.
+ *       Promote-to-issue lifecycle: the server converts the draft into a regular project
+ *       `TIssue` and returns it. Local side effects mirror `deleteIssue` (drop the draft,
+ *       decrement `total_count`, decrement `draft_issue_count`). The newly created regular
+ *       issue is NOT inserted into THIS store — promotion hands ownership over to the
+ *       regular project/cycle/module issue stores. Returns the resulting `TIssue` so
+ *       callers can route the user to the promoted issue.
+ *   - addCycleToIssue(workspaceSlug, issueId, cycleId) — thin wrapper over
+ *       `updateIssue(..., { cycle_id })`.
+ *   - addModulesToIssue(workspaceSlug, issueId, moduleIds) — thin wrapper over
+ *       `updateIssue(..., { module_ids })`.
+ *
+ * Compatibility no-ops (deliberate empty implementations that satisfy the wider issue-store
+ * interface used by polymorphic consumers — drafts do not support these features here):
+ *   - viewFlags = { enableQuickAdd: false, enableIssueCreation: false, enableInlineEditing: false }
+ *       — drafts intentionally do NOT expose inline editing or quick-add via this store;
+ *       UI consumers drive creation through their own modal-based flows.
+ *   - groupedIssueIds = undefined — drafts are never grouped.
+ *   - getIssueIds, getPaginationData, getGroupIssueCount — return `undefined`.
+ *   - getIssueLoader — returns the constant `"loaded"` as a `TLoader`.
+ *   - removeCycleFromIssue, addIssueToCycle, removeIssueFromCycle, removeIssuesFromModule,
+ *       changeModulesInIssue, archiveIssue, archiveBulkIssues, removeBulkIssues,
+ *       bulkUpdateProperties — async no-ops returning `void` without side effects.
+ *
+ * Cross-store dependencies:
+ *   - Reads `issueStore.workspaceSlug` in the `issueIds` computed getter.
+ *   - Mutates `issueStore.rootStore.user.permission.workspaceUserInfo[workspaceSlug]
+ *       .draft_issue_count` on every successful create/delete/move so the workspace
+ *       drafts badge stays consistent without a refetch.
+ *
+ * Consumers:
+ *   - apps/web/core/hooks/store/workspace-draft/use-workspace-draft-issue.ts — typed hook
+ *       returning `context.issue.workspaceDraftIssues` from `StoreContext`.
+ *   - apps/web/core/components/issues/workspace-draft/** — `root.tsx` orchestrates loading
+ *       and pagination via `fetchIssues`; `draft-issue-block.tsx` reads via `getIssueById`;
+ *       `draft-issue-properties.tsx` calls `updateIssue` / `addCycleToIssue` /
+ *       `addModulesToIssue`; `delete-modal.tsx` calls `deleteIssue`; the create flow calls
+ *       `createIssue`; the move-to-project workflow calls `moveIssue` for promotion.
+ *   - apps/web/app/(all)/[workspaceSlug]/(projects)/drafts/header.tsx — reads
+ *       `paginationInfo.total_count` for the workspace drafts count chip.
+ *   - Composed by apps/web/core/store/issue/root.store.ts as `workspaceDraftIssues` and
+ *       exposed through the MobX root store provided via React context.
+ */
+
 import { clone, update, unset, orderBy, set } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";

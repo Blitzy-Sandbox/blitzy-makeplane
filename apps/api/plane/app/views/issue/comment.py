@@ -2,6 +2,24 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Issue comment and comment-reaction HTTP endpoints.
+
+Exposes :class:`IssueCommentViewSet` for full CRUD on
+:class:`IssueComment` (threaded comments on issues) and
+:class:`CommentReactionViewSet` for emoji reactions on those comments.
+
+Every write path enqueues
+``plane.bgtasks.issue_activities_task.issue_activity`` (Celery via
+RabbitMQ) so the comment add/edit/delete event appears in the issue
+timeline; create/update on :class:`IssueComment` additionally enqueues
+``plane.bgtasks.webhook_task.model_activity`` to fan out webhook
+deliveries for the ``issue_comment`` event.
+
+Guests (``ROLE.GUEST`` = role 5) are allowed to comment but only on
+issues they themselves created, unless the project's
+``guest_view_all_features`` flag is enabled.
+"""
+
 # Python imports
 import json
 
@@ -26,6 +44,73 @@ from plane.bgtasks.webhook_task import model_activity
 
 
 class IssueCommentViewSet(BaseViewSet):
+    """CRUD endpoint for threaded comments on issues.
+
+    HTTP methods + URL patterns:
+        GET    /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/comments/
+        POST   /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/comments/
+        GET    /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/comments/<pk>/
+        PATCH  /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/comments/<pk>/
+        DELETE /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/comments/<pk>/
+
+    Request body (POST / PATCH):
+        Fields validated by
+        :class:`plane.app.serializers.IssueCommentSerializer`:
+            * ``comment_html`` (str, required on POST) -- rich-text
+              comment body.
+            * ``comment_stripped`` (str, optional) -- plain-text mirror.
+            * ``access`` (int, optional) -- comment visibility flag.
+
+    Response shape:
+        ``IssueCommentSerializer`` output (id, comment_html,
+        comment_stripped, access, actor, created_at, updated_at,
+        edited_at, plus the ``is_member`` Exists annotation on list).
+
+    Permissions:
+        permission_classes -- not set on the class; inherits
+        ``[IsAuthenticated]`` from :class:`BaseViewSet`.
+        Per-method gates:
+            * ``create``: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER,
+              ROLE.GUEST])`` plus an inline check that rejects guests
+              (``role=5``) who are commenting on an issue they did not
+              create when ``project.guest_view_all_features`` is
+              ``False`` (HTTP 400 ``"You are not allowed to comment on
+              the issue"``).
+            * ``partial_update``: ``@allow_permission(
+              allowed_roles=[ROLE.ADMIN], creator=True,
+              model=IssueComment)`` -- the comment's creator can edit it;
+              other members cannot; project admins can edit anyone's.
+            * ``destroy``: same as ``partial_update``.
+
+    get_queryset filter logic:
+        Filters by ``workspace__slug``, ``project_id``, ``issue_id`` from
+        the URL, joins to ensure the requesting user is an active,
+        non-archived project member, ``select_related``s project /
+        workspace / issue, and annotates ``is_member`` (Exists on
+        :class:`ProjectMember`).
+
+    Side effects (Celery via RabbitMQ -- NOT Redis):
+        * POST/PATCH/DELETE enqueue ``issue_activity.delay(...)`` with
+          ``type="comment.activity.{created|updated|deleted}"``.
+        * POST/PATCH additionally enqueue ``model_activity.delay(...)``
+          for the ``issue_comment`` webhook event (see ``webhook_event``
+          attribute).
+        * ``partial_update`` sets ``edited_at = now()`` ONLY when
+          ``comment_html`` is in the request body and actually differs
+          from the existing value -- preserving the original
+          ``edited_at`` on no-op or non-content updates.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueCommentSerializer``.
+        - Models: ``plane.db.models.IssueComment``, ``plane.db.models.Issue``,
+          ``plane.db.models.ProjectMember``.
+        - Celery tasks (via RabbitMQ):
+            ``plane.bgtasks.issue_activities_task.issue_activity``,
+            ``plane.bgtasks.webhook_task.model_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
+    """
+
     serializer_class = IssueCommentSerializer
     model = IssueComment
     webhook_event = "issue_comment"
@@ -33,6 +118,11 @@ class IssueCommentViewSet(BaseViewSet):
     filterset_fields = ["issue__id", "workspace__id"]
 
     def get_queryset(self):
+        """Return :class:`IssueComment` rows for the URL's workspace + project + issue.
+
+        Restricted to active project members and annotated with
+        ``is_member`` (Exists on :class:`ProjectMember`).
+        """
         return self.filter_queryset(
             super()
             .get_queryset()
@@ -62,6 +152,12 @@ class IssueCommentViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def create(self, request, slug, project_id, issue_id):
+        """Create a new comment on the issue and enqueue activity + webhook Celery tasks.
+
+        Guests (``role=5``) are rejected (HTTP 400) when they attempt to
+        comment on an issue they did not create and
+        ``project.guest_view_all_features`` is ``False``.
+        """
         project = Project.objects.get(pk=project_id)
         issue = Issue.objects.get(pk=issue_id)
         if (
@@ -108,6 +204,11 @@ class IssueCommentViewSet(BaseViewSet):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN], creator=True, model=IssueComment)
     def partial_update(self, request, slug, project_id, issue_id, pk):
+        """Edit a comment (creator-or-admin only).
+
+        Sets ``edited_at`` when ``comment_html`` actually changes and
+        enqueues the activity + webhook Celery tasks.
+        """
         issue_comment = IssueComment.objects.get(workspace__slug=slug, project_id=project_id, issue_id=issue_id, pk=pk)
         requested_data = json.dumps(self.request.data, cls=DjangoJSONEncoder)
         current_instance = json.dumps(IssueCommentSerializer(issue_comment).data, cls=DjangoJSONEncoder)
@@ -143,6 +244,11 @@ class IssueCommentViewSet(BaseViewSet):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN], creator=True, model=IssueComment)
     def destroy(self, request, slug, project_id, issue_id, pk):
+        """Delete a comment (creator-or-admin only).
+
+        Enqueues a ``comment.activity.deleted`` Celery task with the
+        pre-delete snapshot serialized as ``current_instance``.
+        """
         issue_comment = IssueComment.objects.get(workspace__slug=slug, project_id=project_id, issue_id=issue_id, pk=pk)
         current_instance = json.dumps(IssueCommentSerializer(issue_comment).data, cls=DjangoJSONEncoder)
         issue_comment.delete()
@@ -161,10 +267,64 @@ class IssueCommentViewSet(BaseViewSet):
 
 
 class CommentReactionViewSet(BaseViewSet):
+    """Emoji-reaction endpoint for issue comments.
+
+    HTTP methods + URL patterns:
+        GET    /api/workspaces/<slug>/projects/<project_id>/comments/<comment_id>/reactions/
+        POST   /api/workspaces/<slug>/projects/<project_id>/comments/<comment_id>/reactions/
+        DELETE /api/workspaces/<slug>/projects/<project_id>/comments/<comment_id>/reactions/<reaction_code>/
+
+    Request body (POST):
+        Validated by
+        :class:`plane.app.serializers.CommentReactionSerializer`:
+            * ``reaction`` (str, required) -- emoji code (e.g.,
+              ``"thumbs_up"``).
+
+    Response shape:
+        ``CommentReactionSerializer`` output (id, reaction, actor,
+        comment_id, created_at).
+
+    Permissions:
+        permission_classes -- not set on the class; inherits
+        ``[IsAuthenticated]`` from :class:`BaseViewSet`.
+        Per-method gate: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER,
+        ROLE.GUEST])`` on both ``create`` and ``destroy``.
+
+    Uniqueness:
+        ``(comment_id, actor, reaction)`` is unique at the DB level;
+        :meth:`create` catches :class:`IntegrityError` and returns HTTP
+        400 ``"Reaction already exists for the user"`` when the user
+        re-adds the same reaction.
+
+    Side effects (Celery via RabbitMQ -- NOT Redis):
+        Each create/destroy enqueues ``issue_activity.delay(...)`` with
+        ``type="comment_reaction.activity.{created|deleted}"`` for the
+        comment timeline. The ``issue_id`` field on the activity payload
+        is ``None`` because comment reactions are scoped to a comment,
+        not directly to an issue.
+
+    get_queryset filter logic:
+        Filters by ``workspace__slug``, ``project_id``, ``comment_id``
+        from the URL, restricted to active project members; ordered by
+        ``-created_at``.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.CommentReactionSerializer``.
+        - Models: ``plane.db.models.CommentReaction``, ``plane.db.models.IssueComment``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
+    """
+
     serializer_class = CommentReactionSerializer
     model = CommentReaction
 
     def get_queryset(self):
+        """Return :class:`CommentReaction` rows for the URL's workspace + project + comment.
+
+        Restricted to active project members and ordered by
+        ``-created_at``.
+        """
         return (
             super()
             .get_queryset()
@@ -182,6 +342,12 @@ class CommentReactionViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def create(self, request, slug, project_id, comment_id):
+        """Add an emoji reaction to the comment and enqueue a ``comment_reaction.activity.created`` Celery task.
+
+        Returns HTTP 400 ``"Reaction already exists for the user"`` if
+        the user has already added the same reaction code (caught from
+        :class:`IntegrityError`).
+        """
         try:
             serializer = CommentReactionSerializer(data=request.data)
             if serializer.is_valid():
@@ -211,6 +377,11 @@ class CommentReactionViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def destroy(self, request, slug, project_id, comment_id, reaction_code):
+        """Remove the requesting user's reaction matching ``reaction_code`` from the comment.
+
+        Enqueues a ``comment_reaction.activity.deleted`` Celery task
+        before deleting the row.
+        """
         comment_reaction = CommentReaction.objects.get(
             workspace__slug=slug,
             project_id=project_id,

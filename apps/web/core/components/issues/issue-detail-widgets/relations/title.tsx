@@ -4,6 +4,45 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * `RelationsCollapsibleTitle` is the header row of the relations widget — it
+ * shows the localized section title, a store-backed relation-count indicator,
+ * and (when not `disabled`) the `RelationActionButton` quick-action trigger
+ * that opens the "add relation" modal flow.
+ *
+ * Props:
+ *   - `isOpen` (boolean, required): collapsible open/closed state forwarded
+ *     from the parent `RelationsCollapsible` (drives the chevron in
+ *     `CollapsibleButton`).
+ *   - `issueId` (string, required): the issue whose relation count is rendered.
+ *   - `disabled` (boolean, required): when true, suppresses the
+ *     `RelationActionButton` in the header action slot.
+ *   - `issueServiceType` (`TIssueServiceType`, optional, default
+ *     `EIssueServiceType.ISSUES`): discriminant selecting the issues-vs-epics
+ *     slice of `useIssueDetail`.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail(issueServiceType)` — destructures
+ *     `relation.getRelationCountByIssueId(issueId, ISSUE_RELATION_OPTIONS)` to
+ *     derive `relationsCount`.
+ *   - `useTimeLineRelationOptions()` (from `@/plane-web/components/relations`) —
+ *     plane-web extension-point registry of available relation types; passed to
+ *     `getRelationCountByIssueId` so the count respects the active configuration.
+ *   - `useTranslation()` (from `@plane/i18n`) — supplies the `t("common.relations")`
+ *     section label.
+ *
+ * Side effects:
+ *   - None directly. This is a read-only header; the embedded
+ *     `RelationActionButton` (when not disabled) is what opens the relation
+ *     creation modal.
+ *
+ * Wrapped in `observer` so it reactively re-renders when the store's relation
+ * count for `issueId` changes.
+ *
+ * Consumers: passed as the `title` slot of the `Collapsible` rendered by
+ * `./root.tsx` (`RelationsCollapsible`) inside the issue-detail widget shell.
+ */
+
 import React, { useMemo } from "react";
 import { observer } from "mobx-react";
 import { useTranslation } from "@plane/i18n";

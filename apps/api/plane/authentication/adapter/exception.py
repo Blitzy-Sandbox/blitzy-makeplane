@@ -2,6 +2,29 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""DRF exception adapter for the Plane authentication surface.
+
+Customizes Django REST Framework's default exception handling so that
+authentication-related failures emit a consistent Plane-formatted error
+envelope (``{"error_code": <int>, "error_message": <str>, ...payload}``)
+regardless of whether the failure originated from a view raising
+:class:`AuthenticationException` directly or from DRF raising one of its
+built-in auth/throttle exceptions.
+
+Specifically, this handler:
+
+* Forces ``NotAuthenticated`` failures to return HTTP 401 (DRF defaults to
+  403 in some configurations, which would break frontend logic that
+  distinguishes "log in required" from "permission denied").
+* Translates ``Throttled`` failures into a Plane ``RATE_LIMIT_EXCEEDED``
+  error body with HTTP 429 so rate-limit responses share the same envelope
+  as application-level auth errors.
+* Falls through to DRF's default handler for everything else.
+
+Wired in via DRF's ``EXCEPTION_HANDLER`` setting; consumes the error
+vocabulary defined in :mod:`plane.authentication.adapter.error`.
+"""
+
 # Third party imports
 from rest_framework.views import exception_handler
 from rest_framework.exceptions import NotAuthenticated
@@ -15,6 +38,33 @@ from plane.authentication.adapter.error import (
 
 
 def auth_exception_handler(exc, context):
+    """Translate DRF exceptions into Plane's authentication error envelope.
+
+    Drop-in replacement for DRF's default ``exception_handler`` wired through
+    the project's ``EXCEPTION_HANDLER`` setting. Delegates to DRF's default
+    handler first, then applies two targeted overrides so that auth-surface
+    responses share a single error shape:
+
+    * :class:`~rest_framework.exceptions.NotAuthenticated` is forced to HTTP
+      401 (instead of DRF's default 403 in some configurations) so the
+      frontend can reliably distinguish "log in required" from "forbidden".
+    * :class:`~rest_framework.exceptions.Throttled` is converted into a
+      Plane-formatted HTTP 429 response carrying the ``RATE_LIMIT_EXCEEDED``
+      error code from :data:`AUTHENTICATION_ERROR_CODES`, serialized via
+      :meth:`AuthenticationException.get_error_dict`.
+
+    Any other exception falls through to DRF's default response unchanged.
+
+    Args:
+        exc: The exception raised inside a DRF view.
+        context: DRF context dict (view, request, args) supplied by the
+            framework.
+
+    Returns:
+        rest_framework.response.Response: The DRF response from the default
+        handler with the auth-specific status/body overrides applied where
+        relevant.
+    """
     # Call the default exception handler first, to get the standard error response.
     response = exception_handler(exc, context)
     # Check if an AuthenticationFailed exception is raised.

@@ -4,6 +4,19 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Side-menu drag-handle plugin — the draggable ellipsis button rendered next
+ * to block nodes that lets users grab, drag, and reorder document blocks via
+ * mouse. The plugin manages handle DOM lifecycle, viewport-edge autoscroll
+ * during a drag, and schema-safe normalization of nested list / task-item
+ * drops.
+ *
+ * Also exports two foundational DOM helpers — `getScrollParent` and
+ * `nodeDOMAtCoords` — that sibling plugins (e.g. `ai-handle.ts`) and the
+ * `side-menu` extension reuse for shared block hit-testing and viewport-edge
+ * scroll detection.
+ */
+
 import type { Node, Schema } from "@tiptap/pm/model";
 import { Fragment, Slice } from "@tiptap/pm/model";
 import { NodeSelection } from "@tiptap/pm/state";
@@ -13,9 +26,17 @@ import { CORE_EXTENSIONS } from "@/constants/extension";
 // extensions
 import type { SideMenuHandleOptions, SideMenuPluginProps } from "@/extensions";
 
+/** Lucide `ellipsis-vertical` SVG markup; two stacked copies form the drag-handle visual. */
 const verticalEllipsisIcon =
   '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis-vertical"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>';
 
+/**
+ * CSS selectors matching the block-level DOM elements that the drag-handle
+ * may grab. Order matters: more specific selectors (code-block, image
+ * component, embed components) come before generic `li` / paragraph so
+ * `nodeDOMAtCoords` resolves to the most specific block when both could
+ * apply. Reordering would silently change drag-target resolution.
+ */
 const generalSelectors = [
   "li",
   "p.editor-paragraph-block:not(:first-child)",
@@ -32,15 +53,31 @@ const generalSelectors = [
   ".editor-drawio-component",
 ].join(", ");
 
+/** Cap on per-frame autoscroll velocity (pixels/frame) during viewport-edge drag. */
 const maxScrollSpeed = 20;
+/** Lerp factor toward the target scroll velocity; lower = smoother ramp. */
 const acceleration = 0.5;
 
+/**
+ * WeakMap cache: DOM node → its first scrollable ancestor. Avoids re-walking
+ * the DOM on every autoscroll frame during a drag.
+ */
 const scrollParentCache = new WeakMap();
 
+/**
+ * Quadratic ease-out (`t * (2 - t)`); used to ramp autoscroll velocity
+ * smoothly as the drag pointer approaches a viewport edge so the user can
+ * fine-tune scroll speed near the boundary.
+ */
 function easeOutQuadAnimation(t: number) {
   return t * (2 - t);
 }
 
+/**
+ * Build the drag-handle DOM `<button>` with two stacked vertical-ellipsis
+ * icons. Called once per editor view when the side menu mounts; the returned
+ * element is appended to the supplied side-menu container.
+ */
 const createDragHandleElement = (): HTMLElement => {
   const dragHandleElement = document.createElement("button");
   dragHandleElement.type = "button";
@@ -63,6 +100,7 @@ const createDragHandleElement = (): HTMLElement => {
   return dragHandleElement;
 };
 
+/** Return true if a DOM node's computed `overflow` or `overflow-y` is `auto` or `scroll`. */
 const isScrollable = (node: HTMLElement | SVGElement) => {
   if (!(node instanceof HTMLElement || node instanceof SVGElement)) {
     return false;
@@ -74,6 +112,18 @@ const isScrollable = (node: HTMLElement | SVGElement) => {
   });
 };
 
+/**
+ * Walk the parent chain of `node` and return the first ancestor whose
+ * computed style has `overflow` or `overflow-y` set to `auto` / `scroll`,
+ * falling back to `document.scrollingElement` (or `document.documentElement`)
+ * when no scrollable ancestor exists.
+ *
+ * Results are memoized in `scrollParentCache` (WeakMap) so subsequent
+ * autoscroll frames during a drag do not re-walk the DOM. Exported as part
+ * of the plugins' shared DOM-helper surface alongside `nodeDOMAtCoords` so
+ * sibling plugins that need viewport-edge scroll detection can reuse it
+ * without duplicating the walk logic.
+ */
 export const getScrollParent = (node: HTMLElement | SVGElement) => {
   if (scrollParentCache.has(node)) {
     return scrollParentCache.get(node);
@@ -94,6 +144,25 @@ export const getScrollParent = (node: HTMLElement | SVGElement) => {
   return result;
 };
 
+/**
+ * Hit-test the DOM at the given viewport coordinates and return the first
+ * element matching `generalSelectors` (block-level draggable elements).
+ *
+ * Special cases handled in selector order:
+ *   - Tables (`table:not(.table-drag-preview)`) match first so cell-level
+ *     hits do not resolve to a `<p>` inside the cell.
+ *   - The very first paragraph of the editor (`p:first-child` whose parent
+ *     is `.ProseMirror`) is matched explicitly so the leading block can be
+ *     dragged even though `generalSelectors` excludes `p:first-child`.
+ *   - Table cells are skipped so a hit inside a table never resolves to an
+ *     inner block; the table itself was already matched earlier.
+ *   - Elements inside `.editor-embed-component` are skipped unless the
+ *     element IS the embed-component root — the embed renders its own inner
+ *     DOM that should not be individually draggable.
+ *
+ * Consumed by `ai-handle.ts` and `core/extensions/side-menu.ts` for shared
+ * block hit-testing.
+ */
 export const nodeDOMAtCoords = (coords: { x: number; y: number }) => {
   const elements = document.elementsFromPoint(coords.x, coords.y);
 
@@ -125,6 +194,11 @@ export const nodeDOMAtCoords = (coords: { x: number; y: number }) => {
   return null;
 };
 
+/**
+ * Resolve a DOM node to its ProseMirror document position by probing the
+ * point 50px + `dragHandleWidth` right of the node's left edge — this avoids
+ * landing in the gutter where the drag handle itself is rendered.
+ */
 const nodePosAtDOM = (node: Element, view: EditorView, options: SideMenuPluginProps) => {
   const boundingRect = node.getBoundingClientRect();
 
@@ -134,6 +208,12 @@ const nodePosAtDOM = (node: Element, view: EditorView, options: SideMenuPluginPr
   })?.inside;
 };
 
+/**
+ * Resolve a blockquote DOM node to the blockquote itself (not its inner
+ * paragraph) by probing the leftmost pixel. `nodePosAtDOM`'s 50px offset
+ * would land inside the blockquote's child `<p>`, selecting the inner block
+ * instead of the blockquote wrapper.
+ */
 const nodePosAtDOMForBlockQuotes = (node: Element, view: EditorView) => {
   const boundingRect = node.getBoundingClientRect();
 
@@ -143,6 +223,78 @@ const nodePosAtDOMForBlockQuotes = (node: Element, view: EditorView) => {
   })?.inside;
 };
 
+/**
+ * Factory returning the `SideMenuHandleOptions` (`{ view, domEvents }`) that
+ * the side-menu extension mounts. The plugin renders the draggable handle,
+ * tracks per-drag state, performs viewport-edge autoscroll, and normalizes
+ * drop positions so nested list / task-item slices remain schema-valid.
+ *
+ * State read:
+ *   - Current selection (`view.state.selection`) on drop to identify the
+ *     dragged node.
+ *   - Rendered DOM via `nodeDOMAtCoords` to locate the block under the
+ *     pointer at click / dragstart time.
+ *   - Resolved-position depth + parent node type (`view.state.doc.resolve`)
+ *     to detect whether the drop target is inside a list and at what depth.
+ *
+ * State write:
+ *   - Plugin-local closure state: `isDragging`, `lastClientY`,
+ *     `isDraggedOutsideWindow`, `isMouseInsideWhileDragging`, `listType`,
+ *     `currentScrollSpeed`, `scrollAnimationFrame`, `dragHandleElement`.
+ *   - Dispatches `NodeSelection` transactions through `handleNodeSelection`
+ *     on click / dragstart so the dragged block is selected before the
+ *     browser begins the drag operation.
+ *   - On drop, may rewrite `view.dragging.slice` (a ProseMirror EditorView
+ *     property consumed by the built-in drop handler) to normalize nested
+ *     list / task-item structure — see WHY below.
+ *
+ * DOM side effects:
+ *   - Creates the drag-handle `<button>` via `createDragHandleElement` and
+ *     appends it to the supplied side-menu container.
+ *   - Installs four handle-level listeners (`dragstart`, `dragend`, `click`,
+ *     `contextmenu`) and four global listeners (`window.dragleave`,
+ *     `window.dragenter`, `document.dragover`, `document.mousemove`). The
+ *     global listeners are required because once a drag starts the pointer
+ *     can leave the editor's DOM subtree; the plugin still needs to track
+ *     viewport-edge crossings for autoscroll and detect a stuck drag-state
+ *     when the browser does not fire a clean `dragend`.
+ *   - Toggles `view.dom.classList` "dragging" on dragenter / drop / dragend
+ *     to enable drop-target CSS styling.
+ *   - Runs a `requestAnimationFrame` autoscroll loop (`scroll`) with eased
+ *     velocity via `easeOutQuadAnimation` whenever the pointer approaches a
+ *     viewport edge during a drag.
+ *   - On `destroy`, every installed listener AND the handle element are
+ *     removed and `scrollAnimationFrame` is cancelled. Cleanup symmetry is
+ *     critical: missing any teardown would leak listeners across editor
+ *     re-mounts.
+ *
+ * WHY nested-list / task-item normalization:
+ *   Dropping a bare `listItem` (or `taskItem`) at an arbitrary position can
+ *   produce a schema-invalid document. The drop handler resolves the target
+ *   depth and applies two corrections: (1) when the drop is OUTSIDE any
+ *   list, the slice is rewrapped in `orderedList` or `bulletList` matching
+ *   the original `listType` captured at dragstart; (2) when the drop is at
+ *   a DIFFERENT depth than the source, the slice is flattened via
+ *   `flattenListStructure` so stale nesting does not get carried into the
+ *   target. The handler then assigns the normalized result to
+ *   `view.dragging.slice` so ProseMirror's default drop machinery commits
+ *   the corrected structure instead of the raw slice.
+ *
+ * WHY viewport-edge autoscroll:
+ *   Pointer events stop firing past the viewport edge, so the plugin runs
+ *   an rAF loop that scrolls the nearest scrollable ancestor
+ *   (`getScrollParent(dragHandleElement)`) toward the pointer. Inside the
+ *   viewport, velocity is computed from `easeOutQuadAnimation` ramping
+ *   smoothly. Outside the viewport (`isDraggedOutsideWindow`), velocity is
+ *   pinned at ±`maxScrollSpeed * 5` because no further pointer position
+ *   updates will arrive until `dragenter` re-fires.
+ *
+ * WHY a `mousemove` listener ends the drag:
+ *   If the pointer LEFT the viewport and the user released the mouse
+ *   outside (so the browser never fired a clean `dragend`),
+ *   `isMouseInsideWhileDragging` becomes true and the mousemove handler
+ *   calls `handleDragEnd` to clear the stuck "dragging" CSS state.
+ */
 export const DragHandlePlugin = (options: SideMenuPluginProps): SideMenuHandleOptions => {
   let listType = "";
   let isDragging = false;
@@ -354,6 +506,13 @@ export const DragHandlePlugin = (options: SideMenuPluginProps): SideMenuHandleOp
   };
 };
 
+/**
+ * Flatten a nested list / task-list Fragment to a single-level Fragment of
+ * `listItem` / `taskItem` nodes. Used by `DragHandlePlugin`'s drop handler
+ * when the dropped slice has a different depth than the drop target so the
+ * insertion does not carry stale nesting (e.g., dropping a deeply nested
+ * item into a top-level list lands flat at the target depth).
+ */
 // Helper function to flatten nested list structure
 function flattenListStructure(fragment: Fragment, schema: Schema): Fragment {
   const result: Node[] = [];
@@ -374,6 +533,26 @@ function flattenListStructure(fragment: Fragment, schema: Schema): Fragment {
   return Fragment.from(result);
 }
 
+/**
+ * Resolve the block under a click / dragstart event and dispatch a
+ * `NodeSelection` for it.
+ *
+ * Adjusts the resolved position when the target is a table (the
+ * `posAtCoords` result lands inside a cell — subtract 2 to land on the
+ * table node) or a blockquote (probe the leftmost pixel via
+ * `nodePosAtDOMForBlockQuotes` so the selection wraps the blockquote, not
+ * its inner paragraph). For nested list / task items, walks to the LI / TI
+ * boundary via `$pos.before($pos.depth)` so the selection wraps the item
+ * rather than its inline child.
+ *
+ * On drag start (`isDragStart === true`): also captures the parent
+ * `<ol>` / `<ul>` tag name as `listType` (used later by the drop handler to
+ * choose the rewrap list type when the drop falls outside any list) and
+ * writes the serialized selection HTML / text to `event.dataTransfer`. The
+ * defensive `!event.dataTransfer` early-return guards against the nullable
+ * `DragEvent.dataTransfer` type even though it is always populated during a
+ * real dragstart.
+ */
 const handleNodeSelection = (
   event: MouseEvent | DragEvent,
   view: EditorView,

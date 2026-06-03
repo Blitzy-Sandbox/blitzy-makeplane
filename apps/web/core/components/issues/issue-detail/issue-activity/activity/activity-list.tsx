@@ -4,6 +4,61 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Issue activity timeline dispatcher — reactive routing layer for the issue-detail activity feed.
+ *
+ * Resolves an activity record from the issue-detail MobX store by `activityId`, inspects the
+ * record's `field` discriminant, and renders the appropriate specialized timeline row component
+ * from `./actions`. Relation activity types (e.g., "blocking", "blocked_by", "duplicate") are
+ * recognized dynamically via `useTimeLineRelationOptions` + `getValidKeysFromObject` rather than
+ * a hardcoded list, so plane-web-injected relation kinds light up without changes here.
+ *
+ * Props (TIssueActivityItem):
+ *   - activityId (string, required): primary key of the activity record in the issue-detail
+ *     store; consumed via `activity.getActivityById(activityId)`.
+ *   - ends ("top" | "bottom" | undefined, required): timeline grouping position — passed
+ *     through to the selected child renderer so visually grouped consecutive activities
+ *     can render connector lines correctly. `undefined` means standalone (not grouped).
+ *
+ * MobX stores read:
+ *   - `useIssueDetail().activity.getActivityById` — resolves the activity record by id.
+ *   - `useIssueDetail().comment` — destructured for reactivity wiring only (no fields used).
+ *
+ * Routing contract (by `activity.field`):
+ *   - `null`                                     → IssueDefaultActivity (creation/deletion)
+ *   - "state" | "name" | "description"           → matching field-specific component
+ *   - "assignees" | "priority" | "parent"        → matching field-specific component
+ *   - "estimate_points" | "estimate_categories"
+ *     | "estimate_point" (legacy)                → IssueEstimateActivity
+ *   - any key returned by `useTimeLineRelationOptions` → IssueRelationActivity
+ *   - "start_date" | "target_date"               → matching date component
+ *   - "cycles" | "modules" | "labels"            → matching relation component
+ *   - "link" | "attachment"                      → matching attachment/link component
+ *   - "archived_at"                              → IssueArchivedAtActivity
+ *   - "intake" | "inbox"                         → IssueInboxActivity
+ *   - "type"                                     → IssueTypeActivity (plane-web)
+ *   - "reaction"                                 → default branch (no dedicated case). Emitted by
+ *     the backend `ACTIVITY_MAPPER` for `issue_reaction.activity.created/.deleted` and
+ *     `comment_reaction.activity.created/.deleted` events in `apps/api/plane/bgtasks/
+ *     issue_activities_task.py` — rendering is therefore delegated to `AdditionalActivityRoot`
+ *     (see "default" below).
+ *   - "vote"                                     → default branch (no dedicated case). Emitted by
+ *     the backend `ACTIVITY_MAPPER` for `issue_vote.activity.created/.deleted` events — also
+ *     delegated to `AdditionalActivityRoot` (see "default" below).
+ *   - default                                    → `AdditionalActivityRoot` from the plane-web
+ *     extension point (`@/plane-web/components/issues/issue-details`, which resolves to
+ *     `apps/web/ce/components/issues/issue-details/additional-activity-root.tsx` in CE). The CE
+ *     implementation returns an empty fragment, so unknown / reaction / vote activity records
+ *     render nothing in the community build; an EE / plane-web build is expected to substitute
+ *     a real renderer for these field values.
+ *
+ * Side effects: none — this component is purely presentational. All activity-record writes
+ * happen elsewhere; this dispatcher only reads from the store.
+ *
+ * Consumers: rendered for each activity id in the issue-detail timeline by ancestor
+ * components under `apps/web/core/components/issues/issue-detail/issue-activity/`.
+ */
+
 import { observer } from "mobx-react";
 // helpers
 import { getValidKeysFromObject } from "@plane/utils";

@@ -4,6 +4,15 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Circular Avatar primitive rendering an image with name-derived fallback initials
+ * and size/shape tokens.
+ *
+ * Provides the single visual contract for user/workspace member representation
+ * across the `@plane/ui` design system so consumers do not redefine sizing or
+ * fallback-rendering rules per call site.
+ */
+
 // ui
 import { Tooltip } from "@plane/propel/tooltip";
 // helpers
@@ -55,6 +64,25 @@ type Props = {
   className?: string;
 };
 
+/**
+ * Image-or-initials avatar primitive used for user/workspace member representation.
+ *
+ * Renders the `src` image when provided; otherwise falls back to a colored block
+ * displaying the first letter of `name` (or `fallbackText`, or `"?"`). A wrapping
+ * `Tooltip` surfaces the entity name on hover unless `showTooltip` is disabled.
+ *
+ * Props (see the local `Props` type for full field-level docs): `src`, `name`,
+ * `size` (`TAvatarSize` token or pixel `number`), `shape` (`"circle" | "square"`),
+ * `className`, plus the `fallbackBackgroundColor` / `fallbackText` /
+ * `fallbackTextColor` overrides for the no-image branch and `showTooltip` to
+ * suppress the hover tooltip.
+ *
+ * Accessibility: the `<img>` element receives the `name` prop as its `alt` text so
+ * screen readers announce the entity name on image avatars; the fallback branch
+ * relies on the surrounding tooltip for identity. The outer wrapper is explicitly
+ * `tabIndex={-1}` because the avatar is decorative within its parent control and
+ * focus should land on the interactive ancestor instead.
+ */
 export function Avatar(props: Props) {
   const {
     name,

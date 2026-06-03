@@ -4,7 +4,18 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Cycle vocabulary and filter option catalogs consumed by cycle list/detail
+ * surfaces in `apps/web/core/components/cycles/**` and cycle MobX stores in
+ * `apps/web/core/store/cycle*`.
+ */
+
 // types
+/**
+ * Cycle lifecycle states (`current`/`upcoming`/`completed`/`draft`) with i18n keys
+ * and Tailwind tokens; `value` is derived client-side from start/end dates in
+ * `apps/web/core/store/cycle.store.ts`, not from a server enum.
+ */
 export const CYCLE_STATUS: {
   i18n_label: string;
   value: "current" | "upcoming" | "completed" | "draft";

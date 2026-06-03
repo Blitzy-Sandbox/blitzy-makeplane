@@ -4,6 +4,45 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Presentational chip renderer for cycle "start_date" / "end_date" filters — one
+ * removable pill per selected date filter token, formatting either a predefined
+ * relative-date option (e.g., "Last week") or a custom semicolon-delimited
+ * `<iso-date>;<after|before>` token into a human-readable label.
+ *
+ * Props:
+ *   - editable (boolean | undefined, required): when truthy, renders the CloseIcon
+ *     remove button on each chip; when falsy, chips are display-only.
+ *   - handleRemove ((val: string) => void, required): caller-owned callback invoked
+ *     when the user clicks a chip's close button; the parent (CycleAppliedFiltersList
+ *     in ./root) wires this to handleRemoveFilter(<dateKey>, val) where <dateKey> is
+ *     either "start_date" or "end_date".
+ *   - values (string[], required): the currently selected date filter tokens to
+ *     render; each is resolved by the local `getDateLabel` helper.
+ *
+ * MobX stores read:
+ *   - None — this component is purely presentational. It is wrapped in `observer`
+ *     for consistency with sibling chip renderers and to participate cleanly if a
+ *     consumer ever passes observable arrays.
+ *
+ * Side effects:
+ *   - None directly — invokes the `handleRemove` prop callback on click. All filter
+ *     mutations and downstream API calls are owned by the parent's wired-up store
+ *     action (cycle filter store).
+ *
+ * Token format consumed:
+ *   - Predefined: token value matches DATE_AFTER_FILTER_OPTIONS[].value (e.g.,
+ *     "last_week", "last_month") → label resolved from the catalog's `name`.
+ *   - Custom: token shaped as `"<ISO-date>;<after|before>"` → label assembled as
+ *     `"<Capitalized-direction> <formatted-date>"` via capitalizeFirstLetter +
+ *     renderFormattedDate.
+ *   - Unknown shapes (length != 2 after split, not in catalog) → empty label (the
+ *     chip still renders but with no visible text); this is defensive behavior.
+ *
+ * Consumers: rendered by CycleAppliedFiltersList (./root) for the "start_date" and
+ * "end_date" filter keys (the DATE_FILTERS set in ./root.tsx).
+ */
+
 import { observer } from "mobx-react";
 // helpers
 import { DATE_AFTER_FILTER_OPTIONS } from "@plane/constants";

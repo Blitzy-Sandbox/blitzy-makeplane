@@ -4,6 +4,12 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Barrel for `@plane/types/instance` — re-exports the AI/auth/auth-ee/base/email/
+ * image/workspace sub-modules under a single layout-stable namespace consumed
+ * by `apps/admin/` and the API license + authentication layers.
+ */
+
 export * from "./ai";
 export * from "./auth";
 export * from "./auth-ee";

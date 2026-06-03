@@ -4,8 +4,24 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Circular (ring) progress indicator using SVG with optional inner text/content.
+ *
+ * Consumed by attachment upload indicators, cycles/modules list items, and sub-issue
+ * completion widgets in `apps/web/core/components/` for compact percentage display.
+ */
+
 import React from "react";
 
+/**
+ * Props for {@link CircularProgressIndicator}.
+ *
+ * @property size — required; pixel width/height of the SVG square (default at call site: 40).
+ * @property percentage — required; completion 0–100 used to compute the dash offset (default at call site: 25).
+ * @property strokeWidth — optional; stroke width in pixels for both track and progress ring (default 6).
+ * @property strokeColor — optional; Tailwind class controlling the progress ring color (default "stroke-success-secondary").
+ * @property children — optional; React node centered absolutely over the ring (e.g., a percentage label or icon).
+ */
 interface ICircularProgressIndicator {
   size: number;
   percentage: number;
@@ -14,6 +30,16 @@ interface ICircularProgressIndicator {
   children?: React.ReactNode;
 }
 
+// INTENT UNCLEAR: no ARIA progressbar wiring on the rendered <svg> or wrapping <div>; consumers may need to add role + aria-* attributes themselves.
+/**
+ * Renders a circular SVG ring whose stroke dash-offset visualizes a 0–100% completion
+ * value, optionally overlaying inner content (label, icon, or count).
+ *
+ * Call-site defaults (applied via destructuring): `size=40`, `percentage=25`,
+ * `strokeWidth=6`, `strokeColor="stroke-success-secondary"`.
+ *
+ * @param props — see {@link ICircularProgressIndicator}
+ */
 export function CircularProgressIndicator(props: ICircularProgressIndicator) {
   const { size = 40, percentage = 25, strokeWidth = 6, strokeColor = "stroke-success-secondary", children } = props;
 

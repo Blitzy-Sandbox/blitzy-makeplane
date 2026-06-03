@@ -4,6 +4,26 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Extra-options section inside the Display Filters dropdown.
+ *
+ * Rendered purpose: renders the boolean toggles ("show empty groups", "show sub-issues", etc.) for
+ * the active layout, gated against `layoutDisplayFiltersOptions.extra_options` so layouts only
+ * surface the toggles they support.
+ *
+ * Props (`Props`):
+ *   - `displayFilters` (`IIssueDisplayFilterOptions`, required): current display-filter state
+ *     (reads the `show_empty_groups`, `sub_issue`, etc. flags)
+ *   - `handleUpdate` (`(partial: Partial<IIssueDisplayFilterOptions>) => void`, required): toggle
+ *     callback. Parent persists via `EIssueFilterType.DISPLAY_FILTERS`.
+ *   - `enabledExtraOptions` (`(keyof IIssueDisplayFilterOptions)[]`, required): subset of toggles to
+ *     surface — sourced from `layoutDisplayFiltersOptions.extra_options`.
+ *
+ * MobX stores read: none.
+ *
+ * Side effects: none. Toggle click invokes `handleUpdate({ <flag>: !prev })`.
+ */
+
 import React from "react";
 import { observer } from "mobx-react";
 import { useTranslation } from "@plane/i18n";

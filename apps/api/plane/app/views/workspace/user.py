@@ -2,6 +2,17 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Workspace-scoped user profile, activity, and dashboard endpoints.
+
+Seven endpoint classes power the workspace-level user views in the
+frontend: the last-visited workspace selector, the per-user profile
+page, the user's issue list with grouping/sub-grouping, per-user
+profile statistics (state/priority distributions, cycle position), the
+two graph endpoints (activity heatmap, completed issues by week-in-
+month), the user properties (filter prefs) endpoint, and the activity
+feed pagination.
+"""
+
 # Python imports
 import copy
 from datetime import date
@@ -66,7 +77,39 @@ from plane.utils.filters import IssueFilterSet
 
 
 class UserLastProjectWithWorkspaceEndpoint(BaseAPIView):
+    """Return the caller's last-visited workspace and its project memberships.
+
+    HTTP methods + URL pattern:
+        GET /api/users/last-visited-workspace/
+
+    Response shape:
+        {
+            "workspace_details": WorkSpaceSerializer | {},
+            "project_details": List[ProjectMemberSerializer]
+        }
+
+    If ``user.last_workspace_id`` is ``None`` (first login), both fields
+    return as empty.
+
+    Request body:
+        None (GET only).
+
+    Permissions:
+        Inherits default ``BaseAPIView`` permissions (authenticated user).
+
+    Cross-references:
+        - Serializers: ``apps/api/plane/app/serializers/workspace.py``
+          (``WorkSpaceSerializer``),
+          ``apps/api/plane/app/serializers/project.py``
+          (``ProjectMemberSerializer``).
+        - Models: ``apps/api/plane/db/models/user.py`` (``User``),
+          ``apps/api/plane/db/models/workspace.py`` (``Workspace``),
+          ``apps/api/plane/db/models/project.py`` (``ProjectMember``).
+        - URL registration: ``apps/api/plane/app/urls/user.py``.
+    """
+
     def get(self, request):
+        """Return the caller's last-visited workspace + project memberships."""
         user = User.objects.get(pk=request.user.id)
 
         last_workspace_id = user.last_workspace_id
@@ -96,12 +139,74 @@ class UserLastProjectWithWorkspaceEndpoint(BaseAPIView):
 
 
 class WorkspaceUserProfileIssuesEndpoint(BaseAPIView):
+    """Paginated, optionally grouped issue listing for a target user.
+
+    HTTP methods + URL pattern:
+        GET /api/workspaces/<str:slug>/user-issues/<uuid:user_id>/
+
+    Query parameters:
+        order_by (str, optional, default ``"-created_at"``).
+        group_by, sub_group_by (str, optional): when both are supplied the
+            response uses ``SubGroupedOffsetPaginator``; when only
+            ``group_by`` is supplied ``GroupedOffsetPaginator`` is used.
+            Identical group/sub-group fields are rejected with HTTP 400.
+        Plus all keys handled by ``issue_filters`` (date ranges, state
+        groups, etc.) and any field on ``IssueFilterSet`` for the
+        ``ComplexFilterBackend``.
+
+    Response shape:
+        Paginated issue list. Group / sub-group payloads follow the
+        paginator's structure (``group_by_field_name``,
+        ``sub_group_by_field_name``). Each issue row carries
+        ``cycle_id``, ``link_count``, ``attachment_count``, and
+        ``sub_issues_count`` from the annotations in ``apply_annotations``.
+
+    Request body:
+        None (GET only). Behavior is parameterized via query parameters
+        documented above.
+
+    Permissions:
+        permission_classes = [WorkspaceViewerPermission] — any active
+        workspace member -- declared on the class attribute (see
+        ``apps/api/plane/app/views/workspace/user.py``).
+
+    Queryset:
+        Restricted to issues where the target user is an assignee,
+        creator, or subscriber AND the caller is an active project
+        member. Filtering goes through ``ComplexFilterBackend`` (with
+        ``IssueFilterSet``) and then ``issue_filters`` for legacy keys.
+
+    count_filter:
+        Excludes archived and draft issues and the intake-rejected/-
+        duplicate/-not-spam intake states from the group counts.
+
+    Cross-references:
+        - Permission: ``apps/api/plane/app/permissions/workspace.py``
+          (``WorkspaceViewerPermission``).
+        - Models: ``apps/api/plane/db/models/issue.py`` (``Issue``,
+          ``IssueLink``), ``apps/api/plane/db/models/asset.py``
+          (``FileAsset``).
+        - Filter helpers: ``apps/api/plane/utils/issue_filters.py``,
+          ``apps/api/plane/utils/filters.py`` (``ComplexFilterBackend``,
+          ``IssueFilterSet``), ``apps/api/plane/utils/grouper.py``,
+          ``apps/api/plane/utils/order_queryset.py``,
+          ``apps/api/plane/utils/paginator.py``.
+        - URL registration: ``apps/api/plane/app/urls/workspace.py``.
+    """
+
     permission_classes = [WorkspaceViewerPermission]
 
     filter_backends = (ComplexFilterBackend,)
     filterset_class = IssueFilterSet
 
     def apply_annotations(self, issues):
+        """Annotate each issue with link/attachment/sub-issue counts and cycle.
+
+        Adds ``cycle_id`` (latest non-deleted ``CycleIssue``), ``link_count``,
+        ``attachment_count`` (file assets with ``entity_type =
+        ISSUE_ATTACHMENT``), and ``sub_issues_count``; also prefetches
+        ``assignees``, ``labels``, and ``issue_module__module``.
+        """
         return (
             issues.annotate(
                 cycle_id=Subquery(
@@ -133,6 +238,14 @@ class WorkspaceUserProfileIssuesEndpoint(BaseAPIView):
         )
 
     def get(self, request, slug, user_id):
+        """Return the target user's issues, paginated and optionally grouped.
+
+        When both ``group_by`` and ``sub_group_by`` are supplied the response
+        uses ``SubGroupedOffsetPaginator``; with only ``group_by`` it uses
+        ``GroupedOffsetPaginator``; otherwise the default offset paginator.
+        Identical ``group_by`` and ``sub_group_by`` parameters return HTTP
+        400.
+        """
         filters = issue_filters(request.query_params, "GET")
 
         order_by_param = request.GET.get("order_by", "-created_at")
@@ -250,9 +363,39 @@ class WorkspaceUserProfileIssuesEndpoint(BaseAPIView):
 
 
 class WorkspaceUserPropertiesEndpoint(BaseAPIView):
+    """Read / write the caller's per-workspace filter/properties blob.
+
+    HTTP methods + URL pattern:
+        GET   /api/workspaces/<str:slug>/user-properties/
+        PATCH /api/workspaces/<str:slug>/user-properties/
+
+    Request body (PATCH):
+        ``WorkspaceUserPropertiesSerializer`` fields (filter presets,
+        display preferences).
+
+    Response shape:
+        ``WorkspaceUserPropertiesSerializer``. ``get_or_create`` ensures
+        a row exists on first access.
+
+    Permissions:
+        permission_classes = [WorkspaceViewerPermission] — any active
+        workspace member -- declared on the class attribute (see
+        ``apps/api/plane/app/views/workspace/user.py``).
+
+    Cross-references:
+        - Permission: ``apps/api/plane/app/permissions/workspace.py``
+          (``WorkspaceViewerPermission``).
+        - Serializer: ``apps/api/plane/app/serializers/workspace.py``
+          (``WorkspaceUserPropertiesSerializer``).
+        - Model: ``apps/api/plane/db/models/workspace.py``
+          (``WorkspaceUserProperties``).
+        - URL registration: ``apps/api/plane/app/urls/workspace.py``.
+    """
+
     permission_classes = [WorkspaceViewerPermission]
 
     def patch(self, request, slug):
+        """Apply a partial update to the caller's workspace user properties row."""
         workspace = Workspace.objects.get(slug=slug)
 
         (workspace_properties, _) = WorkspaceUserProperties.objects.get_or_create(
@@ -267,6 +410,7 @@ class WorkspaceUserPropertiesEndpoint(BaseAPIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def get(self, request, slug):
+        """Return the caller's workspace user properties row, creating it if absent."""
         workspace = Workspace.objects.get(slug=slug)
 
         (workspace_properties, _) = WorkspaceUserProperties.objects.get_or_create(
@@ -278,7 +422,53 @@ class WorkspaceUserPropertiesEndpoint(BaseAPIView):
 
 
 class WorkspaceUserProfileEndpoint(BaseAPIView):
+    """Return a target user's public profile + per-project issue rollups.
+
+    HTTP methods + URL pattern:
+        GET /api/workspaces/<str:slug>/user-profile/<uuid:user_id>/
+
+    Response shape:
+        {
+            "user_data": {email, first_name, last_name, avatar_url,
+                cover_image_url, date_joined, user_timezone, display_name},
+            "project_data": List[
+                {id, logo_props, created_issues, assigned_issues,
+                 completed_issues, pending_issues}
+            ]
+        }
+
+    ``project_data`` is only populated when the requesting user has at
+    least Member-level access (``role >= 15``); guests receive an empty
+    list. Each entry counts issues created / assigned / completed /
+    pending (non-archived, non-draft) for the target user in the project.
+
+    Request body:
+        None (GET only).
+
+    Permissions:
+        Inherits default ``BaseAPIView`` permissions; both the caller and
+        the target user must be active workspace members or the
+        ``WorkspaceMember.objects.get(...)`` call raises 404. The inline
+        comment preserved verbatim notes this is a deliberate safety
+        check: ``# Verify the target user is also an active member of
+        this workspace before exposing their profile data.``
+
+    Cross-references:
+        - Models: ``apps/api/plane/db/models/workspace.py``
+          (``WorkspaceMember``), ``apps/api/plane/db/models/user.py``
+          (``User``), ``apps/api/plane/db/models/project.py``
+          (``Project``), ``apps/api/plane/db/models/issue.py``
+          (``Issue``).
+        - URL registration: ``apps/api/plane/app/urls/workspace.py``.
+    """
+
     def get(self, request, slug, user_id):
+        """Return target user's profile + per-project issue rollups.
+
+        Both the caller and the target must be active workspace members.
+        Project-level rollups are only attached for non-guest callers
+        (``role >= 15``); guests receive ``project_data = []``.
+        """
         requesting_workspace_member = WorkspaceMember.objects.get(
             workspace__slug=slug, member=request.user, is_active=True
         )
@@ -373,9 +563,47 @@ class WorkspaceUserProfileEndpoint(BaseAPIView):
 
 
 class WorkspaceUserActivityEndpoint(BaseAPIView):
+    """Paginated activity feed for a target user across the workspace.
+
+    HTTP methods + URL pattern:
+        GET /api/workspaces/<str:slug>/user-activity/<uuid:user_id>/
+
+    Query parameters:
+        project (uuid[], optional, repeatable): narrow to specific
+            projects.
+        order_by (str, optional, default ``"-created_at"``).
+
+    Response shape:
+        Paginated list of ``IssueActivitySerializer`` rows. Activity rows
+        with ``field`` in ``{"comment", "vote", "reaction", "draft"}`` are
+        excluded.
+
+    Request body:
+        None (GET only). Behavior is parameterized via query parameters
+        documented above.
+
+    Permissions:
+        permission_classes = [WorkspaceEntityPermission] — any active
+        workspace member -- declared on the class attribute (see
+        ``apps/api/plane/app/views/workspace/user.py``).
+
+    Queryset:
+        Restricts to activity in projects the caller is an active member
+        of and that are not archived.
+
+    Cross-references:
+        - Permission: ``apps/api/plane/app/permissions/workspace.py``
+          (``WorkspaceEntityPermission``).
+        - Serializer: ``apps/api/plane/app/serializers/issue.py``
+          (``IssueActivitySerializer``).
+        - Model: ``apps/api/plane/db/models/issue.py`` (``IssueActivity``).
+        - URL registration: ``apps/api/plane/app/urls/workspace.py``.
+    """
+
     permission_classes = [WorkspaceEntityPermission]
 
     def get(self, request, slug, user_id):
+        """Paginated issue-activity feed for a target user, with project filters."""
         projects = request.query_params.getlist("project", [])
 
         queryset = IssueActivity.objects.filter(
@@ -399,7 +627,55 @@ class WorkspaceUserActivityEndpoint(BaseAPIView):
 
 
 class WorkspaceUserProfileStatsEndpoint(BaseAPIView):
+    """Return per-user profile statistics across the workspace.
+
+    HTTP methods + URL pattern:
+        GET /api/workspaces/<str:slug>/user-stats/<uuid:user_id>/
+
+    Query parameters:
+        All keys consumed by ``issue_filters`` (date ranges, state
+        groups, etc.).
+
+    Response shape:
+        {
+            "state_distribution": List[{state_group, state_count}],
+            "priority_distribution": List[{priority, priority_count,
+                priority_order}],
+            "created_issues": int,
+            "assigned_issues": int,
+            "completed_issues": int,
+            "pending_issues": int,
+            "subscribed_issues": int,
+            "present_cycles": List[{cycle__name, cycle__id,
+                cycle__project_id}],
+            "upcoming_cycles": List[{cycle__name, cycle__id,
+                cycle__project_id}]
+        }
+
+    Request body:
+        None (GET only). Behavior is parameterized via query parameters
+        documented above.
+
+    Permissions:
+        Inherits default ``BaseAPIView`` permissions; queries are scoped
+        to projects the caller is an active member of.
+
+    Priority ordering:
+        Priority distribution is sorted by the explicit precedence
+        ``["urgent", "high", "medium", "low", "none"]`` via a ``Case`` /
+        ``When`` annotation so the UI can render priority charts in
+        semantic order.
+
+    Cross-references:
+        - Models: ``apps/api/plane/db/models/issue.py`` (``Issue``,
+          ``IssueSubscriber``), ``apps/api/plane/db/models/cycle.py``
+          (``CycleIssue``).
+        - Filter helper: ``apps/api/plane/utils/issue_filters.py``.
+        - URL registration: ``apps/api/plane/app/urls/workspace.py``.
+    """
+
     def get(self, request, slug, user_id):
+        """Return state/priority distributions, issue counts, and cycle position."""
         filters = issue_filters(request.query_params, "GET")
 
         state_distribution = (
@@ -526,7 +802,32 @@ class WorkspaceUserProfileStatsEndpoint(BaseAPIView):
 
 
 class UserActivityGraphEndpoint(BaseAPIView):
+    """Return a 6-month daily activity heatmap for the caller in the workspace.
+
+    HTTP methods + URL pattern:
+        GET /api/users/me/workspaces/<str:slug>/activity-graph/
+
+    Response shape:
+        List[{created_date, activity_count}] — one row per day with a
+        non-zero count, from six months ago through today, in ascending
+        order.
+
+    Request body:
+        None (GET only).
+
+    Permissions:
+        Inherits default ``BaseAPIView`` permissions; queries are scoped
+        by ``actor=request.user`` so callers only see their own
+        activity heatmap.
+
+    Cross-references:
+        - Model: ``apps/api/plane/db/models/issue.py``
+          (``IssueActivity``).
+        - URL registration: ``apps/api/plane/app/urls/user.py``.
+    """
+
     def get(self, request, slug):
+        """Aggregate the caller's issue-activity rows per day, last 6 months."""
         issue_activities = (
             IssueActivity.objects.filter(
                 actor=request.user,
@@ -543,7 +844,35 @@ class UserActivityGraphEndpoint(BaseAPIView):
 
 
 class UserIssueCompletedGraphEndpoint(BaseAPIView):
+    """Return week-in-month completed-issue counts for the caller in the workspace.
+
+    HTTP methods + URL pattern:
+        GET /api/users/me/workspaces/<str:slug>/issues-completed-graph/
+
+    Query parameters:
+        month (int, optional, default ``1``): the calendar month to roll
+            up.
+
+    Response shape:
+        List[{week, completed_count}] — one row per ``ExtractWeek(...) %
+        4`` bucket so the four-bar weekly chart can render without
+        additional client-side math.
+
+    Request body:
+        None (GET only). Behavior is parameterized via the ``month``
+        query parameter documented above.
+
+    Permissions:
+        Inherits default ``BaseAPIView`` permissions; queries are scoped
+        by ``assignees__in=[request.user]``.
+
+    Cross-references:
+        - Model: ``apps/api/plane/db/models/issue.py`` (``Issue``).
+        - URL registration: ``apps/api/plane/app/urls/user.py``.
+    """
+
     def get(self, request, slug):
+        """Aggregate the caller's completed-issue counts per week of the given month."""
         month = request.GET.get("month", 1)
 
         issues = (

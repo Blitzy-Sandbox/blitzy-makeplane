@@ -4,6 +4,23 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders the generic work-item create or delete event in the activity timeline.
+ *
+ * Props:
+ *   - activityId (string, required): identifier of the activity record to render.
+ *   - ends ("top" | "bottom" | undefined, required): timeline-stack position marker.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — reads `activity.getActivityById(activityId)`. The
+ *     activity record carries an optional `source_data.source` field; when the
+ *     create event originated outside the in-app flow (e.g., Slack, GitHub),
+ *     the source label is capitalized and appended to the rendered copy.
+ *
+ * Side effects: none. Read-only / presentational; no mutations, no navigations,
+ * no API calls.
+ */
+
 import { observer } from "mobx-react";
 // plane imports
 import { WorkItemsIcon } from "@plane/propel/icons";

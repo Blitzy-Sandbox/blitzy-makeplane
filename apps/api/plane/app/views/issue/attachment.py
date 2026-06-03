@@ -2,6 +2,26 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Issue attachment HTTP endpoints (legacy multipart + presigned-S3 v2).
+
+Provides two endpoints for managing file attachments on individual
+issues:
+
+* :class:`IssueAttachmentEndpoint` -- legacy direct-upload flow that
+  accepts multipart form data and writes the file through Django's
+  storage backend in a single request.
+* :class:`IssueAttachmentV2Endpoint` -- modern presigned-S3 POST flow
+  (see tech spec section 5.2.9): the client requests a presigned URL
+  via ``POST``, uploads the binary directly to S3, then finalizes via
+  ``PATCH``. This bypasses Django for the bytes themselves and supports
+  much larger payloads.
+
+All write paths enqueue
+``plane.bgtasks.issue_activities_task.issue_activity`` (Celery via
+RabbitMQ) so the attachment add/delete event appears in the issue
+timeline.
+"""
+
 # Python imports
 import json
 import uuid
@@ -30,12 +50,69 @@ from plane.utils.host import base_host
 
 
 class IssueAttachmentEndpoint(BaseAPIView):
+    """Legacy multipart-upload endpoint for issue attachments (in-process upload through Django).
+
+    HTTP methods + URL patterns:
+        GET    /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/issue-attachments/
+        POST   /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/issue-attachments/
+        DELETE /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/issue-attachments/<pk>/
+
+    Parsers:
+        MultiPartParser + FormParser -- the binary file is included in
+        the request body.
+
+    Request body (POST):
+        Multipart form fields validated by
+        :class:`plane.app.serializers.IssueAttachmentSerializer`
+        (typically ``asset`` -- the file -- plus ``attributes``).
+
+    Response shape:
+        - ``POST``: serialized :class:`FileAsset` (HTTP 201) or
+          serializer errors (HTTP 400).
+        - ``GET``: list of serialized FileAsset rows scoped to the issue.
+        - ``DELETE``: HTTP 204 empty body; HTTP 404 if the attachment is
+          missing.
+
+    Permissions:
+        permission_classes -- not set on the class; inherits
+        ``[IsAuthenticated]`` from :class:`BaseAPIView`.
+        Per-method gates:
+            * ``post``/``get``: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])``
+            * ``delete``: ``@allow_permission([ROLE.ADMIN], creator=True, model=FileAsset)``
+              -- so any project member can delete an attachment they
+              created, but only project admins can delete others'.
+
+    Side effects (Celery via RabbitMQ -- NOT Redis):
+        * POST creates a :class:`FileAsset` row with
+          ``entity_type=FileAsset.EntityTypeContext.ISSUE_ATTACHMENT``
+          and enqueues ``issue_activity.delay(type="attachment.activity.created", ...)``.
+        * DELETE hard-deletes the underlying storage asset
+          (``asset.delete(save=False)``) and the FileAsset row, and
+          enqueues ``issue_activity.delay(type="attachment.activity.deleted", ...)``.
+
+    Note:
+        Newer clients should use :class:`IssueAttachmentV2Endpoint`
+        (presigned S3 POST flow per tech spec section 5.2.9).
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueAttachmentSerializer``.
+        - Models: ``plane.db.models.FileAsset``, ``plane.db.models.Issue``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
+    """
+
     serializer_class = IssueAttachmentSerializer
     model = FileAsset
     parser_classes = (MultiPartParser, FormParser)
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def post(self, request, slug, project_id, issue_id):
+        """Persist a multipart-uploaded file as an issue attachment.
+
+        Enqueues an ``attachment.activity.created`` Celery task on
+        success (Celery via RabbitMQ).
+        """
         serializer = IssueAttachmentSerializer(data=request.data)
         workspace = Workspace.objects.get(slug=slug)
         if serializer.is_valid():
@@ -61,6 +138,11 @@ class IssueAttachmentEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN], creator=True, model=FileAsset)
     def delete(self, request, slug, project_id, issue_id, pk):
+        """Hard-delete the FileAsset row and its underlying storage object.
+
+        Enqueues an ``attachment.activity.deleted`` Celery task once the
+        row is removed (Celery via RabbitMQ).
+        """
         issue_attachment = FileAsset.objects.filter(
             pk=pk, workspace__slug=slug, project_id=project_id, issue_id=issue_id
         ).first()
@@ -87,17 +169,108 @@ class IssueAttachmentEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def get(self, request, slug, project_id, issue_id):
+        """List all issue attachments for the given workspace + project + issue."""
         issue_attachments = FileAsset.objects.filter(issue_id=issue_id, workspace__slug=slug, project_id=project_id)
         serializer = IssueAttachmentSerializer(issue_attachments, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class IssueAttachmentV2Endpoint(BaseAPIView):
+    """Presigned-S3 POST flow for issue attachments (tech spec section 5.2.9).
+
+    Three-step upload protocol:
+        1. ``POST`` -- client sends ``{"name", "type", "size"}``; the
+           server validates the mime/size against
+           :attr:`settings.ATTACHMENT_MIME_TYPES` and
+           :attr:`settings.FILE_SIZE_LIMIT`, creates a pending
+           :class:`FileAsset` row (``is_uploaded=False``), and returns a
+           presigned S3 POST payload.
+        2. Client uploads the binary directly to S3 using the returned
+           ``upload_data`` (not handled by Django).
+        3. ``PATCH`` -- client notifies the server that the upload is
+           complete; the row is updated with ``is_uploaded=True`` and an
+           activity task plus a metadata-backfill task are enqueued.
+
+    HTTP methods + URL patterns:
+        POST   /api/assets/v2/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/attachments/
+        GET    /api/assets/v2/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/attachments/
+        GET    /api/assets/v2/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/attachments/<pk>/
+        PATCH  /api/assets/v2/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/attachments/<pk>/
+        DELETE /api/assets/v2/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/attachments/<pk>/
+
+    Request body:
+        - ``POST``: ``{"name": str, "type": str (mime), "size": int}``.
+          ``name`` is sanitized by
+          :func:`plane.utils.path_validator.sanitize_filename`; ``type``
+          must be a member of ``settings.ATTACHMENT_MIME_TYPES``; ``size``
+          is clamped to ``settings.FILE_SIZE_LIMIT``.
+        - ``GET``: none.
+        - ``PATCH``: none required (idempotent finalize).
+        - ``DELETE``: none.
+
+    Response shape:
+        - ``POST``: ``{"upload_data": <presigned POST payload>,
+          "asset_id": "<uuid>", "attachment": <serialized FileAsset>,
+          "asset_url": "<public url>"}`` (HTTP 200).
+        - ``GET`` with pk: HTTP 302 ``Location: <presigned GET URL>``
+          (``disposition="attachment"`` so the browser downloads
+          instead of inlining). HTTP 400 if the asset is not yet
+          uploaded.
+        - ``GET`` without pk: list of serialized FileAsset rows where
+          ``is_uploaded=True``.
+        - ``PATCH``: HTTP 204 empty body.
+        - ``DELETE``: HTTP 204 empty body.
+
+    Permissions:
+        permission_classes -- not set on the class; inherits
+        ``[IsAuthenticated]`` from :class:`BaseAPIView`.
+        Per-method gates: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER,
+        ROLE.GUEST])`` on POST/GET/PATCH; ``@allow_permission([ROLE.ADMIN],
+        creator=True, model=FileAsset)`` on DELETE (creator-or-admin).
+
+    Side effects (Celery via RabbitMQ -- NOT Redis):
+        * ``POST`` creates a FileAsset row with
+          ``entity_type=FileAsset.EntityTypeContext.ISSUE_ATTACHMENT``;
+          no S3 write occurs server-side -- the presigned URL allows the
+          client to upload directly.
+        * ``PATCH`` enqueues ``issue_activity.delay`` (Celery via
+          RabbitMQ) with ``type="attachment.activity.created"`` only the
+          first time the asset is marked uploaded; also enqueues
+          ``get_asset_object_metadata.delay(...)`` (Celery via RabbitMQ)
+          via :func:`plane.bgtasks.storage_metadata_task.get_asset_object_metadata`
+          when ``storage_metadata`` is empty (backfill of S3 ETag/size).
+        * ``DELETE`` performs a SOFT delete (``is_deleted=True,
+          deleted_at=now()``) and enqueues ``issue_activity.delay`` with
+          ``type="attachment.activity.deleted"``. The S3 object is
+          reaped later by :func:`plane.bgtasks.file_asset_task` (Beat).
+
+    Idempotency:
+        ``PATCH`` is safe to retry -- the ``attachment.activity.created``
+        event is enqueued only when ``is_uploaded`` was ``False``.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueAttachmentSerializer``.
+        - Models: ``plane.db.models.FileAsset``, ``plane.db.models.Issue``.
+        - Celery tasks (via RabbitMQ):
+            ``plane.bgtasks.issue_activities_task.issue_activity``,
+            ``plane.bgtasks.storage_metadata_task.get_asset_object_metadata``,
+            ``plane.bgtasks.file_asset_task`` (Beat-driven reaper).
+        - URL registration: ``apps/api/plane/app/urls/asset.py`` / ``issue.py``.
+    """
+
     serializer_class = IssueAttachmentSerializer
     model = FileAsset
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def post(self, request, slug, project_id, issue_id):
+        """Validate mime/size and create a pending :class:`FileAsset`.
+
+        Returns an S3 presigned POST payload that lets the client upload
+        the binary directly to S3 (no Django bytes pass-through).
+        Returns HTTP 400 if ``type`` is missing or not in
+        ``settings.ATTACHMENT_MIME_TYPES``.
+        """
         name = sanitize_filename(request.data.get("name")) or "unnamed"
         type = request.data.get("type", False)
         size = int(request.data.get("size", settings.FILE_SIZE_LIMIT))
@@ -148,6 +321,13 @@ class IssueAttachmentV2Endpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN], creator=True, model=FileAsset)
     def delete(self, request, slug, project_id, issue_id, pk):
+        """Soft-delete the FileAsset (``is_deleted=True``) and enqueue an ``attachment.activity.deleted`` Celery task.
+
+        The activity task is dispatched via Celery through RabbitMQ
+        (NOT Redis -- Redis is caching/session only in this codebase).
+        The underlying S3 object is reaped later by the asset cleanup
+        Celery Beat job.
+        """
         issue_attachment = FileAsset.objects.get(pk=pk, workspace__slug=slug, project_id=project_id)
         issue_attachment.is_deleted = True
         issue_attachment.deleted_at = timezone.now()
@@ -169,6 +349,15 @@ class IssueAttachmentV2Endpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def get(self, request, slug, project_id, issue_id, pk=None):
+        """Return a 302 redirect or list of uploaded attachments for the issue.
+
+        When ``pk`` is provided, responds with HTTP 302 ``Location:
+        <presigned S3 download URL>`` (``disposition="attachment"``).
+        When ``pk`` is omitted, responds with the list of FileAsset rows
+        where ``is_uploaded=True``. Returns HTTP 400 when ``pk``
+        references an asset whose upload has not yet been finalized
+        (``is_uploaded=False``).
+        """
         if pk:
             # Get the asset
             asset = FileAsset.objects.get(id=pk, workspace__slug=slug, project_id=project_id)
@@ -202,6 +391,14 @@ class IssueAttachmentV2Endpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def patch(self, request, slug, project_id, issue_id, pk):
+        """Finalize a presigned-upload by marking ``is_uploaded=True``.
+
+        Enqueues ``issue_activity`` for the activity feed and
+        ``get_asset_object_metadata`` for S3 metadata backfill (Celery
+        via RabbitMQ). Safe to retry: the
+        ``attachment.activity.created`` event fires only on the first
+        finalize (when ``is_uploaded`` was ``False``).
+        """
         issue_attachment = FileAsset.objects.get(pk=pk, workspace__slug=slug, project_id=project_id)
         serializer = IssueAttachmentSerializer(issue_attachment)
 

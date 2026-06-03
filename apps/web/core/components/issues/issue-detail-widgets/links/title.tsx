@@ -4,6 +4,32 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Collapsible header row for the issue-detail "Links" widget that displays the localized
+ * "Links" label, the current link count from the issue store, and (when enabled) inlines
+ * the `IssueLinksActionButton` quick-action to open the link creation modal.
+ *
+ * Props:
+ *   - isOpen (boolean, required): Forwarded to the underlying `CollapsibleButton` so the
+ *     chevron/affordance reflects the parent collapsible's open state.
+ *   - issueId (string, required): Resolves the issue record from the store to read `link_count`.
+ *   - disabled (boolean, required): When true, hides the inline action button and is forwarded
+ *     to it for redundant guarding.
+ *   - issueServiceType (TIssueServiceType, required): Selects between the "issues" and "epics"
+ *     issue-detail store slices via `useIssueDetail`.
+ *
+ * MobX stores read:
+ *   - useIssueDetail(issueServiceType).issue.getIssueById(issueId): observable issue lookup;
+ *     re-renders when the resolved issue or its `link_count` changes (observer-wrapped).
+ *
+ * Side effects:
+ *   - None directly. Rendering `IssueLinksActionButton` defers the modal-open mutation
+ *     (`toggleIssueLinkModal(true)`) to that child component.
+ *
+ * Consumers: passed as the `title` slot of the `Collapsible` rendered by `./root.tsx`
+ * (`LinksCollapsible`) inside the issue-detail widget shell.
+ */
+
 import React, { useMemo } from "react";
 import { observer } from "mobx-react";
 // plane imports

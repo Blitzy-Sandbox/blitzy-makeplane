@@ -2,6 +2,20 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Issue reaction (emoji) HTTP endpoints.
+
+Exposes :class:`IssueReactionViewSet` for adding, listing, and removing
+emoji reactions on issues. Reactions are scoped by ``(issue, actor,
+reaction_code)``; each user may add multiple distinct reactions to the
+same issue but only one of each code. Removal is permitted only for
+the user's own reactions (the destroy lookup pins
+``actor=request.user`` -- there is no admin override).
+
+Every create / destroy enqueues
+``plane.bgtasks.issue_activities_task.issue_activity`` (Celery via
+RabbitMQ) so the reaction event appears in the issue timeline.
+"""
+
 # Python imports
 import json
 
@@ -23,10 +37,63 @@ from plane.utils.host import base_host
 
 
 class IssueReactionViewSet(BaseViewSet):
+    """Emoji-reaction endpoint for issues.
+
+    HTTP methods + URL patterns:
+        GET    /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/reactions/
+        POST   /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/reactions/
+        DELETE /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/reactions/<reaction_code>/
+
+    Request body (POST):
+        Validated by
+        :class:`plane.app.serializers.IssueReactionSerializer`:
+            * ``reaction`` (str, required) -- emoji code (e.g.,
+              ``"thumbs_up"``, ``"heart"``).
+
+    Response shape:
+        ``IssueReactionSerializer`` output (id, reaction, actor,
+        issue_id, project_id, created_at).
+
+    Permissions:
+        permission_classes -- not set on the class; inherits
+        ``[IsAuthenticated]`` from :class:`BaseViewSet`.
+        Per-method gate: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER,
+        ROLE.GUEST])`` on both ``create`` and ``destroy``.
+
+    get_queryset filter logic:
+        Filters by ``workspace__slug``, ``project_id``, ``issue_id`` from
+        the URL, restricted to active project members on a non-archived
+        project; ordered by ``-created_at``; distinct.
+
+    Destroy semantics:
+        :meth:`destroy` looks up the row by
+        ``(workspace__slug, project_id, issue_id, reaction=reaction_code,
+        actor=request.user)`` -- so a user can only remove their OWN
+        reaction. There is no admin override.
+
+    Side effects (Celery via RabbitMQ -- NOT Redis):
+        Each create / destroy enqueues ``issue_activity.delay(...)`` with
+        ``type="issue_reaction.activity.{created|deleted}"`` for the
+        issue timeline.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueReactionSerializer``.
+        - Models: ``plane.db.models.IssueReaction``, ``plane.db.models.Issue``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
+    """
+
     serializer_class = IssueReactionSerializer
     model = IssueReaction
 
     def get_queryset(self):
+        """Return :class:`IssueReaction` rows for the URL's issue scope.
+
+        Filters by ``workspace__slug``, ``project_id``, and ``issue_id``
+        from the URL; restricts to rows owned by active project members
+        on a non-archived project; orders by ``-created_at``; distinct.
+        """
         return (
             super()
             .get_queryset()
@@ -44,6 +111,12 @@ class IssueReactionViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def create(self, request, slug, project_id, issue_id):
+        """Add an emoji reaction to the issue (``actor=request.user``).
+
+        Saves the row with ``actor=request.user`` and enqueues an
+        ``issue_reaction.activity.created`` Celery task (via RabbitMQ)
+        so the create event appears in the issue timeline.
+        """
         serializer = IssueReactionSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save(issue_id=issue_id, project_id=project_id, actor=request.user)
@@ -63,6 +136,12 @@ class IssueReactionViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def destroy(self, request, slug, project_id, issue_id, reaction_code):
+        """Remove the requesting user's reaction from the issue.
+
+        Matches by ``reaction_code`` and pins ``actor=request.user``
+        (own reaction only; no admin override). Enqueues an
+        ``issue_reaction.activity.deleted`` Celery task (via RabbitMQ).
+        """
         issue_reaction = IssueReaction.objects.get(
             workspace__slug=slug,
             project_id=project_id,

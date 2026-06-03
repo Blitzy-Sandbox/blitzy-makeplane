@@ -2,6 +2,36 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Project member roster management and per-member preference endpoints.
+
+Exposes four DRF views:
+
+* :class:`ProjectMemberViewSet` -- admin-facing CRUD over
+  :class:`plane.db.models.ProjectMember`. Enforces a strict role
+  hierarchy: ``Admin=20 > Member=15 > Guest=5``. Workspace role
+  consistency is enforced upfront so a workspace Guest cannot be
+  promoted past Guest at the project layer, and a workspace Admin
+  cannot be added with a lower role.
+* :class:`ProjectMemberUserEndpoint` -- read-only "what is my
+  membership?" endpoint used by the web client to render project
+  context.
+* :class:`UserProjectRolesEndpoint` -- workspace-wide read-replica
+  endpoint returning a ``{project_id: role}`` mapping for the
+  requesting user.
+* :class:`ProjectMemberPreferenceEndpoint` -- read/update the JSON
+  ``preferences`` blob on a specific project membership row.
+
+Side effects (``ProjectMemberViewSet.create``):
+    * Bulk creates or reactivates :class:`ProjectMember` and
+      :class:`ProjectUserProperty` rows.
+    * Enqueues ``project_add_user_email`` Celery tasks (RabbitMQ, not
+      Redis -- Redis is caching/session only per the architectural
+      context) for each freshly added member.
+
+Role wire values (preserved as literals throughout this module for
+serializer compatibility): ``Admin=20``, ``Member=15``, ``Guest=5``.
+"""
+
 # Third Party imports
 from rest_framework.response import Response
 from rest_framework import status
@@ -25,12 +55,94 @@ from plane.app.permissions.base import allow_permission, ROLE
 
 
 class ProjectMemberViewSet(BaseViewSet):
+    """Per-project member roster CRUD and bulk-add endpoint.
+
+    HTTP methods + URL patterns:
+        GET    /api/workspaces/<slug>/projects/<project_id>/members/
+        POST   /api/workspaces/<slug>/projects/<project_id>/members/
+        GET    /api/workspaces/<slug>/projects/<project_id>/members/<pk>/
+        PATCH  /api/workspaces/<slug>/projects/<project_id>/members/<pk>/
+        DELETE /api/workspaces/<slug>/projects/<project_id>/members/<pk>/
+        POST   /api/workspaces/<slug>/projects/<project_id>/members/leave/
+
+    Request body (POST):
+        members (list[dict], required): Each item is
+            ``{"member_id": UUID, "role": int}``. Role values:
+            ``Admin=20``, ``Member=15``, ``Guest=5``.
+
+    Request body (PATCH):
+        role (int, optional): New role for the target member. Subject
+            to the role hierarchy rules below.
+
+    Response shape (GET list, POST):
+        :class:`plane.app.serializers.ProjectMemberRoleSerializer`
+        output with fields ``id``, ``member``, ``role``.
+
+    Response shape (GET detail):
+        :class:`plane.app.serializers.ProjectMemberAdminSerializer`
+        when the requesting user's role > ``ROLE.GUEST.value``, else
+        the lighter :class:`ProjectMemberRoleSerializer`.
+
+    Permissions:
+        Default :class:`plane.app.permissions.ProjectBasePermission`
+        plus per-method ``@allow_permission`` decorators:
+
+        * ``create`` / ``destroy`` -- ``[ROLE.ADMIN]`` only.
+        * ``list`` / ``retrieve`` / ``partial_update`` / ``leave`` --
+          ``[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST]``.
+
+    Role hierarchy rules enforced on ``partial_update``:
+        * A non-admin cannot edit their own role.
+        * Cannot modify a member whose role is equal to or higher
+          than your own.
+        * Cannot assign a role equal to or higher than your own.
+        * Workspace Guests cannot be elevated to Member or Admin at
+          the project layer.
+
+    Role hierarchy rules enforced on ``destroy`` (soft-delete):
+        * Cannot remove yourself (use ``leave`` instead).
+        * Cannot remove a member whose role is higher than yours.
+        * Removal is implemented as ``is_active = False`` (soft).
+
+    Side effects (POST):
+        Bulk creates ``ProjectMember`` + ``ProjectUserProperty`` rows
+        and enqueues ``project_add_user_email`` Celery tasks via
+        RabbitMQ (worker module
+        :mod:`plane.bgtasks.project_add_user_email_task`).
+
+    Queryset filter logic:
+        Scoped to ``workspace.slug == kwargs["slug"]``,
+        ``project_id == kwargs["project_id"]``, and
+        ``member.is_bot=False`` (system service accounts are excluded
+        from human-readable rosters). ``project``, ``member``,
+        ``workspace``, and ``workspace.owner`` are eager-loaded.
+
+    Cross-references:
+        * Serializers: ``ProjectMemberAdminSerializer``,
+          ``ProjectMemberRoleSerializer`` in
+          ``apps/api/plane/app/serializers/project.py``.
+        * Models: ``ProjectMember``, ``ProjectUserProperty``,
+          ``WorkspaceMember`` in
+          ``apps/api/plane/db/models/project.py`` and
+          ``apps/api/plane/db/models/workspace.py``.
+        * Permissions: ``ProjectBasePermission`` in
+          ``apps/api/plane/app/permissions/project.py``;
+          ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * Celery task:
+          ``apps/api/plane/bgtasks/project_add_user_email_task.py``
+          (queued via RabbitMQ).
+        * URL registration:
+          ``apps/api/plane/app/urls/project.py``.
+    """
+
     serializer_class = ProjectMemberAdminSerializer
     model = ProjectMember
 
     search_fields = ["member__display_name", "member__first_name"]
 
     def get_queryset(self):
+        """Return active non-bot members of the workspace+project with project, member, and workspace eager-loaded."""
         return self.filter_queryset(
             super()
             .get_queryset()
@@ -45,6 +157,15 @@ class ProjectMemberViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN])
     def create(self, request, slug, project_id):
+        """Bulk add or reactivate project members; enqueues ``project_add_user_email`` Celery tasks (RabbitMQ).
+
+        Workspace role consistency is enforced upfront: a workspace
+        ``Admin`` cannot be added as ``Member`` / ``Guest`` and a
+        workspace ``Guest`` cannot be added as ``Member`` / ``Admin``.
+        Existing ``ProjectMember`` rows for the supplied member ids are
+        reactivated and re-roled in bulk; new rows are bulk inserted
+        with a fresh :class:`ProjectUserProperty` per member.
+        """
         # Get the list of members to be added to the project and their roles i.e. the user_id and the role
         members = request.data.get("members", [])
 
@@ -155,6 +276,7 @@ class ProjectMemberViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def list(self, request, slug, project_id):
+        """List active non-bot project members; serializer is restricted to ``id``, ``member``, ``role`` fields."""
         # Get the list of project members for the project
         project_members = ProjectMember.objects.filter(
             project_id=project_id,
@@ -170,6 +292,7 @@ class ProjectMemberViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def retrieve(self, request, slug, project_id, pk):
+        """Return a single project member; uses the admin serializer when the requester's role exceeds ``Guest``."""
         requesting_project_member = ProjectMember.objects.get(
             project_id=project_id,
             workspace__slug=slug,
@@ -204,6 +327,7 @@ class ProjectMemberViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def partial_update(self, request, slug, project_id, pk):
+        """Partial update of a project membership with strict role-hierarchy enforcement (see class docstring)."""
         project_member = ProjectMember.objects.get(pk=pk, workspace__slug=slug, project_id=project_id, is_active=True)
 
         # Fetch the target's workspace role (used to cap the new project role)
@@ -270,6 +394,7 @@ class ProjectMemberViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN])
     def destroy(self, request, slug, project_id, pk):
+        """Soft-deactivate (``is_active=False``) a project member; cannot remove self or a higher-role member."""
         project_member = ProjectMember.objects.get(
             workspace__slug=slug,
             project_id=project_id,
@@ -303,6 +428,7 @@ class ProjectMemberViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def leave(self, request, slug, project_id):
+        """Soft-deactivate the requester's project membership (self-leave); sole-admin guard blocks abandonment."""
         project_member = ProjectMember.objects.get(
             workspace__slug=slug,
             project_id=project_id,
@@ -331,7 +457,36 @@ class ProjectMemberViewSet(BaseViewSet):
 
 
 class ProjectMemberUserEndpoint(BaseAPIView):
+    """Return the requesting user's own active membership row for a project.
+
+    HTTP methods + URL patterns:
+        GET /api/workspaces/<slug>/projects/<project_id>/project-members/me/
+
+    Request body:
+        None (GET only).
+
+    Response shape:
+        :class:`plane.app.serializers.ProjectMemberSerializer` output
+        for the single active membership row keyed by
+        ``(workspace.slug, project_id, member=request.user,
+        is_active=True)``.
+
+    Permissions:
+        Inherits :class:`plane.app.views.base.BaseAPIView` default of
+        ``[IsAuthenticated]``. Used by the web client to render
+        project-context UI without requiring elevated permissions.
+
+    Cross-references:
+        * Serializer: ``ProjectMemberSerializer`` in
+          ``apps/api/plane/app/serializers/project.py``.
+        * Model: ``ProjectMember`` in
+          ``apps/api/plane/db/models/project.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/project.py``.
+    """
+
     def get(self, request, slug, project_id):
+        """Return the requesting user's active :class:`ProjectMember` row for the workspace+project."""
         project_member = ProjectMember.objects.get(
             project_id=project_id,
             workspace__slug=slug,
@@ -344,10 +499,46 @@ class ProjectMemberUserEndpoint(BaseAPIView):
 
 
 class UserProjectRolesEndpoint(BaseAPIView):
+    """Workspace-wide ``{project_id: role}`` mapping for the requesting user.
+
+    HTTP methods + URL patterns:
+        GET /api/users/me/workspaces/<slug>/project-roles/
+
+    Request body:
+        None (GET only).
+
+    Response shape:
+        ``dict[str, int]`` mapping each project UUID (string) to the
+        requesting user's integer role in that project. Role values:
+        ``Admin=20``, ``Member=15``, ``Guest=5``.
+
+    Permissions:
+        ``permission_classes = [WorkspaceUserPermission]`` (declared on
+        the class attribute; see
+        ``apps/api/plane/app/views/project/member.py``) -- the
+        requesting user must have an active workspace membership;
+        per-project permissions are unnecessary because the response
+        only enumerates the requester's own roles.
+
+    Read replica:
+        use_read_replica = True -- this endpoint is read-heavy and is
+        polled by the web client on workspace switch, so it is routed
+        through the read replica to offload the primary.
+
+    Cross-references:
+        * Model: ``ProjectMember`` in
+          ``apps/api/plane/db/models/project.py``.
+        * Permissions: ``WorkspaceUserPermission`` in
+          ``apps/api/plane/app/permissions/workspace.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/project.py``.
+    """
+
     permission_classes = [WorkspaceUserPermission]
     use_read_replica = True
 
     def get(self, request, slug):
+        """Return ``{project_id: role}`` for every project in which the requesting user has an active membership."""
         project_members = ProjectMember.objects.filter(
             workspace__slug=slug,
             member_id=request.user.id,
@@ -361,7 +552,36 @@ class UserProjectRolesEndpoint(BaseAPIView):
 
 
 class ProjectMemberPreferenceEndpoint(BaseAPIView):
+    """Read / update the JSON ``preferences`` blob on a specific project membership row.
+
+    HTTP methods + URL patterns:
+        GET   /api/workspaces/<slug>/projects/<project_id>/preferences/member/<member_id>/
+        PATCH /api/workspaces/<slug>/projects/<project_id>/preferences/member/<member_id>/
+
+    Request body (PATCH):
+        Any JSON object. The payload is merged into
+        :attr:`ProjectMember.preferences` via
+        :meth:`ProjectMemberPreferenceSerializer.validate_preferences`,
+        which calls ``existing.update(value)`` so unspecified keys are
+        retained.
+
+    Response shape (GET):
+        :class:`plane.app.serializers.ProjectMemberPreferenceSerializer`
+        output (``preferences``, ``project_id``, ``member_id``,
+        ``workspace_id``).
+
+    Response shape (PATCH):
+        ``{"preferences": <merged-blob>}`` on success.
+
+    Permissions:
+        ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])``
+        on both ``get`` and ``patch`` -- any active project member
+        may inspect or modify their own (or another member's)
+        preferences row.
+    """
+
     def get_queryset(self, slug, project_id, member_id):
+        """Return the :class:`ProjectMember` row keyed by ``(slug, project_id, member_id)`` (raises if missing)."""
         return ProjectMember.objects.get(
             project_id=project_id,
             member_id=member_id,
@@ -370,6 +590,7 @@ class ProjectMemberPreferenceEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def patch(self, request, slug, project_id, member_id):
+        """Merge the request body into ``ProjectMember.preferences`` (existing keys are retained on partial update)."""
         project_member = self.get_queryset(slug, project_id, member_id)
 
         serializer = ProjectMemberPreferenceSerializer(project_member, {"preferences": request.data}, partial=True)
@@ -382,6 +603,7 @@ class ProjectMemberPreferenceEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def get(self, request, slug, project_id, member_id):
+        """Return the serialized ``preferences`` payload for the target ``ProjectMember`` row."""
         project_member = self.get_queryset(slug, project_id, member_id)
 
         serializer = ProjectMemberPreferenceSerializer(project_member)

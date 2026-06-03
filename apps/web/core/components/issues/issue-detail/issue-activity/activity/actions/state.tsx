@@ -4,6 +4,25 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders a state-transition event in the issue activity timeline.
+ *
+ * Props:
+ *   - activityId (string, required): identifier of the activity record to render.
+ *   - ends ("top" | "bottom" | undefined, required): timeline-stack position marker.
+ *   - showIssue (boolean, optional, default `true`): when true, appends " for "
+ *     followed by an `IssueLink`.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — reads `activity.getActivityById(activityId)`. The
+ *     new state name is taken directly from `activity.new_value` (any state
+ *     configured on the project, e.g., "Backlog", "Todo", "In Progress",
+ *     "Done", "Cancelled", or a custom state).
+ *
+ * Side effects: none. Read-only / presentational; no mutations, no navigations,
+ * no API calls.
+ */
+
 import { observer } from "mobx-react";
 // hooks
 import { StatePropertyIcon } from "@plane/propel/icons";

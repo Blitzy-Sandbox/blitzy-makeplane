@@ -4,6 +4,70 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Inline label-creation editor embedded inside the issue-detail label workflow.
+ *
+ * Rendered purpose: a compact toggle that, when expanded, opens an inline form with a `TwitterPicker`
+ * color swatch (inside a `Popover`) and a name `Input` so the user can create a new label and
+ * immediately attach it to the current work item without leaving the issue detail panel. Submission
+ * creates the label, appends its id to the issue's `label_ids`, persists the issue update, and
+ * collapses the editor.
+ *
+ * Props (ILabelCreate, file-local type):
+ *   - workspaceSlug (string, required): scopes the create-label and update-issue mutations
+ *   - projectId (string, required): scopes the create-label mutation and the issue update
+ *   - issueId (string, required): the work item the new label is attached to
+ *   - values (string[], required): the current `label_ids` array — the newly created label's id is
+ *     appended to this on success
+ *   - labelOperations (TLabelOperations from `./root`, required): provides `createLabel(...)` and
+ *     `updateIssue(...)`; both are routed through the issue-detail / label stores
+ *   - disabled (boolean, optional, default=false): currently only disables the inline cancel button
+ *     once the editor is expanded (the toggle row itself does not consult `disabled`)
+ *
+ * MobX stores read: none directly. State persistence is delegated to the `labelOperations`
+ * contract (which in turn reaches `useLabel().createLabel` and `useIssueDetail().updateIssue` in
+ * `./root`). The component is intentionally NOT wrapped in `observer` because it owns its own
+ * `react-hook-form` state and does not subscribe to any observable.
+ *
+ * Side effects:
+ *   - `labelOperations.createLabel(workspaceSlug, projectId, formData)` — routes through the label
+ *     store, which calls `IssueLabelService.createIssueLabel` against
+ *     `POST /api/workspaces/<slug>/projects/<projectId>/issue-labels/`.
+ *   - `labelOperations.updateIssue(workspaceSlug, projectId, issueId, { label_ids: [...] })` —
+ *     routes through the issue-detail store, which calls `IssueService.patchIssue` against the
+ *     work-item `PATCH` endpoint.
+ *   - Toast emissions are handled INSIDE the `labelOperations` contract in `./root.tsx`; this file
+ *     does not call `setToast` directly.
+ *   - Popover anchored DOM: opens a floating panel positioned by `react-popper` (`bottom-start`
+ *     placement, 12px overflow padding).
+ *
+ * Imperative DOM / derived state notes:
+ *   - `referenceElement` and `popperElement` are imperative DOM refs used by `react-popper` to
+ *     position the color-picker popover relative to the color swatch button. They are state, not
+ *     `useRef`, because `react-popper` re-runs its position calculation on each ref update.
+ *   - The `useEffect` on `[isCreateToggle, reset, setFocus]` focuses the name input and resets the
+ *     form to `defaultValues` every time the editor is opened. This is non-obvious: it prevents
+ *     stale form values from a prior open from being shown, and matches the "open = fresh form"
+ *     UX expected here.
+ *   - `defaultValues.color = "#ff0000"` is the initial color swatch (red) — preserve this exact
+ *     hex code so the inline preview swatch always renders a non-empty color on first open.
+ *   - The submit handler `handleLabel` is a no-op when `workspaceSlug || projectId` is falsy OR
+ *     when a prior submission is already in flight (`isSubmitting` from react-hook-form). This is
+ *     the double-submit guard.
+ *
+ * Accessibility notes:
+ *   - Color picker is wrapped in Headless UI `Popover` for focus management and outside-click
+ *     dismissal.
+ *   - The Cancel button is `<button type="button">` so it does NOT trigger form submission; the
+ *     submit button is `<button type="submit">` and is disabled during `isSubmitting`.
+ *   - The name input is marked required via `react-hook-form`'s `rules: { required: "This is required" }`;
+ *     when validation fails, `hasError` on the `Input` is set so the field renders with an error
+ *     style.
+ *
+ * Consumers: rendered inside `./root.tsx` (`IssueLabel`) when the issue-detail label
+ * editor exposes the inline create-label affordance.
+ */
+
 import { useState, Fragment, useEffect } from "react";
 import { TwitterPicker } from "react-color";
 import { Controller, useForm } from "react-hook-form";

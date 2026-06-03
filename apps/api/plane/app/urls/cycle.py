@@ -2,6 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for cycle-domain endpoints.
+
+Maps the cycle ViewSets from ``plane.app.views`` (CRUD, favorites,
+progress, analytics, issue membership, transfer, user-properties,
+archive/unarchive) to URL paths scoped under
+``workspaces/<slug>/projects/<project_id>/cycles/``.
+"""
+
 from django.urls import path
 
 

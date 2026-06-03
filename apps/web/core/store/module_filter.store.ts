@@ -4,6 +4,67 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Module filter store: project-scoped module filter, display-filter, and
+ * search-query state that feeds `module.store.ts`'s filtered-module selectors.
+ *
+ * State slice:
+ *   - displayFilters: Record<projectId, TModuleDisplayFilters> — per-project
+ *     display preferences (layout, order_by, favorites toggle); observable.
+ *   - filters: Record<projectId, TModuleFiltersByState> — per-project filter
+ *     payloads keyed by state slot "default" | "archived"; observable.
+ *   - searchQuery: string — active module list search term; observable.ref
+ *     (reset to "" whenever rootStore.router.projectId changes via reaction).
+ *   - archivedModulesSearchQuery: string — search term for the archived view;
+ *     observable.ref.
+ *
+ * Persistence:
+ *   - displayFilters and filters are persisted to localStorage via
+ *     `@/lib/local-storage` under keys "module_display_filters" and
+ *     "module_filters". loadFromLocalStorage() rehydrates on construction;
+ *     every action that mutates these maps re-persists via
+ *     saveDisplayFiltersToLocalStorage / saveFiltersToLocalStorage. The two
+ *     searchQuery fields are in-memory only (not persisted).
+ *
+ * Actions:
+ *   - initProjectModuleFilters(projectId): seeds default displayFilters
+ *     (layout="list", order_by="name", favorites=false) and an empty
+ *     {default:{}, archived:{}} filter slot for projectId, then persists both
+ *     maps to localStorage. Invoked by the constructor `reaction` on every
+ *     rootStore.router.projectId change.
+ *   - updateDisplayFilters(projectId, displayFilters): patches per-key into
+ *     displayFilters[projectId], persists to localStorage.
+ *   - updateFilters(projectId, filters, state="default"): patches per-key into
+ *     filters[projectId][state], persists to localStorage.
+ *   - updateSearchQuery(query) / updateArchivedModulesSearchQuery(query):
+ *     replaces the corresponding observable.ref (no persistence).
+ *   - clearAllFilters(projectId, state="default"): wipes filters[projectId][state]
+ *     to {} and resets displayFilters[projectId].favorites to false, persists
+ *     both maps to localStorage.
+ *
+ * Computed:
+ *   - currentProjectDisplayFilters / currentProjectFilters /
+ *     currentProjectArchivedFilters — derived from rootStore.router.projectId;
+ *     recompute when projectId changes or when the corresponding map entry
+ *     mutates.
+ *   - getDisplayFiltersByProjectId / getFiltersByProjectId /
+ *     getArchivedFiltersByProjectId — parameterized `computedFn` selectors
+ *     memoized per projectId argument; recompute when the underlying
+ *     displayFilters / filters slot for that projectId mutates.
+ *
+ * Consumers:
+ *   - apps/web/core/store/root.store.ts (instantiates as `moduleFilter`).
+ *   - apps/web/core/store/module.store.ts (reads the by-projectId selectors
+ *     and searchQuery to derive filteredProjectModuleIds and
+ *     filteredArchivedModuleIds).
+ *   - apps/web/core/hooks/store/use-module-filter.ts (React hook bridge).
+ *   - apps/web/core/components/modules/applied-filters/** (filter chip UI).
+ *   - apps/web/core/components/modules/dropdowns/filters/** (filter dropdowns).
+ *   - apps/web/core/components/modules/archived-modules/** (archived view).
+ *   - apps/web/core/components/modules/{module-view-header,modules-list-view}.tsx
+ *     and gantt-chart/modules-list-layout.tsx (read displayFilters).
+ */
+
 import { set } from "lodash-es";
 import { action, computed, observable, makeObservable, runInAction, reaction } from "mobx";
 import { computedFn } from "mobx-utils";

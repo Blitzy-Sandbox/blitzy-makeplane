@@ -4,6 +4,59 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for workspace quick-link CRUD and selection state.
+ *
+ * Interface split: `IWorkspaceLinkStoreActions` declares the mutating surface;
+ * `IWorkspaceLinkStore` extends it with observables and helper methods.
+ *
+ * State slice (observables):
+ * - `links: TLinkIdMap` — workspace-slug-keyed ordered arrays of link ids;
+ *   populated by `addLinks` and `fetchLinks`.
+ * - `linkMap: TLinkMap` — normalized link entities keyed by link id; written
+ *   by every CRUD action.
+ * - `linkData: TLink | undefined` — currently selected link bound to the
+ *   create/update modal; set via `setLinkData`.
+ * - `isLinkModalOpen: boolean` — modal visibility flag toggled by
+ *   `toggleLinkModal`.
+ *
+ * Actions:
+ * - `addLinks(workspaceSlug, links)` — `action.bound`; writes the id list to
+ *   `links[workspaceSlug]` and normalizes each entity into `linkMap` via
+ *   lodash `set`.
+ * - `fetchLinks(workspaceSlug)` — GET via
+ *   `workspaceService.fetchWorkspaceLinks`; delegates to `addLinks` to
+ *   populate the caches.
+ * - `createLink(workspaceSlug, data)` — POST via
+ *   `workspaceService.createWorkspaceLink`; prepends the new id into
+ *   `links[workspaceSlug]` and writes the returned entity into `linkMap`.
+ * - `updateLink(workspaceSlug, linkId, data)` — optimistically writes partial
+ *   fields into `linkMap[linkId]` BEFORE invoking
+ *   `workspaceService.updateWorkspaceLink`; no rollback on failure.
+ * - `removeLink(workspaceSlug, linkId)` — DELETE via
+ *   `workspaceService.deleteWorkspaceLink`; on success removes the id from
+ *   `links[workspaceSlug]` and deletes the `linkMap` entry.
+ * - `setLinkData(link)` — sets the modal selection.
+ * - `toggleLinkModal(isOpen)` — sets `isLinkModalOpen`.
+ *
+ * Helper methods:
+ * - `getLinksByWorkspaceId(projectId)` — returns `links[projectId]`; the
+ *   parameter is named `projectId` but callers pass a workspace slug because
+ *   `links` is keyed by workspace slug.
+ * - `getLinkById(linkId)` — returns `linkMap[linkId]`.
+ *
+ * Persistence: `WorkspaceService` (`@/services/workspace.service`) — same
+ * service used by sibling workspace stores.
+ *
+ * Composition: leaf store with no sub-store dependencies; instantiated as
+ * `HomeStore.quickLinks` (the link store is reachable only via the home
+ * store's `quickLinks` field). Not exposed directly at the root store.
+ *
+ * Consumers: `apps/web/core/components/home/widgets/links/**` —
+ * `link-detail.tsx`, `root.tsx`, `links.tsx`, `use-links.tsx`,
+ * `create-update-link-modal.tsx`, `action.tsx`.
+ */
+
 import { set } from "lodash-es";
 import { action, makeObservable, observable, runInAction } from "mobx";
 // types

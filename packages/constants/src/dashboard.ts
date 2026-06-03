@@ -4,9 +4,27 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Dashboard widget filter vocabulary consumed by the dashboard helper at
+ * `apps/web/helpers/dashboard.helper.ts` and the home dashboard widgets in
+ * `apps/web/core/components/home/widgets/**` to drive duration/status filters.
+ */
+
 // types
 import type { TIssuesListTypes } from "@plane/types";
 
+/**
+ * Duration filter tokens for dashboard widgets — drives "Due today / this week / month" filters
+ * across the dashboard surface.
+ *
+ * Consumers: `apps/web/helpers/dashboard.helper.ts` and `apps/web/core/store/dashboard.store.ts`.
+ *
+ * Values:
+ * - NONE: no duration filter (all time)
+ * - TODAY: due today
+ * - THIS_WEEK / THIS_MONTH / THIS_YEAR: due within the current calendar period
+ * - CUSTOM: user-selected date range
+ */
 export enum EDurationFilters {
   NONE = "none",
   TODAY = "today",
@@ -17,6 +35,14 @@ export enum EDurationFilters {
 }
 
 // filter duration options
+/**
+ * Dropdown option list for the dashboard's duration filter, pairing each `EDurationFilters`
+ * key with its English label (i18n is resolved at the call site).
+ *
+ * Consumers: analytics duration filter at `apps/web/core/components/analytics/select/duration.tsx`,
+ * inbox date filter at `apps/web/core/components/inbox/inbox-filter/`, the analytics store at
+ * `apps/web/core/store/analytics.store.ts`, and `apps/web/helpers/dashboard.helper.ts`.
+ */
 export const DURATION_FILTER_OPTIONS: {
   key: EDurationFilters;
   label: string;
@@ -48,6 +74,13 @@ export const DURATION_FILTER_OPTIONS: {
 ];
 
 // random background colors for project cards
+// INTENT UNCLEAR: PROJECT_BACKGROUND_COLORS has no consumer in tracked source — originally
+// intended for the legacy workspace dashboard project grid; the home dashboard at
+// apps/web/core/components/home/widgets/ does not currently import this constant.
+/**
+ * Tailwind background-color tokens used to randomize project card backgrounds on the
+ * dashboard project grid, giving each project a visually distinct appearance.
+ */
 export const PROJECT_BACKGROUND_COLORS = [
   "bg-gray-500/20",
   "bg-success-subtle",
@@ -60,6 +93,13 @@ export const PROJECT_BACKGROUND_COLORS = [
 ];
 
 // assigned and created issues widgets tabs list
+// INTENT UNCLEAR: FILTERED_ISSUES_TABS_LIST has no consumer in tracked source — was
+// intended for the legacy assigned/created issue widgets; the home dashboard widget at
+// apps/web/core/components/home/widgets/ does not currently import this constant.
+/**
+ * Tab definitions for the "Assigned" and "Created" issue widgets when an explicit
+ * duration filter is active — surfaces `upcoming` / `overdue` / `completed` slices.
+ */
 export const FILTERED_ISSUES_TABS_LIST: {
   key: TIssuesListTypes;
   label: string;
@@ -79,6 +119,13 @@ export const FILTERED_ISSUES_TABS_LIST: {
 ];
 
 // assigned and created issues widgets tabs list
+// INTENT UNCLEAR: UNFILTERED_ISSUES_TABS_LIST has no consumer in tracked source — was
+// intended for the legacy assigned/created issue widgets; the home dashboard widget at
+// apps/web/core/components/home/widgets/ does not currently import this constant.
+/**
+ * Tab definitions for the "Assigned" and "Created" issue widgets when no duration
+ * filter is applied — surfaces `pending` / `completed` slices.
+ */
 export const UNFILTERED_ISSUES_TABS_LIST: {
   key: TIssuesListTypes;
   label: string;
@@ -93,6 +140,12 @@ export const UNFILTERED_ISSUES_TABS_LIST: {
   },
 ];
 
+// INTENT UNCLEAR: TLinkOptions has no consumer in tracked source — was intended for
+// dashboard link/CTA helpers but no current site imports it.
+/**
+ * Options payload shape used by dashboard link/quick-action helpers — carries the
+ * acting user id (or `undefined` while the user store is still bootstrapping).
+ */
 export type TLinkOptions = {
   userId: string | undefined;
 };

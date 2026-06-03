@@ -4,6 +4,26 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Sticky weekday label row that crowns the calendar body. Reorders day labels
+ * to match the user's preferred start-of-week and hides Sat/Sun when weekends
+ * are disabled in the calendar display filter.
+ *
+ * Props (Props type, L15-L18):
+ *   - isLoading (required) — when true, shows an animated bar loader strip
+ *     across the header while the underlying issue fetch is pending.
+ *   - showWeekends (required) — toggles 7-column ↔ 5-column grid and skips
+ *     SUNDAY/SATURDAY entries.
+ *
+ * Stores read:
+ *   - useUserProfile().data.start_of_the_week — feeds getOrderedDays reordering.
+ *
+ * Side effects: NONE — pure render.
+ *
+ * Consumers:
+ *   - ./calendar.tsx (CalendarChart) — rendered above the month/week body.
+ */
+
 import { observer } from "mobx-react";
 import { EStartOfTheWeek } from "@plane/types";
 import { getOrderedDays } from "@plane/utils";
@@ -17,6 +37,7 @@ type Props = {
   showWeekends: boolean;
 };
 
+/** Sticky weekday label strip ordered by the user's start-of-week with optional weekend hiding. */
 export const CalendarWeekHeader = observer(function CalendarWeekHeader(props: Props) {
   const { isLoading, showWeekends } = props;
   // hooks

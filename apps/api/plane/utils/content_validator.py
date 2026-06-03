@@ -2,6 +2,35 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""HTML sanitization and binary blob validation for user-supplied document content.
+
+Provides two guardrails against malicious or oversized content stored in pages,
+issue descriptions, and comments:
+
+  - :func:`validate_binary_data` enforces a 10 MB ceiling on Y.js binary blobs
+    and rejects payloads whose first 200 bytes look like disguised HTML/JS
+    (``<html``, ``<script``, ``javascript:``, etc.) -- prevents disguised
+    attack payloads stored as Y.js documents.
+  - :func:`validate_html_content` runs ``nh3.clean(...)`` (a Rust port of
+    Bleach -- fast, safe-by-default HTML sanitizer) with:
+        * tags    = :data:`nh3.ALLOWED_TAGS` united with the custom set
+          ``{mention-component, label, input, image-component}``
+        * attrs   = per-tag allowlist declared in :data:`ATTRIBUTES`; the
+          ``*`` entry applies to all tags (covers ``class``, ``id``,
+          ``style``, ``aria-*``, and editor ``data-*`` attributes)
+        * schemes = :data:`SAFE_PROTOCOLS` (``{http, https, mailto, tel}``)
+
+Any tags or attributes that ``nh3.clean`` strips are coarsely diffed by
+:func:`_compute_html_sanitization_diff` and logged at WARNING via the
+``plane.api`` logger so the deviation surfaces in Sentry without blocking
+the request.
+
+Canonical consumers:
+  - ``plane.app.views.page.*`` (page description sanitization)
+  - ``plane.app.views.issue.comment`` (issue comment sanitization)
+  - Any endpoint accepting user-supplied HTML before persistence.
+"""
+
 # Python imports
 import base64
 import nh3
@@ -27,15 +56,22 @@ SUSPICIOUS_BINARY_PATTERNS = [
 
 
 def validate_binary_data(data):
-    """
-    Validate that binary data appears to be a valid document format
-    and doesn't contain malicious content.
+    """Validate that a binary or base64-encoded blob is acceptable for storage.
+
+    Enforces a 10 MB ceiling (:data:`MAX_SIZE`), rejects blobs shorter than
+    4 bytes, and rejects payloads whose first 200 bytes contain HTML/JS
+    shape markers (per :data:`SUSPICIOUS_BINARY_PATTERNS`) -- the prefix
+    scan catches disguised attack payloads masquerading as Y.js documents.
+    When ``data`` is a ``str``, it is first base64-decoded; base64 errors
+    short-circuit to a validation failure.
 
     Args:
-        data (bytes or str): The binary data to validate, or base64-encoded string
+        data: ``bytes`` payload or a ``str`` base64-encoded payload. An
+            empty/falsy value is accepted (treated as a no-op).
 
     Returns:
-        tuple: (is_valid: bool, error_message: str or None)
+        tuple: ``(is_valid: bool, error_message: str | None)`` -- the
+        message is ``None`` when the blob is acceptable.
     """
     if not data:
         return True, None  # Empty is OK
@@ -209,9 +245,25 @@ def _compute_html_sanitization_diff(before_html: str, after_html: str):
 
 
 def validate_html_content(html_content: str):
-    """
-    Sanitize HTML content using nh3.
-    Returns a tuple: (is_valid, error_message, clean_html)
+    """Sanitize and validate user-supplied HTML using ``nh3.clean``.
+
+    Enforces the same 10 MB ceiling (:data:`MAX_SIZE`) as
+    :func:`validate_binary_data`, then runs ``nh3.clean`` with the module's
+    tag/attribute/scheme allowlist (``tags=ALLOWED_TAGS``,
+    ``attributes=ATTRIBUTES``, ``url_schemes=SAFE_PROTOCOLS``). When any tag
+    or attribute is stripped, the coarse diff produced by
+    :func:`_compute_html_sanitization_diff` is emitted at WARNING via the
+    ``plane.api`` logger so the deviation is observable in Sentry without
+    blocking the request.
+
+    Args:
+        html_content: Raw HTML to sanitize. An empty/falsy value short-
+            circuits to ``(True, None, None)``.
+
+    Returns:
+        tuple: ``(is_valid: bool, error_message: str | None, clean_html:
+        str | None)``. The cleaned HTML is ``None`` on failure or when
+        ``html_content`` is empty/falsy.
     """
     if not html_content:
         return True, None, None

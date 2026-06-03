@@ -4,6 +4,21 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * `TableCell` Node extension — the regular (non-header) cell of the editor's
+ * table schema.
+ *
+ * Defines a ProseMirror block-content cell with row/column span attributes,
+ * a per-cell column-width attribute (default `[DEFAULT_COLUMN_WIDTH]`), and
+ * the `background` / `textColor` attributes consumed by the cell-coloring
+ * UI (`./plugins/drag-handles/color-selector.tsx`). Wires the
+ * `TableCellSelectionOutlinePlugin` so a visible border decoration renders
+ * around the currently-selected cell or cell range, and registers a single
+ * `Backspace` keyboard shortcut that converts Backspace into a cell
+ * selection when the table has exactly one cell — preventing the cell from
+ * being deleted as if it were normal text.
+ */
+
 import { mergeAttributes, Node } from "@tiptap/core";
 import { TableMap } from "@tiptap/pm/tables";
 // constants
@@ -15,10 +30,78 @@ import { TableCellSelectionOutlinePlugin } from "./plugins/selection-outline/plu
 import { DEFAULT_COLUMN_WIDTH } from "./table";
 import { isCellSelection } from "./table/utilities/helpers";
 
+/**
+ * Options accepted by the `TableCell` extension; `HTMLAttributes` are
+ * merged into the rendered `<td>` tag on every cell.
+ */
 type TableCellOptions = {
   HTMLAttributes: Record<string, unknown>;
 };
 
+/**
+ * Plane editor's `TableCell` Node extension.
+ *
+ * First-party note (AAP §0.2.2):
+ *   Although this extension parallels `@tiptap/extension-table-cell`, it is
+ *   built from scratch via `Node.create<>()` from `@tiptap/core` and depends
+ *   on the ProseMirror table primitives from `@tiptap/pm/tables` (notably
+ *   `TableMap`). Treat as owned code; the triplet below documents the
+ *   conceptual relationship with the upstream package, not a runtime
+ *   import dependency.
+ *
+ * Exposes (parity with `@tiptap/extension-table-cell`):
+ *   - Schema node named `CORE_EXTENSIONS.TABLE_CELL` (`"tableCell"`)
+ *   - `content: "block+"` — cells contain block content (paragraphs, lists,
+ *     code-blocks, etc.) just like the upstream extension
+ *   - `tableRole: "cell"` — wires this node into ProseMirror's table
+ *     primitives in `@tiptap/pm/tables` so `addRowAfter`, `deleteColumn`,
+ *     `mergeCells`, etc. recognize it
+ *   - `isolating: true` — selection cannot cross the cell boundary, matching
+ *     upstream behavior
+ *   - `colspan` / `rowspan` attributes (default `1` / `1`)
+ *   - `<td>` parse/render via `parseHTML` / `renderHTML`
+ *
+ * Overrides (vs `@tiptap/extension-table-cell`):
+ *   - `colwidth` attribute default is `[DEFAULT_COLUMN_WIDTH]` (single-column
+ *     array seeded with `150` per `./table/index.ts`), not `null` as in
+ *     upstream — so freshly-created cells render with a deterministic width
+ *     before the column-resizing plugin assigns one.
+ *   - Adds `background` and `textColor` attributes (default `null`), rendered
+ *     as inline `style="background-color: ...; color: ...;"` in
+ *     `renderHTML`. These attributes are mutated by the
+ *     `TableDragHandleDropdownColorSelector` UI in
+ *     `./plugins/drag-handles/color-selector.tsx`.
+ *   - Registers `TableCellSelectionOutlinePlugin` via `addProseMirrorPlugins`
+ *     (see `./plugins/selection-outline/plugin.ts`) so the editor renders a
+ *     decoration outlining the selected cell(s).
+ *   - Registers a `Backspace` shortcut: when the table has exactly one cell
+ *     (`TableMap.width === 1 && height === 1`) AND the caret is at the
+ *     cell's first offset AND the selection is collapsed AND not already
+ *     a `CellSelection`, Backspace converts the caret into a
+ *     `setCellSelection({ anchorCell, headCell })` rather than deleting
+ *     the cell's enclosing structure. WHY: in a single-cell table, the
+ *     default Backspace would otherwise unwind the cell as if it were a
+ *     normal text node, destroying the table; the override gives users an
+ *     intuitive "press Backspace to select the cell, press again to clear"
+ *     UX.
+ *
+ * Hides (vs `@tiptap/extension-table-cell`):
+ *   - Upstream's plain `<td>` rendering without color attributes — Plane
+ *     always emits the `background-color` / `color` inline styles even when
+ *     the attributes are `null` (renders as `background-color: null;
+ *     color: null;` which browsers ignore). No upstream attribute is
+ *     removed; only the rendering is enriched.
+ *
+ * Consumers: `./table/table.ts` (composes this with `Table`, `TableHeader`,
+ * `TableRow` to form the table schema), the column/row drag-handle
+ * dropdowns in `./plugins/drag-handles/{column,row}/dropdown.tsx`
+ * (mutate `background` / `textColor`), and the selection-outline utility
+ * in `./plugins/selection-outline/utils.ts` (reads cell positions from
+ * `TableMap` to compute border decorations).
+ *
+ * Cross-reference: `CORE_EXTENSIONS.TABLE_CELL` enum member is defined in
+ * `packages/editor/src/core/constants/extension.ts`.
+ */
 export const TableCell = Node.create<TableCellOptions>({
   name: CORE_EXTENSIONS.TABLE_CELL,
 

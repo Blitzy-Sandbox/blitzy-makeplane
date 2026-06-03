@@ -4,6 +4,100 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX-observed inline action and metadata strip for each cycle row in the
+ * cycles list — exposes the "more details" peek button, optional work-item
+ * count, transfer-issues affordance for completed cycles, date display
+ * (live-formatted in active state or read-only DateRangeDropdown otherwise),
+ * project-timezone offset indicator, creator/assignee avatars, the favorite
+ * star toggle, and the desktop-only CycleQuickActions overflow trigger.
+ *
+ * Props:
+ *   - workspaceSlug (string, required): workspace slug used for favorite
+ *     mutations, peek navigation, permission checks, and forwarded to
+ *     CycleQuickActions.
+ *   - projectId (string, required): project ID used for favorite mutations,
+ *     timezone resolution, permission checks, and forwarded to CycleAdditionalActions
+ *     and CycleQuickActions.
+ *   - cycleId (string, required): cycle ID used for favorite mutations, peek
+ *     query-string toggling, and forwarded to TransferIssuesModal +
+ *     CycleAdditionalActions + CycleQuickActions.
+ *   - cycleDetails (ICycle, required): full cycle entity (status, dates,
+ *     issue counts, assignee_ids, created_by, is_favorite, archived_at) — drives
+ *     all conditional rendering and prefills the react-hook-form reset effect.
+ *   - parentRef (React.RefObject<HTMLDivElement>, required): forwarded to
+ *     CycleQuickActions as the anchor element for its context menu.
+ *   - isActive (boolean, optional, default=false): when true, swaps the date
+ *     display to a Tooltip-wrapped MergedDateDisplay with the project UTC offset
+ *     pill and hides the assignee avatar group; when false, renders the
+ *     read-only DateRangeDropdown and shows the assignee group.
+ *
+ * MobX stores read:
+ *   - useCycle (cycle store): addCycleToFavorites, removeCycleFromFavorites
+ *     actions used by the favorite toggle handlers.
+ *   - useUserPermissions (user permissions store): allowPermissions to gate the
+ *     favorite star (and any future edit affordance) to ADMIN/MEMBER roles at
+ *     PROJECT level for the current workspaceSlug + projectId.
+ *   - useMember (member store): getUserDetails to resolve the creator and each
+ *     assignee for the Avatar / AvatarGroup rendering.
+ *
+ * Other hooks consumed:
+ *   - useTranslation from @plane/i18n for every user-facing string (toast
+ *     copy, button labels, dropdown placeholders, transfer count).
+ *   - usePlatformOS for the isMobile flag that affects tooltip behavior and the
+ *     visibility of the inline "more details" button.
+ *   - useTimeZoneConverter(projectId) for renderFormattedDateInUserTimezone,
+ *     isProjectTimeZoneDifferent, and getProjectUTCOffset — drives the Tooltip
+ *     content and the UTC pill on active cycles.
+ *   - useLocalStorage<boolean>(IS_FAVORITE_MENU_OPEN, false) — used by the
+ *     favorite handler to auto-open the favorites side menu on first favorite.
+ *   - useForm(react-hook-form) with start_date/end_date defaults — the reset
+ *     effect synchronizes form state when cycleDetails changes.
+ *   - useParams, useSearchParams, usePathname (next/navigation) plus
+ *     useAppRouter — for the peek-cycle query-string toggle on the
+ *     "more details" button.
+ *
+ * Side effects:
+ *   - API calls (via cycle store actions, both wired to CycleService):
+ *       - addCycleToFavorites(workspaceSlug, projectId, cycleId) on the favorite
+ *         star click when the cycle is not yet favorited.
+ *       - removeCycleFromFavorites(workspaceSlug, projectId, cycleId) on the
+ *         favorite star click when the cycle is already favorited.
+ *   - Toasts (via @plane/propel/toast setPromiseToast): one promise toast per
+ *     favorite/unfavorite action with i18n loading / success / failed messages
+ *     keyed under `project_cycles.action.favorite.*` and
+ *     `project_cycles.action.unfavorite.*`.
+ *   - Local storage: toggleFavoriteMenu(true) on the FIRST successful favorite
+ *     of any cycle, so the favorites side menu auto-opens for the user.
+ *   - Navigation: useAppRouter().push to `${pathname}?${query}` to toggle the
+ *     `peekCycle` search param on the "more details" button — sets it on first
+ *     click, clears it on second click.
+ *   - Modal mount: TransferIssuesModal is always mounted but controlled by the
+ *     local `transferIssuesModal` useState flag; opened from the inline
+ *     "Transfer work items" button when the cycle status is completed and there
+ *     are transferable issues remaining.
+ *   - Imperative form reset: a useEffect calls react-hook-form's reset({
+ *     ...cycleDetails }) whenever cycleDetails changes; the form is unused for
+ *     display but kept for compatibility with the surrounding date-range flow.
+ *
+ * Conditional rendering:
+ *   - "more details" button visibility: shown when the row is hovered (always
+ *     via group-hover), the platform is mobile, or the cycle is active without
+ *     the peek panel currently open.
+ *   - Work-item count badge: shown only when cycleStatus is "draft" or
+ *     "upcoming" (showIssueCount memo).
+ *   - Transfer-issues affordance: shown only when routerProjectId is present,
+ *     cycleStatus is "completed", AND transferableIssuesCount > 0.
+ *   - Date display: Tooltip + MergedDateDisplay + UTC pill when isActive;
+ *     otherwise read-only DateRangeDropdown if cycleDetails.start_date is set.
+ *   - Assignee avatar group: hidden when isActive.
+ *   - Favorite star: shown only when the user has ADMIN/MEMBER permission AND
+ *     the cycle is NOT archived (preventing favoriting of archived cycles).
+ *
+ * Consumers: cycles/list/cycles-list-item.tsx (mounted via the ListItem's
+ * `actionableItems` slot).
+ */
+
 import type { MouseEvent } from "react";
 import React, { useEffect, useMemo, useState } from "react";
 import { observer } from "mobx-react";

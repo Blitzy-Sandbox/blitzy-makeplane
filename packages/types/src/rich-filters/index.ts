@@ -4,6 +4,12 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Barrel for the rich-filter type system — re-exports the adapter, builder,
+ * expression tree, config, field-types, operator-configs, operators, and
+ * derived modules.
+ */
+
 export * from "./adapter";
 export * from "./builder";
 export * from "./config";

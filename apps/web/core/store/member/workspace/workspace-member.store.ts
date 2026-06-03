@@ -4,6 +4,112 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for workspace-scoped member and invitation orchestration. Owns
+ * per-workspace membership and invitation collections, hydrates the shared
+ * member registry, and exposes filter, search, and self-aware ordering
+ * selectors consumed by workspace settings and issue-property UIs.
+ *
+ * State slice:
+ *   - workspaceMemberMap: Record<string, Record<string, IWorkspaceMembership>>
+ *       — outer key: workspaceSlug; inner key: userId. Each membership carries
+ *       { id, member, role: EUserPermissions, is_active? }.
+ *   - workspaceMemberInvitations: Record<string, IWorkspaceMemberInvitation[]>
+ *       — keyed by workspaceSlug; each entry is the array of pending
+ *       invitations for that workspace.
+ *
+ * Dependencies (constructor-injected via the MemberRootStore composition site
+ * in `apps/web/core/store/member/index.ts` — `new WorkspaceMemberStore(this, _rootStore)`):
+ *   - filtersStore: IWorkspaceMemberFiltersStore — instantiated locally as
+ *       `new WorkspaceMemberFiltersStore()`. Single instance because only one
+ *       workspace is active at a time (contrast with the per-workspace project
+ *       filter store).
+ *   - routerStore: IRouterStore — supplies the current `workspaceSlug` for
+ *       the active-workspace computed getters; absence returns null.
+ *   - userStore: IUserStore — supplies the signed-in user id for self-aware
+ *       ordering in getWorkspaceMemberIds.
+ *   - memberRoot: IMemberRootStore — fetchWorkspaceMembers hydrates
+ *       memberRoot.memberMap with IUserLite payloads so project-scoped
+ *       lookups and assignee dropdowns resolve user details without
+ *       re-fetching.
+ *   - workspaceService: WorkspaceService — Django REST API client from
+ *       `@/services/workspace.service`. Per AAP architectural context, member
+ *       CRUD calls hit the Django backend directly; Celery via RabbitMQ is
+ *       reserved for async work like email and notification fan-out; Redis is
+ *       caching and session only.
+ *
+ * Computed (recompute on observable mutation; return null when no active
+ * workspace is resolvable from the router):
+ *   - workspaceMemberIds: string[] | null — ordered member ids for the
+ *       current workspace; delegates to getWorkspaceMemberIds(workspaceSlug).
+ *   - workspaceMemberInvitationIds: string[] | null — invitation ids for the
+ *       current workspace.
+ *   - memberMap: Record<string, IWorkspaceMembership> | null — raw membership
+ *       map for the current workspace.
+ *
+ * Computed actions (computedFn from mobx-utils — memoized per-argument set):
+ *   - getWorkspaceMemberIds(workspaceSlug): string[] — sorts the signed-in
+ *       user to the top and excludes bot accounts. WHY: surface the active
+ *       user atop member pickers and hide automation accounts from assignee
+ *       dropdowns.
+ *   - getFilteredWorkspaceMemberIds(workspaceSlug): string[] — delegates to
+ *       filtersStore.getFilteredMemberIds which calls sortWorkspaceMembers
+ *       from `../utils`. Suspended-member handling (is_active === false)
+ *       cascades through this chain.
+ *   - getSearchedWorkspaceMemberIds(searchQuery): string[] | null — substring
+ *       match across display_name, first_name + last_name, and email applied
+ *       over the filtered member set.
+ *   - getSearchedWorkspaceInvitationIds(searchQuery): string[] | null —
+ *       substring match against invitation email addresses.
+ *   - getWorkspaceMemberDetails(workspaceMemberId): IWorkspaceMember | null —
+ *       hydrates the membership with IUserLite from memberRoot.memberMap.
+ *   - getWorkspaceInvitationDetails(invitationId): IWorkspaceMemberInvitation | null
+ *       — invitation lookup keyed by id.
+ *   - isUserSuspended(userId, workspaceSlug): boolean — true when the
+ *       membership exists with is_active === false (the soft-deletion marker
+ *       written by removeMemberFromWorkspace).
+ *
+ * Actions (each calls a Django REST endpoint via WorkspaceService and mutates
+ * state under `runInAction` for atomic batched updates). Mutating actions
+ * follow an optimistic-update + rollback pattern — local state is mutated
+ * immediately for UI responsiveness, then reverted under `runInAction` if
+ * the service call rejects (see updateMember and updateMemberInvitation):
+ *   - fetchWorkspaceMembers(workspaceSlug) →
+ *       WorkspaceService.fetchWorkspaceMembers. Side effects: normalizes
+ *       returned members into IWorkspaceMembership records in
+ *       workspaceMemberMap[workspaceSlug] AND hydrates memberRoot.memberMap
+ *       with the IUserLite payload for cross-store reuse.
+ *   - fetchWorkspaceMemberInvitations(workspaceSlug) →
+ *       WorkspaceService.workspaceInvitations. Side effects: populates
+ *       workspaceMemberInvitations[workspaceSlug].
+ *   - inviteMembersToWorkspace(workspaceSlug, data: IWorkspaceBulkInviteFormData)
+ *       — POST bulk invite then refetch invitations.
+ *   - updateMember(workspaceSlug, userId, data: { role }) — PATCH role with
+ *       optimistic apply + rollback on rejection.
+ *   - updateMemberInvitation(workspaceSlug, invitationId, data) — PATCH
+ *       invitation with optimistic apply + rollback on rejection.
+ *   - removeMemberFromWorkspace(workspaceSlug, userId) — DELETE then set
+ *       is_active = false locally. Soft-delete preserves history and aligns
+ *       with the isUserSuspended selector.
+ *   - deleteMemberInvitation(workspaceSlug, invitationId) — DELETE and
+ *       remove the entry from workspaceMemberInvitations[workspaceSlug].
+ *
+ * Consumers:
+ *   - apps/web/core/components/workspace/settings/members-list.tsx
+ *       (primary member list view)
+ *   - apps/web/core/components/workspace/settings/members-list-item.tsx
+ *   - apps/web/core/components/workspace/settings/invitations-list-item.tsx
+ *   - apps/web/core/components/workspace/settings/member-columns.tsx
+ *   - apps/web/core/components/issues/issue-layouts/filters/header/filters/assignee.tsx
+ *   - apps/web/core/components/issues/issue-layouts/filters/header/filters/created-by.tsx
+ *   - apps/web/core/components/issues/issue-layouts/filters/header/filters/mentions.tsx
+ *   - apps/web/core/components/issues/issue-layouts/filters/applied-filters/members.tsx
+ *   - apps/web/core/components/issues/peek-overview/properties.tsx
+ *   - apps/web/core/components/issues/peek-overview/issue-detail.tsx
+ *   - apps/web/core/store/member/index.ts (composes via
+ *       `new WorkspaceMemberStore(this, _rootStore)`)
+ */
+
 import { set, sortBy } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";

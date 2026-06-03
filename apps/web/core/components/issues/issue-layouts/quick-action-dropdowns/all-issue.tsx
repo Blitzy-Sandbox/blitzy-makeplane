@@ -4,6 +4,57 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Quick-action dropdown menu for rows in the global / all-issues (workspace-wide) layout —
+ * exposes edit, make-a-copy, open-in-new-tab, copy-link, archive, and delete actions on work
+ * items that may span multiple projects.
+ *
+ * Workspace-spanning dropdown variant: unlike `project-issue.tsx`, `cycle-issue.tsx`, and
+ * `module-issue.tsx`, this file does NOT call `useUserPermissions` because the global view
+ * crosses project boundaries where permissions may be heterogeneous — gating is delegated to
+ * the caller-provided `readOnly` prop. Hard-codes `activeLayout: "Global issues"` and
+ * `storeType: EIssuesStoreType.GLOBAL` so the menu factory in `./helper` binds actions to the
+ * workspace-wide MobX store slice.
+ *
+ * Exposed component: `AllIssueQuickActions(props: IQuickActionProps)` (observer).
+ *
+ * Props (consumed subset of `IQuickActionProps` from `../list/list-view-types`):
+ *   - `issue: TIssue` (required) — work item the menu acts on.
+ *   - `handleDelete: () => Promise<void>` (required) — caller-provided delete handler bound to `DeleteIssueModal.onSubmit`.
+ *   - `handleUpdate?: (data: TIssue) => Promise<void>` (optional) — caller-provided update handler invoked by `CreateUpdateIssueModal.onSubmit` when editing an existing issue.
+ *   - `handleArchive?: () => Promise<void>` (optional) — caller-provided archive handler bound to `ArchiveIssueModal.onSubmit`; when absent the Archive item is hidden via `isArchivingAllowed = handleArchive && isEditingAllowed`.
+ *   - `customActionButton?: React.ReactElement` (optional) — element rendered in place of the default ellipsis trigger.
+ *   - `portalElement?: HTMLDivElement | null` (optional) — portal mount node for the `CustomMenu` overlay.
+ *   - `readOnly?: boolean` (optional, default `false`) — when `true`, forces every editing affordance off (edit, archive, delete).
+ *   - `placements?: TPlacement` (optional, default `"bottom-start"`) — Floating-UI placement for the dropdown.
+ *   - `parentRef: React.RefObject<HTMLElement>` (required) — ref to the row element that anchors the right-click `ContextMenu`.
+ *
+ * MobX stores read (state injected via React context per AAP §0.2.2):
+ *   - `useProjectState()` → `getStateById`: resolves `issue.state_id` to check
+ *     `ARCHIVABLE_STATE_GROUPS` membership before enabling the archive action.
+ *   - `useProject()` → `getProjectIdentifierById`: resolves the project key (e.g., "PLN") for
+ *     the work-item URL built inside `helper.tsx`.
+ *   - `useParams()` returns `workspaceSlug` from the router (not a MobX store).
+ *   - NOTE: Does NOT call `useUserPermissions` — permission gating is delegated to the caller
+ *     via `readOnly` because the global view spans projects with potentially heterogeneous
+ *     permissions.
+ *
+ * Side effects:
+ *   - Toggles local `useState` flags to open `ArchiveIssueModal`, `DeleteIssueModal`,
+ *     `CreateUpdateIssueModal`, and `DuplicateWorkItemModal` (the latter only when both
+ *     `issue.project_id` and `workspaceSlug` are present).
+ *   - Builds `duplicateIssuePayload` by spreading `issue`, appending `" (copy)"` to `name`,
+ *     attaching `sourceIssueId`, and stripping `id` via `lodash-es#omit` so the modal opens
+ *     in create mode.
+ *   - Copy-link writes the work-item URL to the clipboard via `copyUrlToClipboard`; open-in-
+ *     new-tab calls `window.open(workItemLink, "_blank")` (both action handlers built in
+ *     `./helper`'s `useIssueActionHandlers`).
+ *   - Passes `storeType: EIssuesStoreType.GLOBAL` to `useAllIssueMenuItems` so the menu
+ *     factory binds actions to the workspace-wide MobX store slice.
+ *   - No direct API calls — every mutation flows through caller-provided handlers and modal
+ *     submit callbacks (service-layer separation per AAP §0.2.2).
+ */
+
 import { useState } from "react";
 import { omit } from "lodash-es";
 import { observer } from "mobx-react";

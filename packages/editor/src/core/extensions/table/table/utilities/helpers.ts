@@ -4,6 +4,40 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Pure-function ProseMirror table helpers — selection geometry,
+ * cell-emptiness predicates, table-location lookup, and DOM measurement
+ * utilities.
+ *
+ * Every export in this file is PURE (no transaction dispatch). The two
+ * exceptions are `selectColumn` and `selectRow`, which RETURN a mutated
+ * `Transaction` — the caller is responsible for actually dispatching it.
+ *
+ * Consumer map:
+ *   - `isCellSelection`, `isCellEmpty` → consumed by
+ *     `./delete-key-shortcut.ts`, `./delete-column.ts`,
+ *     `./delete-row.ts`.
+ *   - `findTable`, `haveTableRelatedChanges` → consumed by the table
+ *     plugins under `../../plugins/` (drag-state, insert-handlers,
+ *     drag-handles, selection-outline) to detect when their decoration
+ *     sets need rebuilding.
+ *   - `getSelectedRect`, `getSelectedColumns`, `getSelectedRows`,
+ *     `isRectSelected`, `isColumnSelected`, `isRowSelected` → consumed
+ *     by the drag-handle plugins for selection visualization.
+ *   - `selectColumn`, `selectRow` → consumed by the drag-handle
+ *     pointer-down handlers to expand the selection when the user
+ *     clicks a row or column handle.
+ *   - `getTableCellWidgetDecorationPos` → consumed by the insert-handler
+ *     plugin to compute where to anchor widget decorations.
+ *   - `getTableHeightPx`, `getTableWidthPx` → consumed by the
+ *     drag-handle pixel math to position the floating handle widgets
+ *     over the rendered table.
+ *
+ * `TableNodeLocation` type alias: the shape returned by `findTable` —
+ * captures the table node, its document position, and its start offset
+ * in one struct that the consumers above pass around.
+ */
+
 import { findParentNode } from "@tiptap/core";
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -45,6 +79,13 @@ export const isCellEmpty = (cell: ProseMirrorNode | null): boolean => {
   return !hasContent;
 };
 
+/**
+ * Captures the location of a table node inside the document: the table's
+ * node reference, its `$from` position (the open-tag position), and its
+ * `start` offset (one past the open tag, where the first row begins).
+ * Returned by `findTable` and consumed by `selectColumn`, `selectRow`,
+ * and the plugin code under `../../plugins/`.
+ */
 export type TableNodeLocation = {
   pos: number;
   start: number;

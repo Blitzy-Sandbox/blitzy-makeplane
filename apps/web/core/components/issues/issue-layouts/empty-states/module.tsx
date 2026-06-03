@@ -4,6 +4,28 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Empty-state surface for the module work items layout. Renders one of two variants:
+ *   (1) Filtered empty — when `moduleWorkItemFilter.hasActiveFilters` is true (offers Clear filters).
+ *   (2) Default module empty — primary CTA opens create-issue modal (MODULE store);
+ *       secondary CTA opens an existing-issues modal to attach already-existing issues to the module.
+ *
+ * Hooks read:
+ *   - useIssues(EIssuesStoreType.MODULE).issues.addIssuesToModule (async API: attach issues)
+ *   - useCommandPalette().toggleCreateIssueModal                  (open create-issue modal)
+ *   - useUserPermissions().allowPermissions                       (CTA permission gate)
+ *   - useWorkItemFilterInstance(MODULE, moduleId)                 (hasActiveFilters, clearFilters)
+ *   - useTranslation() / useParams()                              (copy + route binding)
+ *
+ * Side effects:
+ *   - issues.addIssuesToModule(workspaceSlug, projectId, moduleId, issueIds) → success/error toast via setToast.
+ *   - toggleCreateIssueModal(true, EIssuesStoreType.MODULE) → opens global create-issue modal scoped to module store.
+ *   - moduleWorkItemFilter.clearFilters() → store-level filter reset.
+ *   - setModuleIssuesListModal(true) → opens the local ExistingIssuesListModal.
+ *
+ * Consumed by: `./index.tsx` (IssueLayoutEmptyState) when storeType === MODULE.
+ */
+
 import { useState } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
@@ -22,6 +44,15 @@ import { useIssues } from "@/hooks/store/use-issues";
 import { useUserPermissions } from "@/hooks/store/user";
 import { useWorkItemFilterInstance } from "@/hooks/store/work-item-filters/use-work-item-filter-instance";
 
+/**
+ * Renders the module work items empty state.
+ *
+ * Props: none — route params (`workspaceSlug`, `projectId`, `moduleId`) are read via `useParams`.
+ *
+ * Local state: `moduleIssuesListModal: boolean` controls the ExistingIssuesListModal visibility.
+ *
+ * Permission: requires PROJECT-level ADMIN or MEMBER (`EUserProjectRoles`).
+ */
 export const ModuleEmptyState = observer(function ModuleEmptyState() {
   // router
   const { workspaceSlug: routerWorkspaceSlug, projectId: routerProjectId, moduleId: routerModuleId } = useParams();

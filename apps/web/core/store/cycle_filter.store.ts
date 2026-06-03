@@ -4,6 +4,93 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Cycle filter store — project-scoped cycle filter, display, and search state
+ * that feeds `cycle.store.ts`'s filtered-cycle selectors. Filter/display state
+ * is keyed by `projectId` so multiple projects can hold independent UI state in
+ * a single MobX root, and search/filter inputs are read cross-store by
+ * `getFilteredCycleIds`, `getFilteredCompletedCycleIds`, and
+ * `getFilteredArchivedCycleIds` in `cycle.store.ts`.
+ *
+ * Persistence: in-memory only. No `localStorage`, `sessionStorage`, or API
+ * persistence is performed — all state resets on page reload. A constructor
+ * `reaction` on `rootStore.router.projectId` re-initializes the active
+ * project's display/filter slots and clears `searchQuery` on route change;
+ * `archivedCyclesSearchQuery` is intentionally retained across route changes.
+ *
+ * State slice (observables):
+ *   - `displayFilters: Record<projectId, TCycleDisplayFilters>` — per-project
+ *     `active_tab` (`"active" | "completed" | ...`) and `layout`
+ *     (`"list" | "board" | "gantt" | ...`) UI selections. Default on first
+ *     visit: `{ active_tab: "active", layout: "list" }`.
+ *   - `filters: Record<projectId, TCycleFiltersByState>` — per-project filter
+ *     payload split into two state buckets: `default` (active/completed cycles
+ *     view) and `archived` (archived cycles view).
+ *   - `searchQuery: string` (`observable.ref`) — text search applied to the
+ *     active/completed cycles lists. Reset to `""` whenever the route
+ *     `projectId` changes.
+ *   - `archivedCyclesSearchQuery: string` (`observable.ref`) — text search
+ *     applied to the archived cycles list. Retained across `projectId`
+ *     changes.
+ *
+ * Actions:
+ *   - `updateDisplayFilters(projectId, displayFilters)` — merges each key of
+ *     `displayFilters` into `this.displayFilters[projectId]` via `lodash.set`.
+ *     Pure local mutation (no API call).
+ *   - `updateFilters(projectId, filters, state = "default")` — merges each key
+ *     of `filters` into `this.filters[projectId][state]`. `state` selects the
+ *     `default` or `archived` bucket. Pure local mutation.
+ *   - `updateSearchQuery(query)` — assigns `this.searchQuery = query` (active
+ *     cycles search).
+ *   - `updateArchivedCyclesSearchQuery(query)` — assigns
+ *     `this.archivedCyclesSearchQuery = query` (archived cycles search).
+ *   - `clearAllFilters(projectId, state = "default")` — resets
+ *     `this.filters[projectId][state]` to `{}`. Does not touch
+ *     `displayFilters` or search queries.
+ *   - `initProjectCycleFilters(projectId)` — internal helper invoked by the
+ *     `projectId` reaction; seeds default `displayFilters[projectId]` and an
+ *     empty `filters[projectId]` slot when missing. Not part of the public
+ *     interface but called whenever the active route project changes.
+ *
+ * Computed:
+ *   - `currentProjectDisplayFilters` — display filters for the route's current
+ *     `projectId`; recomputes when `rootStore.router.projectId` or the
+ *     corresponding `displayFilters[projectId]` entry changes.
+ *   - `currentProjectFilters` — `default`-state filters for the route's
+ *     current `projectId`; recomputes on the same conditions, falling back to
+ *     `{}` when uninitialized.
+ *   - `currentProjectArchivedFilters` — `archived`-state filters for the
+ *     route's current `projectId`; recomputes on the same conditions.
+ *
+ * Computed functions (`computedFn` from `mobx-utils`, memoized per argument):
+ *   - `getDisplayFiltersByProjectId(projectId)` — display filters for any
+ *     project id (memoized per `projectId`).
+ *   - `getFiltersByProjectId(projectId)` — `default`-state filters for any
+ *     project id, falling back to `{}` (memoized per `projectId`).
+ *   - `getArchivedFiltersByProjectId(projectId)` — `archived`-state filters
+ *     for any project id (memoized per `projectId`).
+ *
+ * Consumers (cross-store):
+ *   - `apps/web/core/store/cycle.store.ts` — `getFilteredCycleIds`,
+ *     `getFilteredCompletedCycleIds`, and `getFilteredArchivedCycleIds`
+ *     computedFns read `getFiltersByProjectId` / `getArchivedFiltersByProjectId`
+ *     plus `searchQuery` / `archivedCyclesSearchQuery` to produce the visible
+ *     cycle id lists.
+ *
+ * Consumers (components, via `useCycleFilter()` in
+ * `apps/web/core/hooks/store/use-cycle-filter.ts`):
+ *   - `apps/web/core/components/cycles/cycles-view-header.tsx`,
+ *     `cycles-view.tsx` (active cycles list header + search/filter
+ *     application)
+ *   - `apps/web/core/components/cycles/archived-cycles/{view,root,header}.tsx`
+ *     (archived cycles view)
+ *   - `apps/web/core/components/cycles/applied-filters/**` and
+ *     `apps/web/core/components/cycles/dropdowns/filters/**` (filter UI fed
+ *     from parents that read this store)
+ *   - `apps/web/app/(all)/[workspaceSlug]/(projects)/projects/(detail)/[projectId]/cycles/(list)/{page,mobile-header}.tsx`
+ *     (cycles list route, including the responsive mobile header)
+ */
+
 import { set } from "lodash-es";
 import { action, computed, observable, makeObservable, runInAction, reaction } from "mobx";
 import { computedFn } from "mobx-utils";

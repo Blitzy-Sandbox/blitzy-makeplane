@@ -4,6 +4,14 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Password input with built-in show/hide visibility toggle and animated icon transition.
+ *
+ * The visibility toggle is local state (`useState`) — the parent does not control whether the
+ * password is shown, only the value itself. This keeps the security-sensitive default
+ * ("password" type) intact while still letting users self-verify their typing.
+ */
+
 import { Eye, EyeClosed } from "lucide-react";
 import { useState } from "react";
 import { Tooltip } from "@plane/propel/tooltip";
@@ -20,6 +28,37 @@ type TPasswordInputProps = {
   autoComplete?: React.HTMLInputAutoCompleteAttribute;
 };
 
+/**
+ * Controlled password input rendering a native `<input>` with switchable `type="password"` /
+ * `type="text"` plus an optional eye/eye-closed toggle button.
+ *
+ * Local `useState` owns the visibility flag so toggling never leaks into parent re-renders.
+ * The toggle button swaps between `Eye` (shown) and `EyeClosed` (hidden) icons with a fade +
+ * scale + rotate animation cross-fade driven by Tailwind transition classes.
+ *
+ * Props (see local `TPasswordInputProps`):
+ *   - `id` (required): forwarded to the native input — pair with a sibling `<label htmlFor>` for
+ *     accessible labelling.
+ *   - `value` (required): controlled string value.
+ *   - `onChange` (required): receives the new value (already unwrapped from the input event).
+ *   - `placeholder` (default `"Enter your password"`): placeholder text.
+ *   - `className`: extra Tailwind classes merged onto the input.
+ *   - `showToggle` (default `true`): when false, hides the visibility toggle button entirely.
+ *   - `error` (default `false`): paints the error border (`border-danger-strong`).
+ *   - `autoComplete` (default `"off"`): the WHY — defaulting to `"off"` keeps password fields
+ *     from autofilling in arbitrary contexts; sign-in flows must explicitly pass
+ *     `"current-password"` and sign-up flows must pass `"new-password"` to opt back into the
+ *     correct browser autofill behavior.
+ *
+ * Accessibility:
+ *   - Native `<input type="password">` semantics with `id` for `htmlFor` linkage.
+ *   - The toggle is a `<button type="button">` wrapped in a `Tooltip` whose `tooltipContent`
+ *     ("Show password" / "Hide password") announces intent on hover/focus.
+ *   - INTENT UNCLEAR: the toggle button has no `aria-pressed` or `aria-label`; sighted users
+ *     see the eye icon swap, but screen readers rely on the tooltip's announcement which is
+ *     not directly tied to the button via `aria-describedby`.
+ *   - INTENT UNCLEAR: `error=true` paints the error border but does not auto-emit `aria-invalid`.
+ */
 export function PasswordInput({
   id,
   value,

@@ -2,6 +2,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routes for the external ``/api/v1/`` workspace and project member surface.
+
+Binds project-scoped member endpoints (with a legacy ``/project-members/``
+alias) and a workspace-level member listing endpoint to view classes in
+``plane.api.views`` (``ProjectMemberListCreateAPIEndpoint``,
+``ProjectMemberDetailAPIEndpoint``, ``WorkspaceMemberAPIEndpoint``); routes
+inherit ``X-Api-Key`` authentication and ``ApiKeyRateThrottle`` throttling
+from ``BaseAPIView``.
+"""
+
 from django.urls import path
 
 from plane.api.views import (

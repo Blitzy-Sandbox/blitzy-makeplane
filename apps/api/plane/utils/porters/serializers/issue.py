@@ -2,6 +2,20 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Export-tuned DRF serializer that flattens issue relations into export rows.
+
+Defines :class:`IssueExportSerializer`, an extension of
+:class:`plane.app.serializers.IssueSerializer` whose ``SerializerMethodField``
+resolvers normalize nested project, state, assignee, label, cycle, module,
+comment, link, relation, subscriber, and estimate data into export-safe
+scalars and primitive collections suitable for CSV / JSON / XLSX output.
+
+Invoked synchronously by :class:`plane.utils.porters.exporter.DataExporter`
+inside Celery export workers (broker: RabbitMQ -- see AAP section 0.2.2
+architectural context). The :class:`Meta.fields` order in this serializer is
+the authoritative CSV / XLSX column order; do not reorder entries silently.
+"""
+
 # Third party imports
 from rest_framework import serializers
 
@@ -10,10 +24,24 @@ from plane.app.serializers import IssueSerializer
 
 
 class IssueExportSerializer(IssueSerializer):
-    """
-    Export-optimized serializer that extends IssueSerializer with human-readable fields.
+    """Flatten an issue and its relations into a single export-friendly row.
 
-    Converts UUIDs to readable values for CSV/JSON export.
+    Extends :class:`plane.app.serializers.IssueSerializer` and overlays
+    read-only ``CharField`` source mappings (``project_name``,
+    ``project_identifier``, ``state_name``, ``created_by_name``) plus
+    :class:`SerializerMethodField` resolvers (``identifier``, ``assignees``,
+    ``parent``, ``labels``, ``cycles``, ``modules``, ``comments``,
+    ``estimate``, ``links``, ``relations``, ``subscribers``) so callers do
+    not need to traverse nested relations, resolve UUIDs, or inspect
+    related model objects at read time.
+
+    Consumed by :class:`plane.utils.porters.exporter.DataExporter`
+    (instantiated in :mod:`plane.bgtasks.export_task` at the
+    ``DataExporter(IssueExportSerializer, format_type=...)`` call site) and
+    emitted as CSV / JSON / XLSX. The :attr:`Meta.fields` ordering is the
+    **authoritative export column order** for CSV and XLSX outputs --
+    silent reordering will break downstream consumers and is forbidden by
+    AAP section 0.12.3 system boundaries.
     """
 
     identifier = serializers.SerializerMethodField()
@@ -34,6 +62,8 @@ class IssueExportSerializer(IssueSerializer):
     subscribers = serializers.SerializerMethodField()
 
     class Meta(IssueSerializer.Meta):
+        """Declare the ordered export field set; sequence is the CSV / XLSX column order."""
+
         fields = [
             "project_name",
             "project_identifier",
@@ -66,9 +96,11 @@ class IssueExportSerializer(IssueSerializer):
         ]
 
     def get_identifier(self, obj):
+        """Return human-readable issue key ``"<PROJECT_IDENTIFIER>-<SEQUENCE_ID>"`` for export rows and breadcrumbs."""
         return f"{obj.project.identifier}-{obj.sequence_id}"
 
     def get_assignees(self, obj):
+        """Emit display names of currently active assignees so deactivated users are excluded from exports."""
         return [u.full_name for u in obj.assignees.all() if u.is_active]
 
     def get_subscribers(self, obj):
@@ -76,11 +108,13 @@ class IssueExportSerializer(IssueSerializer):
         return [sub.subscriber.full_name for sub in obj.issue_subscribers.all() if sub.subscriber]
 
     def get_parent(self, obj):
+        """Return the parent issue key for sub-issues, or an empty string when the issue has no parent."""
         if not obj.parent:
             return ""
         return f"{obj.parent.project.identifier}-{obj.parent.sequence_id}"
 
     def get_labels(self, obj):
+        """Flatten attached labels to a list of label names, skipping soft-deleted ``IssueLabel`` rows."""
         return [
             il.label.name
             for il in obj.label_issue.all()
@@ -88,9 +122,11 @@ class IssueExportSerializer(IssueSerializer):
         ]
 
     def get_cycles(self, obj):
+        """Flatten cycle memberships to a list of cycle names for the export row."""
         return [ic.cycle.name for ic in obj.issue_cycle.all()]
 
     def get_modules(self, obj):
+        """Flatten module memberships to a list of module names for the export row."""
         return [im.module.name for im in obj.issue_module.all()]
 
     def get_estimate(self, obj):

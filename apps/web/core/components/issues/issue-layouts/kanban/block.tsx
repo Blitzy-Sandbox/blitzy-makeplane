@@ -4,6 +4,67 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Individual Kanban issue card — outer draggable/droppable shell + inner content renderer.
+ *
+ * Module structure (two co-located components):
+ *   - `KanbanIssueDetailsBlock` (internal, not exported) — renders the card body: identifier badge,
+ *     hover-revealed quick-actions menu, title with tooltip, properties row, and (epic mode only)
+ *     the sub-issue stats line.
+ *   - `KanbanIssueBlock` (exported) — the outer shell: resolves the issue from the store, builds
+ *     the work-item link, attaches Pragmatic DnD draggable + drop-target, manages drag-over /
+ *     dragging local state, and defers the inner content via `RenderIfVisible`.
+ *
+ * MobX stores read (in `KanbanIssueBlock`):
+ *   - `useProject()` exposes `getProjectIdentifierById` for resolving the project prefix used in
+ *     the work-item URL.
+ *   - `useIssueDetail(EPICS | ISSUES)` exposes `getIsIssuePeeked` for highlighting the card when
+ *     its peek-overview is open.
+ *   - `useKanbanView()` exposes `setIsDragging` so the global drag-to-delete drop zone in
+ *     `base-kanban-root.tsx` knows when a drag is active.
+ *
+ * Hook-driven derived behavior:
+ *   - `useIssuePeekOverviewRedirection(isEpic)` exposes `handleRedirection`, which routes the click
+ *     either to peek mode or full navigation based on user preference + platform.
+ *   - `usePlatformOS()` exposes `isMobile` controlling tooltip behavior and hover-only menu visibility.
+ *   - `useOutsideClickDetector(cardRef, ...)` removes the post-drop highlight class when the user
+ *     clicks outside the card (cleanup of `HIGHLIGHT_CLASS` injected by `highlightIssueOnDrop`).
+ *
+ * Side effects (registered via `useEffect`):
+ *   1. Pragmatic DnD `draggable` registration on the card DOM node:
+ *      - `canDrag` returns `isDragAllowed = canDragIssuesInCurrentGrouping && !issue?.tempId && canEditIssueProperties`.
+ *      - `onDragStart` sets BOTH local `isCurrentBlockDragging` and global `setIsKanbanDragging(true)`.
+ *      - `onDrop` clears both flags.
+ *   2. Pragmatic DnD `dropTargetForElements` registration on the SAME card DOM node — enables
+ *     same-column reordering. `canDrop` rejects self-drops and respects `canDropOverIssue`.
+ *
+ * Side effects (other):
+ *   - Clicking the card calls `handleIssuePeekOverview` → `handleRedirection(workspaceSlug, issue, isMobile)`
+ *     which navigates or opens peek view.
+ *   - Mousedown drag-start emits a warning toast via `setToast` when drag is NOT allowed (informs the
+ *     user why the issue cannot be moved — read-only or non-draggable grouping).
+ *
+ * Render-disabling rules (the WHY):
+ *   - `if (!issue) return null;` — the store may not yet have hydrated the id (optimistic insertions,
+ *     pagination races). Returning null avoids rendering an empty/broken card.
+ *   - `disabled={!!issue?.tempId}` on `ControlLink` — temporary IDs indicate a pending optimistic
+ *     create that has no real route yet; clicking it would navigate to a non-existent URL.
+ *
+ * Z-index management (the WHY):
+ *   - `z-[1]` is applied while `isCurrentBlockDragging` so the drag-image of the source card
+ *     does not get visually overlapped by sibling cards during the drag operation.
+ *
+ * Inner `RenderIfVisible` (lazy mount):
+ *   - The inner `KanbanIssueDetailsBlock` is wrapped in `RenderIfVisible` with `defaultHeight="100px"`
+ *     so off-screen cards render only a 100px placeholder until scrolled into view, preserving
+ *     scroll-anchor heights.
+ *   - `shouldRenderByDefault` is propagated from the parent `KanbanIssueBlocksList` (true for the
+ *     first 11 cards in each column).
+ *
+ * Consumers:
+ *   - `./blocks-list.tsx` — instantiates one `KanbanIssueBlock` per issue id.
+ */
+
 import type { MutableRefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
@@ -39,6 +100,13 @@ import type { TRenderQuickActions } from "../list/list-view-types";
 import { IssueProperties } from "../properties/all-properties";
 import { WithDisplayPropertiesHOC } from "../properties/with-display-properties-HOC";
 
+/**
+ * Props for the outer `KanbanIssueBlock` shell.
+ *
+ * `draggableId` is the composite id `<issueId>__<groupId>__<sub_group_id>` built in
+ * `blocks-list.tsx`; it ensures multi-column rendering of the same issue (e.g. multi-label) yields
+ * a unique DnD identity per location.
+ */
 interface IssueBlockProps {
   issueId: string;
   groupId: string;
@@ -56,6 +124,11 @@ interface IssueBlockProps {
   isEpic?: boolean;
 }
 
+/**
+ * Props for the internal `KanbanIssueDetailsBlock` content renderer.
+ *
+ * `cardRef` is forwarded so the quick-action menu can use it as the popper anchor.
+ */
 interface IssueDetailsBlockProps {
   cardRef: React.RefObject<HTMLElement>;
   issue: TIssue;
@@ -66,6 +139,13 @@ interface IssueDetailsBlockProps {
   isEpic?: boolean;
 }
 
+/**
+ * Internal content renderer for a single Kanban card.
+ *
+ * Renders the issue identifier, hover-revealed quick-action menu, title (with tooltip), inline
+ * properties row, and (epic mode) the sub-issue stats line gated by the
+ * `display_properties.sub_issue_count` filter via `WithDisplayPropertiesHOC`.
+ */
 const KanbanIssueDetailsBlock = observer(function KanbanIssueDetailsBlock(props: IssueDetailsBlockProps) {
   const { cardRef, issue, updateIssue, quickActions, isReadOnly, displayProperties, isEpic = false } = props;
   // refs
@@ -153,6 +233,7 @@ const KanbanIssueDetailsBlock = observer(function KanbanIssueDetailsBlock(props:
   );
 });
 
+/** Outer Kanban card shell with DnD + lazy mount; see the module-level JSDoc for full semantics. */
 export const KanbanIssueBlock = observer(function KanbanIssueBlock(props: IssueBlockProps) {
   const {
     issueId,

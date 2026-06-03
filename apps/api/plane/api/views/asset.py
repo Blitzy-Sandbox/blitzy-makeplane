@@ -2,6 +2,23 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""File-asset upload endpoints for the external ``/api/v1/`` API.
+
+These endpoints implement an S3 presigned-PUT upload flow:
+
+    1. ``POST`` returns ``{asset_id, asset_url, upload_data}`` so the
+       client can PUT the bytes directly to object storage.
+    2. ``PATCH`` marks the upload as complete and enqueues
+       ``get_asset_object_metadata`` (Celery+RabbitMQ) to backfill mime
+       type and size from S3.
+    3. ``DELETE`` soft-deletes by setting ``is_deleted=True``; the actual
+       S3 object is reaped by the ``file_asset`` Celery beat job at
+       02:00 UTC.
+
+Authentication is via the ``X-Api-Key`` header (see
+``plane.api.middleware.api_authentication.APIKeyAuthentication``).
+"""
+
 # Python Imports
 import uuid
 
@@ -47,9 +64,64 @@ from plane.utils.exception_logger import log_exception
 
 
 class UserAssetEndpoint(BaseAPIView):
-    """This endpoint is used to upload user profile images."""
+    """Upload, finalize, and remove the requesting user's profile assets.
+
+    Used for user avatar and cover images.
+
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/asset.py``):
+        POST    /api/v1/assets/user-assets/
+                    (name ``user-assets``)
+        PATCH   /api/v1/assets/user-assets/<uuid:asset_id>/
+                    (name ``user-assets-detail``)
+        DELETE  /api/v1/assets/user-assets/<uuid:asset_id>/
+                    (name ``user-assets-detail``)
+
+    Request body (POST):
+        name        (str, required) -- Original filename.
+        type        (str, required) -- MIME type; must appear in
+            ``settings.ATTACHMENT_MIME_TYPES``.
+        size        (int, required) -- File size in bytes; must be
+            ``<= settings.FILE_SIZE_LIMIT``.
+        entity_type (str, required) -- One of ``USER_AVATAR`` or
+            ``USER_COVER`` from ``FileAsset.EntityTypeContext``.
+
+    Request body (PATCH):
+        is_uploaded (bool, required) -- Confirms the client has finished
+            the S3 PUT.
+
+    Response shape:
+        - POST: ``{asset_id, asset_url, upload_data: {url, fields}}``
+          where ``upload_data`` is the presigned POST payload produced
+          by ``S3Storage.generate_presigned_post``.
+        - PATCH: HTTP 204 with empty body.
+        - DELETE: HTTP 204 with empty body.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``IsAuthenticated`` -- the user is implicit from the API key's
+        owning user, so no workspace check is needed.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Side effects:
+        - POST: writes ``FileAsset`` row with ``is_uploaded=False``;
+          generates an S3 presigned PUT URL.
+        - PATCH: sets ``is_uploaded=True``; enqueues
+          ``get_asset_object_metadata`` via Celery+RabbitMQ to backfill
+          metadata from S3; updates the matching ``User.avatar_asset``
+          or ``User.cover_asset`` pointer.
+        - DELETE: soft-deletes via ``is_deleted=True`` +
+          ``deleted_at=timezone.now()``. The S3 object is reaped by the
+          ``file_asset`` Celery beat schedule (see
+          ``apps/api/plane/bgtasks/file_asset_task.py``).
+    """
 
     def asset_delete(self, asset_id):
+        """Soft-delete a ``FileAsset`` row by primary key (no-op if missing)."""
         asset = FileAsset.objects.filter(id=asset_id).first()
         if asset is None:
             return
@@ -59,6 +131,7 @@ class UserAssetEndpoint(BaseAPIView):
         return
 
     def entity_asset_delete(self, entity_type, asset, request):
+        """Clear the ``User`` pointer that references the deleted avatar or cover asset."""
         # User Avatar
         if entity_type == FileAsset.EntityTypeContext.USER_AVATAR:
             user = User.objects.get(id=asset.user_id)
@@ -109,11 +182,7 @@ class UserAssetEndpoint(BaseAPIView):
         },
     )
     def post(self, request):
-        """Generate presigned URL for user asset upload.
-
-        Create a presigned URL for uploading user profile assets (avatar or cover image).
-        This endpoint generates the necessary credentials for direct S3 upload.
-        """
+        """Generate a presigned PUT URL and return a fresh ``FileAsset`` id."""
         # get the asset key
         name = sanitize_filename(request.data.get("name")) or "unnamed"
         type = request.data.get("type", "image/jpeg")
@@ -202,11 +271,7 @@ class UserAssetEndpoint(BaseAPIView):
         },
     )
     def patch(self, request, asset_id):
-        """Update user asset after upload completion.
-
-        Update the asset status and attributes after the file has been uploaded to S3.
-        This endpoint should be called after completing the S3 upload to mark the asset as uploaded.
-        """
+        """Mark the upload as complete and enqueue metadata backfill via Celery."""
         # get the asset id
         asset = FileAsset.objects.get(id=asset_id, user_id=request.user.id)
         # get the storage metadata
@@ -230,11 +295,7 @@ class UserAssetEndpoint(BaseAPIView):
         },
     )
     def delete(self, request, asset_id):
-        """Delete user asset.
-
-        Delete a user profile asset (avatar or cover image) and remove its reference from the user profile.
-        This performs a soft delete by marking the asset as deleted and updating the user's profile.
-        """
+        """Soft-delete the asset row; the S3 object is reaped by Celery beat."""
         asset = FileAsset.objects.get(id=asset_id, user_id=request.user.id)
         asset.is_deleted = True
         asset.deleted_at = timezone.now()
@@ -245,9 +306,40 @@ class UserAssetEndpoint(BaseAPIView):
 
 
 class UserServerAssetEndpoint(BaseAPIView):
-    """This endpoint is used to upload user profile images."""
+    """Server-side variant of the user profile asset endpoint.
+
+    Identical contract to ``UserAssetEndpoint`` (POST/PATCH/DELETE on
+    ``FileAsset`` rows for user avatars and covers) but mounted at the
+    ``user-assets/server`` path. Intended for trusted server-to-server
+    integrations where the calling system performs the S3 upload on
+    behalf of a user.
+
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/asset.py``):
+        POST    /api/v1/assets/user-assets/server/
+                    (name ``user-server-assets``)
+        PATCH   /api/v1/assets/user-assets/<uuid:asset_id>/server/
+                    (name ``user-server-assets-detail``)
+        DELETE  /api/v1/assets/user-assets/<uuid:asset_id>/server/
+                    (name ``user-server-assets-detail``)
+
+    Request and response shape:
+        Same as ``UserAssetEndpoint``.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``). The API token is typically a service token
+        (``is_service=True``) so the higher ``ServiceTokenRateThrottle``
+        (300/minute) applies.
+    Permissions:
+        ``IsAuthenticated``.
+
+    Side effects:
+        Identical to ``UserAssetEndpoint``.
+    """
 
     def asset_delete(self, asset_id):
+        """Soft-delete a ``FileAsset`` row by primary key (no-op if missing)."""
         asset = FileAsset.objects.filter(id=asset_id).first()
         if asset is None:
             return
@@ -257,6 +349,7 @@ class UserServerAssetEndpoint(BaseAPIView):
         return
 
     def entity_asset_delete(self, entity_type, asset, request):
+        """Clear the ``User`` pointer that references the deleted avatar or cover asset."""
         # User Avatar
         if entity_type == FileAsset.EntityTypeContext.USER_AVATAR:
             user = User.objects.get(id=asset.user_id)
@@ -281,12 +374,7 @@ class UserServerAssetEndpoint(BaseAPIView):
         },
     )
     def post(self, request):
-        """Generate presigned URL for user server asset upload.
-
-        Create a presigned URL for uploading user profile assets
-        (avatar or cover image) using server credentials. This endpoint generates the
-        necessary credentials for direct S3 upload with server-side authentication.
-        """
+        """Generate a presigned PUT URL for server-driven user asset upload."""
         # get the asset key
         name = sanitize_filename(request.data.get("name")) or "unnamed"
         type = request.data.get("type", "image/jpeg")
@@ -358,11 +446,7 @@ class UserServerAssetEndpoint(BaseAPIView):
         },
     )
     def patch(self, request, asset_id):
-        """Update user server asset after upload completion.
-
-        Update the asset status and attributes after the file has been uploaded to S3 using server credentials.
-        This endpoint should be called after completing the S3 upload to mark the asset as uploaded.
-        """
+        """Mark a server-driven user asset upload as complete and backfill metadata."""
         # get the asset id
         asset = FileAsset.objects.get(id=asset_id, user_id=request.user.id)
         # get the storage metadata
@@ -386,12 +470,7 @@ class UserServerAssetEndpoint(BaseAPIView):
         },
     )
     def delete(self, request, asset_id):
-        """Delete user server asset.
-
-        Delete a user profile asset (avatar or cover image) using server credentials and
-        remove its reference from the user profile. This performs a soft delete by marking the
-        asset as deleted and updating the user's profile.
-        """
+        """Soft-delete a server-driven user asset row."""
         asset = FileAsset.objects.get(id=asset_id, user_id=request.user.id)
         asset.is_deleted = True
         asset.deleted_at = timezone.now()
@@ -402,7 +481,76 @@ class UserServerAssetEndpoint(BaseAPIView):
 
 
 class GenericAssetEndpoint(BaseAPIView):
-    """This endpoint is used to upload generic assets that can be later bound to entities."""
+    """Upload-presign, fetch-presign, and finalize workspace-scoped generic assets.
+
+    These assets can later be bound to project entities such as issue
+    attachments, page descriptions, comment descriptions, project covers,
+    or workspace logos. The binding itself is performed by the
+    target-entity's endpoint; this endpoint only manages the underlying
+    ``FileAsset`` row and its S3 lifecycle.
+
+    HTTP methods + URL patterns (registered in
+    ``apps/api/plane/api/urls/asset.py``):
+        POST    /api/v1/workspaces/<slug>/assets/
+                    (name ``generic-asset``)
+        GET     /api/v1/workspaces/<slug>/assets/<uuid:asset_id>/
+                    (name ``generic-asset-detail``)
+        PATCH   /api/v1/workspaces/<slug>/assets/<uuid:asset_id>/
+                    (name ``generic-asset-detail``)
+
+    Note:
+        The URL configuration registers only POST on the collection and
+        GET / PATCH on the detail route. DELETE is NOT registered for
+        this endpoint; soft-deletion of workspace-scoped assets is
+        handled by the binding entity's own endpoint.
+
+    Request body (POST):
+        name        (str, required) -- Original filename.
+        type        (str, required) -- MIME type; must appear in
+            ``settings.ATTACHMENT_MIME_TYPES``.
+        size        (int, required) -- File size in bytes; must be
+            ``<= settings.FILE_SIZE_LIMIT`` (or an entity-type-specific
+            limit).
+        entity_type (str, required) -- One of the values in
+            ``FileAsset.EntityTypeContext`` (e.g. ``ISSUE_ATTACHMENT``,
+            ``PAGE_DESCRIPTION``, ``COMMENT_DESCRIPTION``,
+            ``PROJECT_COVER``, ``WORKSPACE_LOGO``).
+        entity_identifier (uuid, optional) -- Target entity pk; only
+            required for entity types that pre-bind on upload (most are
+            bound on PATCH).
+
+    Request body (PATCH):
+        is_uploaded (bool, required) -- Confirms the client has finished
+            the S3 PUT.
+
+    Response shape:
+        - POST: ``{asset_id, asset_url, upload_data: {url, fields}}``
+          where ``upload_data`` is the presigned POST payload.
+        - GET: HTTP 302 redirect to the S3 presigned GET URL so the
+          client downloads the object directly from S3.
+        - PATCH: HTTP 204 with empty body.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``IsAuthenticated`` plus a workspace-membership check (the
+        ``slug`` workspace must be accessible to the requesting user).
+        Per-entity write permission is enforced by the entity's binding
+        endpoint, not here.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Side effects:
+        - POST: writes ``FileAsset`` row with ``is_uploaded=False``;
+          generates an S3 presigned PUT URL.
+        - GET: read-only -- issues a fresh S3 presigned GET URL for the
+          underlying object and 302-redirects the client to it.
+        - PATCH: sets ``is_uploaded=True``; enqueues
+          ``get_asset_object_metadata`` via Celery+RabbitMQ to backfill
+          metadata from S3.
+    """
 
     use_read_replica = True
 
@@ -494,10 +642,12 @@ class GenericAssetEndpoint(BaseAPIView):
         },
     )
     def post(self, request, slug):
-        """Generate presigned URL for generic asset upload.
+        """Validate MIME type/size and return a presigned PUT URL for a new ``FileAsset``.
 
-        Create a presigned URL for uploading generic assets that can be bound to entities like work items.
-        Supports various file types and includes external source tracking for integrations.
+        Validates ``type`` against ``settings.ATTACHMENT_MIME_TYPES`` and
+        ``size`` against ``settings.FILE_SIZE_LIMIT`` (or the
+        ``entity_type``-specific limit). Rejects with ``400 Bad Request``
+        on validation failure.
         """
         name = sanitize_filename(request.data.get("name"))
         type = request.data.get("type")
@@ -595,11 +745,11 @@ class GenericAssetEndpoint(BaseAPIView):
         },
     )
     def patch(self, request, slug, asset_id):
-        """Update generic asset after upload completion.
+        """Mark the upload as complete and enqueue metadata backfill.
 
-        Update the asset status after the file has been uploaded to S3.
-        This endpoint should be called after completing the S3 upload to mark the asset as uploaded
-        and trigger metadata extraction.
+        Sets ``is_uploaded=True`` and dispatches
+        ``get_asset_object_metadata`` via Celery+RabbitMQ to read the
+        canonical size and MIME type from S3 head metadata.
         """
         try:
             asset = FileAsset.objects.get(id=asset_id, workspace__slug=slug, is_deleted=False)

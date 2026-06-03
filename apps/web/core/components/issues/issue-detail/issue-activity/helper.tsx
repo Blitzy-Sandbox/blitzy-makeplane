@@ -4,6 +4,50 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Issue-detail comment & reaction operations factory.
+ *
+ * Composes store hooks from issue-detail / project / member / editor-asset / user with i18n,
+ * clipboard, and toast utilities into the memoized `TCommentsOperations` contract consumed by the
+ * `CommentCreate` / `CommentCard` components and the activity timeline. The single exported hook
+ * (`useWorkItemCommentOperations`) returns a stable operations object that handles the entire
+ * comment lifecycle: deep-link copying, CRUD (create / update / remove), attachment upload &
+ * duplication, reaction CRUD with toggle semantics, reaction grouping, and user display formatting.
+ *
+ * Architectural notes:
+ *   - This module is the boundary between the MobX issue-detail store and the comment UI surfaces;
+ *     it does NOT introduce any new state of its own — every method routes through `useIssueDetail`,
+ *     `useEditorAsset`, `useMember`, etc.
+ *   - The contract is `TCommentsOperations` (sourced from `@plane/types`) — the same type
+ *     consumed by every comment-aware UI component in the issue-detail subtree, so callers can be
+ *     swapped between work-item, epic, and worklog contexts without changing prop signatures.
+ *   - All async methods catch errors and emit a localized toast via `setToast` — the contract
+ *     consumers therefore do NOT need their own error handling for the happy/typical failure paths.
+ *   - The `react` method toggles a reaction by checking the user's current reaction set
+ *     (`userReactions(commentId)`) and routing to `addCommentReaction` / `deleteCommentReaction`
+ *     accordingly; this prevents double-add and silent-fail on remove.
+ *
+ * Side effects in returned ops:
+ *   - `copyCommentLink(commentId)`: clipboard write of `${workItemLink}#comment-<id>` + success/error toast
+ *   - `createComment(data)`: POST to issue-comment endpoint (via store action) + success/error toast
+ *   - `updateComment(commentId, data)`: PATCH to issue-comment endpoint + success/error toast
+ *   - `removeComment(commentId)`: DELETE issue-comment endpoint + success/error toast
+ *   - `uploadCommentAsset(blockId, file, commentId?)`: POST asset (EFileAssetType.COMMENT_DESCRIPTION)
+ *     via `uploadEditorAsset` — throws (no toast here; the editor UI surfaces this)
+ *   - `duplicateCommentAsset(assetId, commentId)`: POST asset-duplication endpoint via
+ *     `duplicateEditorAsset` — throws on failure
+ *   - `addCommentReaction(commentId, reaction)` / `deleteCommentReaction(commentId, reaction)`:
+ *     POST/DELETE comment-reaction endpoints + success/error toast
+ *   - `react(commentId, reactionEmoji, userReactions)`: dispatches add or delete based on whether
+ *     the emoji is already in the user's reactions array
+ *   - `reactionIds(commentId)`: pure read from `commentReaction.getCommentReactionsByCommentId`
+ *   - `userReactions(commentId)`: pure read from `commentReaction.commentReactionsByUser` mapped to
+ *     the reaction emoji strings
+ *   - `getReactionUsers(reaction, reactionIds)`: pure compose — resolves each reactor's
+ *     `display_name` via `getCommentReactionById` + `getUserDetails`, then formats the resulting
+ *     list with `formatTextList` (e.g., "Alice, Bob, and Charlie")
+ */
+
 import { useMemo } from "react";
 import { useTranslation } from "@plane/i18n";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
@@ -16,6 +60,31 @@ import { useMember } from "@/hooks/store/use-member";
 import { useProject } from "@/hooks/store/use-project";
 import { useUser } from "@/hooks/store/user";
 
+/**
+ * Builds the stable `TCommentsOperations` contract for a given (workspaceSlug, projectId, issueId).
+ *
+ * Parameters:
+ *   - workspaceSlug (string | undefined): scopes every comment / reaction / asset mutation; ops
+ *     short-circuit (with no toast) when undefined
+ *   - projectId (string | undefined): scopes every comment / reaction / asset mutation
+ *   - issueId (string | undefined): the work item whose comments are managed
+ *
+ * Returns: `TCommentsOperations` (memoized so the reference is stable across renders when the three
+ * scope args and the underlying store actions are unchanged).
+ *
+ * Side effects: see the module-level JSDoc — every async method emits a localized success/error
+ * toast on completion; clipboard writes use the system clipboard.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — `createComment`, `updateComment`, `removeComment`,
+ *     `createCommentReaction`, `removeCommentReaction`, `commentReaction.{getCommentReactionsByCommentId,
+ *     commentReactionsByUser, getCommentReactionById}`, `issue.getIssueById`
+ *   - `useProject()` — `getProjectById` (used by `copyCommentLink` to build the work-item URL)
+ *   - `useMember()` — `getUserDetails` (used by `getReactionUsers` for display-name resolution)
+ *   - `useEditorAsset()` — `uploadEditorAsset`, `duplicateEditorAsset` (asset upload / duplication)
+ *   - `useUser()` — `currentUser` for the reactor identity in `deleteCommentReaction` and for the
+ *     `userReactions` filter
+ */
 export const useWorkItemCommentOperations = (
   workspaceSlug: string | undefined,
   projectId: string | undefined,

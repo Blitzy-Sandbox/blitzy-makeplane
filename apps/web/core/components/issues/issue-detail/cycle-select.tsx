@@ -4,6 +4,43 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Cycle assignment selector for the issue detail sidebar.
+ *
+ * Rendered purpose: a single-select `CycleDropdown` (variant `transparent-with-text`) that shows the
+ * work item's current cycle and lets the user assign/clear it. Disables itself during in-flight
+ * updates to prevent double-submission.
+ *
+ * Props (TIssueCycleSelect):
+ *   - className (string, optional, default=""): wrapper class overrides
+ *   - workspaceSlug (string, required): scopes the cycle mutation
+ *   - projectId (string, required): scopes the cycle mutation and bounds the dropdown options
+ *   - issueId (string, required): the work item being assigned
+ *   - issueOperations (TIssueOperations, required): the issue-update contract exposed from `./root`
+ *     — specifically the optional `addCycleToIssue` and `removeIssueFromCycle` methods
+ *   - disabled (boolean, optional, default=false): disables both the dropdown and the local
+ *     `isUpdating` lock (the dropdown becomes uninteractive when either is true)
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — `issue.getIssueById(issueId)` to resolve the current `cycle_id`
+ *
+ * Side effects:
+ *   - Mutations via the `issueOperations` contract:
+ *       - `addCycleToIssue(workspaceSlug, projectId, cycleId, issueId)` when a non-null cycle is picked
+ *       - `removeIssueFromCycle(workspaceSlug, projectId, issue.cycle_id ?? "", issueId)` when cleared
+ *   - These contract methods in turn route through the issue-detail store (which calls
+ *     `CycleService.addCycleToIssue` / `removeIssueFromCycle` against `apps/api`).
+ *   - Toast emissions are handled INSIDE the `issueOperations` contract in `root.tsx`, not here.
+ *
+ * Derived state notes:
+ *   - Early-exit guard: skips the mutation when the cycle id is unchanged (`issue.cycle_id === cycleId`).
+ *   - `disableSelect = disabled || isUpdating` so the dropdown stays uninteractive between optimistic
+ *     UI submission and the mutation resolving.
+ *
+ * Consumers: rendered by `./sidebar.tsx` (`IssueDetailsSidebar`) inside the issue-detail
+ * sidebar's properties block.
+ */
+
 import React, { useState } from "react";
 import { observer } from "mobx-react";
 import { useTranslation } from "@plane/i18n";

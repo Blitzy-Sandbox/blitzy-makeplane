@@ -4,9 +4,18 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Default form state for the work-item create/edit modal consumed by
+ * `apps/web/core/components/issues/issue-modal/**`.
+ */
+
 // plane imports
 import type { TIssue } from "@plane/types";
 
+/**
+ * Default form state for the work-item create modal (initial open + post-submit reset); `priority: "none"` mirrors `Issue.priority` default in `apps/api/plane/db/models/issue.py` and `module_ids: null` denotes an intentionally-absent relation rather than an empty selection.
+ * Consumers: work-item modal initial values and form-reset logic in `apps/web/core/components/issues/issue-modal/**`.
+ */
 export const DEFAULT_WORK_ITEM_FORM_VALUES: Partial<TIssue> = {
   project_id: "",
   type_id: null,

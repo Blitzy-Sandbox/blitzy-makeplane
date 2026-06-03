@@ -13,6 +13,31 @@ import { PdfExportRequestBody, PdfValidationError, PdfAuthenticationError } from
 import { PdfExportService, exportToPdf } from "@/services/pdf-export";
 import type { PdfExportInput } from "@/services/pdf-export";
 
+/**
+ * Server-side PDF export controller for Plane page documents.
+ *
+ * Mount path:
+ *   - Internal: `/pdf-export` (via `@Controller("/pdf-export")`)
+ *   - External: `/live/pdf-export` (composed with `env.LIVE_BASE_PATH`)
+ *
+ * Decorators consumed from `@plane/decorators`:
+ *   - `@Controller("/pdf-export")` — mounts the class on the live-server router
+ *   - `@Post("/")` — registers the POST handler at the controller root
+ *
+ * Auth requirement: cookie presence check inside the handler. The originating
+ * cookie is forwarded to the `apps/api` calls made by the PDF pipeline, so
+ * session validity is ultimately enforced upstream — this controller only
+ * asserts that *some* cookie is present before doing work. A missing cookie
+ * short-circuits to 401 via `PdfAuthenticationError`.
+ *
+ * Architecture: Effect-based (`effect` library) so the parse + service + error
+ * mapping pipeline can be composed declaratively. The actual rendering is
+ * delegated to `PdfExportService.Default` from `@/services/pdf-export`,
+ * which handles content fetching from `apps/api`, image processing, and
+ * React-PDF (`@react-pdf/renderer` via `@/lib/pdf/plane-pdf-exporter`) document
+ * generation. Tagged domain errors from the service are translated to HTTP
+ * status codes by `mapErrorToHttpResponse`.
+ */
 @Controller("/pdf-export")
 export class PdfExportController {
   /**
@@ -91,6 +116,47 @@ export class PdfExportController {
     return { status: 500, error: "Failed to generate PDF" };
   }
 
+  /**
+   * Generates a PDF export of a Plane page and streams it back to the caller.
+   *
+   * HTTP method: POST
+   * Route: `/` (relative to controller mount — externally `/live/pdf-export`)
+   *
+   * Request body (validated by `Schema.decodeUnknown(PdfExportRequestBody)`):
+   *   - `pageId` (string, required, non-empty trimmed)
+   *   - `workspaceSlug` (string, required, non-empty trimmed)
+   *   - `projectId` (string, optional)
+   *   - `title`, `author`, `subject`, `fileName` (string, optional) — PDF metadata + download filename
+   *   - `pageSize` ("A4"|"A3"|"A2"|"LETTER"|"LEGAL"|"TABLOID", optional)
+   *   - `pageOrientation` ("portrait"|"landscape", optional)
+   *   - `noAssets` (boolean, optional) — when true, skips image fetching/embedding
+   *
+   * Request headers:
+   *   - `Cookie` (required) — forwarded to `apps/api` to resolve the calling session
+   *
+   * Success response (200):
+   *   - `Content-Type: application/pdf`
+   *   - `Content-Disposition: attachment; filename="<sanitized>"; filename*=UTF-8''<encoded>`
+   *     The unsanitized name is preserved in `filename*` (RFC 5987) so non-ASCII is
+   *     downloadable; the sanitized name protects against header-injection.
+   *   - `Content-Length: <bytes>`
+   *   - Body: raw PDF buffer from `exportToPdf(input)`
+   *
+   * Error mapping (via `Effect.catchAll` → `mapErrorToHttpResponse`):
+   *   - `PdfValidationError` → 400 (bad request body)
+   *   - `PdfAuthenticationError` → 401 (missing cookie)
+   *   - `PdfContentFetchError` → 404 if message includes `"not found"`, else 502
+   *   - `PdfMetadataFetchError` → 502 (upstream `apps/api` failure)
+   *   - `PdfImageProcessingError` → 502 (image fetch/transform failure)
+   *   - `PdfTimeoutError` → 504 (operation exceeded budget)
+   *   - `PdfGenerationError` → 500 (React-PDF document assembly/rendering failure
+   *     in `@/lib/pdf` via `@react-pdf/renderer`)
+   *   - Unexpected defects → 500 via `Effect.catchAllDefect` with `AppError` logged
+   *
+   * Each request is assigned a `crypto.randomUUID()` `requestId` propagated
+   * through the Effect pipeline and into log entries, so failures can be
+   * correlated across the live server and downstream `apps/api` calls.
+   */
   @Post("/")
   async exportToPdf(req: Request, res: Response) {
     const requestId = crypto.randomUUID();

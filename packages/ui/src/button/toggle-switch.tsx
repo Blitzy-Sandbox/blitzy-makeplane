@@ -4,6 +4,11 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Headless UI Switch-based toggle primitive used for boolean settings such as notification
+ * preferences and other on/off UX controls.
+ */
+
 import { Switch } from "@headlessui/react";
 // helpers
 import { cn } from "../utils";
@@ -17,6 +22,27 @@ interface IToggleSwitchProps {
   className?: string;
 }
 
+/**
+ * Controlled animated toggle switch (alternative to a checkbox) built on top of Headless UI's
+ * `Switch`. The thumb translates horizontally to reflect the boolean state, and the track color
+ * shifts between the accent and a placeholder neutral.
+ *
+ * Use when the UX calls for an on/off setting (e.g., notification preferences) rather than a
+ * boolean checkbox in a form. State is fully controlled — callers own `value` and react to
+ * `onChange`.
+ *
+ * Props (see local `IToggleSwitchProps`):
+ *   - `value`: controlled checked state.
+ *   - `onChange`: invoked with the new boolean on user toggle.
+ *   - `label` (optional): visually hidden screen-reader accessible name.
+ *   - `size` (default `"sm"`): one of `"sm" | "md" | "lg"` controlling track and thumb dimensions.
+ *   - `disabled` (optional): disables the underlying Switch and applies muted styling.
+ *   - `className` (optional): extra Tailwind classes merged onto the Switch element.
+ *
+ * Accessibility: Headless UI Switch supplies `role="switch"` and `aria-checked` automatically,
+ * and Space toggles the switch when focused. The optional `label` is rendered inside an
+ * `sr-only` span so it acts as the accessible name without being visible.
+ */
 function ToggleSwitch(props: IToggleSwitchProps) {
   const { value, onChange, label, size = "sm", disabled, className } = props;
 

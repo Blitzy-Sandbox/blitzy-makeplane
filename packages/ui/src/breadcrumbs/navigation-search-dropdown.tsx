@@ -4,6 +4,15 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Breadcrumb-item dropdown with built-in text search for navigating large sibling lists.
+ *
+ * Wraps `CustomSearchSelect` so users can type-to-filter peer entities (projects, cycles,
+ * modules, views) when a plain menu would be too long. Click handling on non-terminal
+ * segments forwards through `handleOnClick` before opening the search popover, allowing
+ * the host to navigate to the selected entity's primary route.
+ */
+
 import * as React from "react";
 import { useState } from "react";
 import { Tooltip } from "@plane/propel/tooltip";
@@ -25,6 +34,28 @@ type TBreadcrumbNavigationSearchDropdownProps = {
   shouldTruncate?: boolean;
 };
 
+/**
+ * Breadcrumb segment that opens a searchable dropdown for selecting among a large set of siblings.
+ *
+ * Synchronizes its open state with the underlying `CustomSearchSelect` (`onOpen`/`onClose`)
+ * and guards `onChange` so re-selecting the current value is a no-op. On narrow viewports
+ * (below the `@4xl` container-query breakpoint) the icon+label collapses to a `...` placeholder
+ * when `shouldTruncate` is true. Tapping the trigger on a non-terminal segment fires
+ * `handleOnClick` (typically to navigate to the selected entity) before the popover opens.
+ *
+ * @param props.icon - Optional leading icon rendered inside the trigger.
+ * @param props.title - Trigger label and tooltip content.
+ * @param props.selectedItem - Currently selected option value, forwarded to `CustomSearchSelect.value`.
+ * @param props.navigationItems - Options consumed by `CustomSearchSelect`; conforms to `ICustomSearchSelectOption[]`.
+ * @param props.onChange - Optional callback fired when the user picks a different option; suppressed when the picked value equals `selectedItem`.
+ * @param props.navigationDisabled - When true, disables the underlying search select (default: false).
+ * @param props.isLast - Set by the parent `Breadcrumbs` for the terminal segment; suppresses hover/click affordances and rotates the chevron (default: false).
+ * @param props.handleOnClick - Optional callback fired when the trigger of a non-terminal segment is clicked.
+ * @param props.disableRootHover - Declared in the prop type but not consumed by the implementation; reserved for type compatibility with call sites that pass it.
+ * @param props.shouldTruncate - When true, collapses the icon+label to a `...` affordance below the `@4xl` container-query breakpoint (default: false).
+ */
+// INTENT UNCLEAR: explicit ARIA semantics (combobox + textbox roles, debounced input behavior) are delegated to the underlying `CustomSearchSelect`; accessibility behavior must be verified at that layer.
+// INTENT UNCLEAR: `disableRootHover` is part of the prop type but never read in the component body — it appears reserved but inert; do not infer behavior beyond what is observed.
 export function BreadcrumbNavigationSearchDropdown(props: TBreadcrumbNavigationSearchDropdownProps) {
   const {
     icon,

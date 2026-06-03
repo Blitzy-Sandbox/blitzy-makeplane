@@ -4,6 +4,38 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * `FiltersDropdown` — Headless UI Popover wrapper with popper.js positioning. The outer dropdown
+ * shell used by the filters Popover and the display-filters dropdown.
+ *
+ * Rendered purpose: presents a trigger button (icon or text) that toggles a popper-positioned panel
+ * containing the supplied `children` (the filter or display-filter dropdown body).
+ *
+ * Props (`Props`):
+ *   - `children` (`ReactNode`, required): the dropdown body — a filter or display-filter section.
+ *   - `icon` (`ReactElement`, optional): the trigger button's icon.
+ *   - `miniIcon` (`ReactNode`, optional): an adjacent small icon (e.g. filter-applied indicator
+ *     badge).
+ *   - `title` (`string`, optional, default `"Dropdown"`): the trigger button's text label.
+ *   - `placement` (`Placement`, optional, default `"auto"`): popper.js placement for the panel.
+ *   - `disabled` (`boolean`, optional, default `false`): disables the trigger button.
+ *   - `tabIndex` (`number`, optional): tab index for the trigger button.
+ *   - `menuButton` (`ReactNode`, optional): a custom trigger button that replaces the default.
+ *   - `isFiltersApplied` (`boolean`, optional, default `false`): when `true`, the trigger displays
+ *     the "filters-applied" visual indicator (typically a dot or accent on the icon).
+ *
+ * MobX stores read: none.
+ *
+ * Side effects: none — purely a UI primitive.
+ *
+ * Accessibility considerations:
+ *   - Built on Headless UI `Popover` and `Transition` — both ship with ARIA roles
+ *     (`role="dialog"`/`aria-haspopup="dialog"` semantics) and keyboard handling (Tab / Shift+Tab to
+ *     traverse, Esc to close) built in.
+ *   - The trigger button accepts `tabIndex` so callers can place the dropdown in a custom focus order
+ *     within the header.
+ */
+
 import React, { Fragment, useState } from "react";
 import type { Placement } from "@popperjs/core";
 import { usePopper } from "react-popper";

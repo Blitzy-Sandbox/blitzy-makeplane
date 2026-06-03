@@ -4,6 +4,31 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Slim row presentation of an in-flight attachment upload in the list layout,
+ * showing the file icon, truncated name, and a circular progress indicator with
+ * percentage label.
+ *
+ * @remarks
+ * `pointer-events-none` is applied to the wrapper so users cannot interact with the
+ * row while the upload is in progress.
+ *
+ * Props (`Props`):
+ * - `uploadStatus` (`TAttachmentUploadStatus`, required) — snapshot from the
+ *   issue-detail attachment store; exposes `name` and `progress` (0–100)
+ *
+ * MobX stores read:
+ * - None directly. The `uploadStatus` object is passed in by the parent
+ *   (`attachment-item-list.tsx`), which reads the upload-status array from
+ *   `attachmentHelpers.snapshot.uploadStatus`.
+ *
+ * Side effects:
+ * - None — purely presentational.
+ *
+ * Consumers:
+ * - `./attachment-item-list.tsx` (`IssueAttachmentItemList`).
+ */
+
 import { observer } from "mobx-react";
 // ui
 import { Tooltip } from "@plane/propel/tooltip";

@@ -4,6 +4,55 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Calendar settings popover that lets users switch between month/week layouts
+ * and toggle weekend visibility.
+ *
+ * Props:
+ *   - issuesFilterStore (required): IProjectIssuesFilter | IModuleIssuesFilter |
+ *     ICycleIssuesFilter | IProjectViewIssuesFilter — source of the current
+ *     `displayFilters.calendar.layout` and `.show_weekends`.
+ *   - updateFilters? (optional): (projectId, EIssueFilterType.DISPLAY_FILTERS,
+ *     filters) => Promise<void> — persistence callback. If omitted, layout and
+ *     weekend changes are no-ops because the component never calls the API
+ *     directly.
+ *
+ * MobX stores and hooks read (via React context, MobX-exclusive):
+ *   - issuesFilterStore.issueFilters.displayFilters.calendar for the active
+ *     layout and show_weekends flag.
+ *   - useParams() (next/navigation) for the current projectId.
+ *   - useCalendarView() → issueCalendarView.updateCalendarPayload(...) to
+ *     refresh the visible window after a layout switch.
+ *   - useSize() for windowWidth — used to auto-close the popover on mobile.
+ *   - useTranslation() for the "common.options" and
+ *     "common.actions.show_weekends" labels.
+ *
+ * Side effects:
+ *   - Layout change: persists the new layout via updateFilters(projectId,
+ *     EIssueFilterType.DISPLAY_FILTERS, { calendar: { ..., layout } }), then
+ *     calls issueCalendarView.updateCalendarPayload(...) to refetch the
+ *     visible-window data. This is the persisted-filter slice — distinct from
+ *     CalendarMonthsDropdown which mutates the local calendar-view state.
+ *   - Weekend toggle: persists { show_weekends: !current } via the same
+ *     updateFilters callback.
+ *   - On mobile (windowWidth <= 768), the popover auto-closes after a layout
+ *     change or weekend toggle.
+ *   - No direct API calls — persistence is delegated to the optional
+ *     updateFilters callback so consumers can route to the appropriate filter
+ *     store (project / cycle / module / project-view).
+ *
+ * Constants consumed:
+ *   - CALENDAR_LAYOUTS from "@/constants/calendar" — supplies the set of
+ *     selectable layouts (month, week) rendered as menu rows with a CheckIcon
+ *     next to the active selection.
+ *
+ * Trigger presentation:
+ *   - Desktop (md+): text button "Options" + rotating ChevronUpIcon, gated by
+ *     Tailwind's `md:flex` / `md:hidden` responsive classes.
+ *   - Mobile: icon-only MoreVerticalIcon. `useSize` is used for the auto-close
+ *     behavior, not for trigger visibility.
+ */
+
 import React, { useState } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
@@ -38,6 +87,7 @@ interface ICalendarHeader {
   ) => Promise<void>;
 }
 
+/** Calendar header popover for switching layout (month/week) and toggling weekend visibility. */
 export const CalendarOptionsDropdown = observer(function CalendarOptionsDropdown(props: ICalendarHeader) {
   const { issuesFilterStore, updateFilters } = props;
 

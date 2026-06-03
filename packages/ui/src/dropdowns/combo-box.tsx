@@ -4,6 +4,15 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Combobox-style dropdown providing combined text input + filtered options list.
+ *
+ * Wraps Headless UI `Combobox` with a deferred-mount pattern: the heavy combobox subtree is
+ * only rendered after the user actually interacts with the trigger (`mouseenter` or
+ * `renderByDefault=true`). Until then, only the trigger button is rendered, keeping the cost
+ * of large lists out of the initial paint.
+ */
+
 import { Combobox } from "@headlessui/react";
 import type { ElementType, KeyboardEventHandler, ReactNode, Ref } from "react";
 import React, { Fragment, forwardRef, useEffect, useRef, useState } from "react";
@@ -23,6 +32,30 @@ type Props = {
   children: ReactNode;
 };
 
+/**
+ * Ref-forwarding combobox wrapper that defers mounting the Headless UI `Combobox` tree until
+ * the trigger receives a `mouseenter` (or `renderByDefault=true` is passed at construction).
+ *
+ * Until first hover, only the `button` slot is rendered inside a styled wrapper `<div>`. This
+ * keeps initial render cost low for tables/lists that contain many dropdowns, where most rows
+ * are never opened.
+ *
+ * Props (see local `Props` type):
+ *   - `button` (required): trigger content rendered inside `Combobox.Button as={Fragment}`.
+ *   - `children` (required): the combobox subtree (typically `ComboOptions` + `ComboOption`s).
+ *   - `renderByDefault` (default `true`): when `false`, defer mounting the Combobox tree until
+ *     the user hovers the trigger.
+ *   - `value` / `onChange` / `multiple` / `disabled` / `tabIndex` / `as` / `className` /
+ *     `onKeyDown`: forwarded to Headless UI `Combobox`.
+ *
+ * Forwarded ref: passed through to the underlying Headless UI `Combobox` for imperative focus.
+ *
+ * Accessibility: once mounted, Headless UI Combobox provides ARIA `combobox` role,
+ * `aria-expanded`, `aria-autocomplete="list"`, arrow-key navigation, Enter to commit, Escape to
+ * dismiss, and typeahead via `ComboInput`. INTENT UNCLEAR: while in deferred-mount mode the
+ * placeholder wrapper is a plain `<div>` with no `tabindex` or button semantics, so keyboard-only
+ * users cannot trigger the lazy mount — only pointer hover transitions to the rendered tree.
+ */
 const ComboDropDown = forwardRef(function ComboDropDown(props: Props, ref) {
   const { button, renderByDefault = true, children, ...rest } = props;
 
@@ -64,6 +97,12 @@ const ComboDropDown = forwardRef(function ComboDropDown(props: Props, ref) {
   );
 });
 
+/**
+ * Re-exported Headless UI Combobox subcomponents. Provided as named aliases so consumers can
+ * import them from `@plane/ui` without depending on `@headlessui/react` directly. Behavior is
+ * unmodified — these aliases preserve every prop, ref, and render-prop signature of the
+ * underlying primitives.
+ */
 const ComboOptions = Combobox.Options;
 const ComboOption = Combobox.Option;
 const ComboInput = Combobox.Input;

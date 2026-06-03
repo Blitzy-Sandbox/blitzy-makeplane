@@ -2,6 +2,29 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Celery task that seeds a newly created workspace with starter content.
+
+Trigger: explicit ``workspace_seed.delay(workspace_id)`` from
+``apps/api/plane/app/views/workspace/base.py:139`` when a workspace is
+created (typically during first-time onboarding).
+
+Bot-user pattern:
+    A synthetic ``User`` with ``bot_type=BotTypeEnum.WORKSPACE_SEED`` is
+    created and used as ``created_by`` / ``updated_by`` for all generated
+    rows so the audit trail attributes seeded content to a "Seed Bot"
+    rather than the workspace owner.
+
+Distinct from ``dummy_data_task.py``:
+    ``workspace_seed_task`` produces a curated, production-grade starter
+    set (welcome page, default labels, getting-started issues), whereas
+    ``dummy_data_task`` generates Faker-randomized demo data for
+    development / QA.
+
+Async infrastructure: queued onto RabbitMQ and consumed by Celery workers
+(per the project architectural rule that Celery uses RabbitMQ as broker;
+Redis is reserved for caching / sessions and is not the task broker).
+"""
+
 # Python imports
 import os
 import json
@@ -69,7 +92,7 @@ def read_seed_file(filename):
 
 
 def create_project_and_member(workspace: Workspace, bot_user: User) -> Dict[int, uuid.UUID]:
-    """Creates a project and associated members for a workspace.
+    """Create a project and associated members for a workspace.
 
     Creates a new project using the workspace name and sets up all necessary
     member associations and user properties.
@@ -176,7 +199,7 @@ def create_project_and_member(workspace: Workspace, bot_user: User) -> Dict[int,
 def create_project_states(
     workspace: Workspace, project_map: Dict[int, uuid.UUID], bot_user: User
 ) -> Dict[int, uuid.UUID]:
-    """Creates states for each project in the workspace.
+    """Create states for each project in the workspace.
 
     Args:
         workspace: The workspace containing the projects
@@ -185,7 +208,6 @@ def create_project_states(
     Returns:
         A mapping of seed state IDs to actual state IDs
     """
-
     state_seeds = read_seed_file("states.json")
     state_map: Dict[int, uuid.UUID] = {}
 
@@ -211,7 +233,7 @@ def create_project_states(
 def create_project_labels(
     workspace: Workspace, project_map: Dict[int, uuid.UUID], bot_user: User
 ) -> Dict[int, uuid.UUID]:
-    """Creates labels for each project in the workspace.
+    """Create labels for each project in the workspace.
 
     Args:
         workspace: The workspace containing the projects
@@ -251,7 +273,7 @@ def create_project_issues(
     module_map: Dict[int, uuid.UUID],
     bot_user: User,
 ) -> None:
-    """Creates issues and their associated records for each project.
+    """Create issues and their associated records for each project.
 
     Creates issues along with their sequences, activities, and label associations.
 
@@ -343,7 +365,7 @@ def create_project_issues(
 
 
 def create_pages(workspace: Workspace, project_map: Dict[int, uuid.UUID], bot_user: User) -> None:
-    """Creates pages for each project in the workspace.
+    """Create pages for each project in the workspace.
 
     Args:
         workspace: The workspace containing the projects
@@ -389,7 +411,7 @@ def create_pages(workspace: Workspace, project_map: Dict[int, uuid.UUID], bot_us
 
 
 def create_cycles(workspace: Workspace, project_map: Dict[int, uuid.UUID], bot_user: User) -> Dict[int, uuid.UUID]:
-    """Creates cycles for each project in the workspace.
+    """Create cycles for each project in the workspace.
 
     Args:
         workspace: The workspace containing the projects
@@ -440,7 +462,7 @@ def create_cycles(workspace: Workspace, project_map: Dict[int, uuid.UUID], bot_u
 
 
 def create_modules(workspace: Workspace, project_map: Dict[int, uuid.UUID], bot_user: User) -> None:
-    """Creates modules for each project in the workspace.
+    """Create modules for each project in the workspace.
 
     Args:
         workspace: The workspace containing the projects
@@ -475,14 +497,13 @@ def create_modules(workspace: Workspace, project_map: Dict[int, uuid.UUID], bot_
 
 
 def create_views(workspace: Workspace, project_map: Dict[int, uuid.UUID], bot_user: User) -> None:
-    """Creates views for each project in the workspace.
+    """Create views for each project in the workspace.
 
     Args:
         workspace: The workspace containing the projects
         project_map: Mapping of seed project IDs to actual project IDs
         bot_user: The bot user to use for creating the views
     """
-
     view_seeds = read_seed_file("views.json")
     if not view_seeds:
         return
@@ -502,16 +523,36 @@ def create_views(workspace: Workspace, project_map: Dict[int, uuid.UUID], bot_us
 
 @shared_task
 def workspace_seed(workspace_id: uuid.UUID) -> None:
-    """Seeds a new workspace with initial project data.
+    """Seed a newly created workspace with starter projects, states, labels, cycles, modules, issues, views, and pages.
 
-    Creates a complete workspace setup including:
-    - Projects and project members
-    - Project states
-    - Project labels
-    - Issues and their associations
+    Trigger:
+        Explicit ``workspace_seed.delay(workspace_id)`` from
+        ``apps/api/plane/app/views/workspace/base.py:139`` when a user
+        creates a workspace. The Celery message is routed via RabbitMQ
+        and consumed by the worker pool.
+
+    Side effects:
+        - DB write (bot user): creates a ``User`` row with
+          ``bot_type=BotTypeEnum.WORKSPACE_SEED`` plus an associated
+          ``WorkspaceMember`` (role=20); this user is the audit-trail
+          owner for all generated content.
+        - DB write (starter content): creates a ``Project``, default
+          ``State`` s, ``Label`` s, ``Cycle`` s, ``Module`` s,
+          ``Issue`` s (with ``IssueSequence``, ``IssueActivity``,
+          ``IssueLabel``, ``CycleIssue``, ``ModuleIssue`` rows),
+          ``IssueView`` s, and ``Page`` s (with ``ProjectPage``
+          links) using curated seed JSON files from ``settings.SEED_DIR``.
+        - No emails. No webhook fan-out. No cache invalidation.
+
+    Idempotency:
+        NON-idempotent. Repeated invocations create ADDITIONAL starter
+        content on top of the existing set (no upsert guard) and would
+        also fail on the second call because the bot ``User.username`` is
+        derived from ``workspace.id`` and is unique. The caller must gate
+        this on a one-shot workspace-creation event.
 
     Args:
-        workspace_id: ID of the workspace to seed
+        workspace_id: UUID of the workspace to seed.
     """
     try:
         logger.info(f"Task: workspace_seed_task -> Seeding workspace {workspace_id}")

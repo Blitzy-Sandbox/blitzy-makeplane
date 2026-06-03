@@ -1,6 +1,14 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Public serializer classes for the API-key-authenticated ``/api/v1/`` surface.
+
+This package mirrors :mod:`plane.app.serializers` and aggregates every
+serializer consumed by :mod:`plane.api.views`. All serializers inherit from
+:class:`plane.api.serializers.base.BaseSerializer`, which adds dynamic
+``fields=`` filtering and ``expand=`` relation embedding driven by the
+``?fields=`` and ``?expand=`` query parameters parsed in the view layer.
+"""
 
 from .user import UserLiteSerializer
 from .workspace import WorkspaceLiteSerializer

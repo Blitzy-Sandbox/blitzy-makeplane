@@ -4,6 +4,84 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Reusable, project-agnostic combobox engine for selecting and (optionally)
+ * creating work-item labels. Wrapped by `IssueLabelSelect` in `./dropdown`
+ * which binds it to the active workspace/project via the MobX label store.
+ *
+ * Rendered purpose:
+ *   Renders a Headless UI multi-select `Combobox` with:
+ *   - A trigger button that displays either a custom `label` node, a
+ *       compact list of currently-selected labels (via `IssueLabelsList`),
+ *       or an empty-state pill with the `LabelPropertyIcon`.
+ *   - A Popper-positioned dropdown containing a search input and a
+ *       scrollable option list that supports nested label groups (labels
+ *       whose `parent` field references another label are rendered
+ *       beneath their parent's header).
+ *   - An optional inline "Add \"<query>\" to labels" footer (active only
+ *       when `createLabelEnabled` is true, search is non-empty, and there
+ *       are zero filtered results).
+ *
+ * Props — `TWorkItemLabelSelectBaseProps` (exported):
+ *   Required:
+ *   - `getLabelById: (labelId: string) => IIssueLabel | null` —
+ *       resolver supplied by the wrapper (typically a `computedFn` from
+ *       the label store).
+ *   - `labelIds: string[]` — the universe of label IDs available for
+ *       selection in the current scope (project labels in `dropdown.tsx`).
+ *   - `onChange: (value: string[]) => void` — emitted whenever selection
+ *       changes (including post-create dedup-by-`Set`).
+ *   - `value: string[]` — currently-selected label IDs (controlled).
+ *   Optional:
+ *   - `buttonClassName?: string` — extra classes on the inner trigger.
+ *   - `buttonContainerClassName?: string` — extra classes on the outer
+ *       trigger button.
+ *   - `createLabelEnabled?: boolean` (default: false) — enables the
+ *       inline create-on-Enter and the "+ Add" footer.
+ *   - `createLabel?: (data: Partial<IIssueLabel>) => Promise<IIssueLabel>` —
+ *       async factory invoked by `handleAddLabel`; supplied by the
+ *       wrapper.
+ *   - `disabled?: boolean` (default: false) — disables the Combobox.
+ *   - `label?: React.ReactNode` — overrides the default trigger content
+ *       (used by callers that render a fully custom trigger).
+ *   - `onDropdownOpen?: () => void` — fired once each time the dropdown
+ *       transitions from closed to open (the wrapper uses this to lazily
+ *       fetch labels on first open).
+ *   - `placement?: Placement` (default: "bottom-start") — Popper
+ *       placement for the dropdown panel.
+ *   - `tabIndex?: number` — forwarded to the root Combobox.
+ *
+ * MobX stores read (per AAP §0.2.2):
+ *   - NONE directly. The component is intentionally store-agnostic —
+ *       the `getLabelById` resolver and the optional `createLabel`
+ *       factory are passed in as props by the wrapper in `./dropdown`.
+ *       The `observer` HOC still subscribes to any MobX observables
+ *       that the supplied resolver reads (e.g., the label store's
+ *       `labelMap` accessed through `computedFn`), so the component
+ *       re-renders when label data mutates.
+ *
+ * Side effects:
+ *   - Calls `onChange(newIds)` whenever the Combobox selection mutates,
+ *       including after a successful `createLabel` (uses `Array.from(new
+ *       Set([...value, idToAdd]))` to dedupe).
+ *   - Calls `onDropdownOpen?.()` exactly once per open transition.
+ *   - Awaits `createLabel({ name, color: getRandomLabelColor() })` when
+ *       the user presses Enter on a non-empty query with zero filtered
+ *       options and `createLabelEnabled` is true. Existing labels with a
+ *       case-insensitive name match are reused without a network call.
+ *   - Focus management: focuses the trigger button on open, blurs on
+ *       close, and auto-focuses the search input on open EXCEPT on mobile
+ *       (via `usePlatformOS().isMobile`).
+ *   - Click-away closes the dropdown (`useOutsideClickDetector`).
+ *   - Escape in the search input clears a non-empty query without
+ *       closing the dropdown; an empty query falls through to the
+ *       Combobox's default close handler.
+ *   - Logs `console.error("Failed to create label", e)` on `createLabel`
+ *       rejection — there is no toast emission at this layer.
+ *
+ * Consumers (verified by grep):
+ *   - `./dropdown.tsx` (`IssueLabelSelect` — the project-aware wrapper).
+ */
 import React, { useEffect, useRef, useState } from "react";
 import type { Placement } from "@popperjs/core";
 import { observer } from "mobx-react";

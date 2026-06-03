@@ -4,6 +4,49 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Core column composer for the Kanban issue layout (flat board variant).
+ *
+ * Rendered purpose: converts the pre-grouped `groupedIssueIds` payload into a horizontal strip of
+ * column lanes. For each group-by column, renders a sticky header (`HeaderGroupByCard`) and a
+ * visibility-lazy-mounted `KanbanGroup` containing the column's issue cards.
+ *
+ * Module exports:
+ *   - `KanBan` (used by `base-kanban-root.tsx` when `sub_group_by` is NOT set, and by
+ *     `swimlanes.tsx` to render each subgroup row's inner board)
+ *   - `IKanBan` interface — the prop contract shared between the flat and swimlane callers
+ *
+ * MobX stores read:
+ *   - `useIssueStoreType()` resolves the active `EIssuesStoreType` for workspace-scope detection
+ *     when resolving columns via `getGroupByColumns`.
+ *   - `useKanbanView()` exposes `getCanUserDragDrop(group_by, sub_group_by)` used to derive the
+ *     `isDragDisabled` flag passed to each `KanbanGroup`.
+ *   - `useWorkFlowFDragNDrop(group_by, sub_group_by)` (plane-web) exposes
+ *     `getIsWorkflowWorkItemCreationDisabled` used to disable the column's quick-add when the
+ *     destination column is a workflow-disallowed state transition.
+ *
+ * Side effects: none directly — `updateIssue`, `quickAddCallback`, `handleOnDrop`, `loadMoreIssues`,
+ * `handleCollapsedGroups`, and `addIssuesToView` are forwarded into headers / `KanbanGroup`
+ * instances which register Pragmatic DnD drop targets and call store mutators.
+ *
+ * Visibility / lazy mount logic (the WHY):
+ *   - The internal `visibilityGroupBy` helper toggles `showGroup` and `showIssues` per the user's
+ *     "show empty groups" display filter and the column-level `collapsedGroups.group_by` array.
+ *   - The column body is wrapped in `RenderIfVisible` with `defaultValue={groupIndex < 5 && subGroupIndex < 2}`
+ *     so only the first ~5 columns render immediately; later columns mount on scroll-into-view via
+ *     idle-time scheduling. This prevents O(columns × cards) initial render cost on wide boards.
+ *   - The `defaultHeight={\`${groupHeight}px\`}` placeholder uses `getApproximateCardHeight()` to
+ *     pre-allocate height matching the visible card count, preventing layout shift when columns mount.
+ *
+ * Group-by created_by special case (the WHY): `isGroupByCreatedBy` disables issue creation in
+ * created_by-grouped columns because a new issue's `created_by` is the current user, so creating
+ * an issue inside another user's column would not actually land there.
+ *
+ * Consumers:
+ *   - `./base-kanban-root.tsx` (flat board path)
+ *   - `./swimlanes.tsx` (subgroup row nested board)
+ */
+
 import type { MutableRefObject } from "react";
 import { observer } from "mobx-react";
 import type {
@@ -36,6 +79,7 @@ import { getGroupByColumns, isWorkspaceLevel, getApproximateCardHeight } from ".
 import { HeaderGroupByCard } from "./headers/group-by-card";
 import { KanbanGroup } from "./kanban-group";
 
+/** Props for `KanBan`; full board control contract shared between flat and swimlane callers. */
 export interface IKanBan {
   issuesMap: IIssueMap;
   groupedIssueIds: TGroupedIssues | TSubGroupedIssues;
@@ -69,6 +113,7 @@ export interface IKanBan {
   isEpic?: boolean;
 }
 
+/** Core column composer for the Kanban issue layout; see the module-level JSDoc for full semantics. */
 export const KanBan = observer(function KanBan(props: IKanBan) {
   const {
     issuesMap,
@@ -115,6 +160,12 @@ export const KanBan = observer(function KanBan(props: IKanBan) {
 
   if (!list) return null;
 
+  /**
+   * Computes header + issue visibility for a single group-by column.
+   *
+   * In subgrouped (`sub_group_by` truthy) mode, only header visibility is gated by emptiness; the
+   * issues themselves are always shown because subgroup-level collapse lives on `sub_group_by`.
+   */
   const visibilityGroupBy = (_list: IGroupByColumn): { showGroup: boolean; showIssues: boolean } => {
     if (sub_group_by) {
       const groupVisibility = {

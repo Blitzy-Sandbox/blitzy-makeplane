@@ -2,6 +2,27 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Issue queryset grouping and annotation helpers.
+
+Prepares ``Issue`` querysets for the grouped/sub-grouped paginator stack
+(``plane.utils.paginator.GroupedOffsetPaginator`` and
+``plane.utils.paginator.SubGroupedOffsetPaginator``) by annotating m2m
+result-field names (``label_ids``, ``assignee_ids``, ``module_ids``) back to
+their ORM lookup paths (``labels__id``, ``assignees__id``,
+``issue_module__module_id``) via ``Subquery + ArrayAgg`` so each result row
+carries a consolidated list of related IDs instead of duplicating the issue
+per related row. Every relationship-based group filter excludes rows whose
+``deleted_at`` is set so soft-deleted assignees, labels, or modules do not
+materialize as ghost groups. The companion helper :func:`issue_group_values`
+returns the universe of valid bucket IDs (e.g., all state IDs, all priority
+values) so the paginator can initialize a result dict with one entry per
+bucket even when a bucket has zero matching issues.
+
+Consumed by every issue layout endpoint (Kanban, List, Spreadsheet, Calendar,
+Gantt) under ``plane.app.views.issue.*``, ``plane.app.views.workspace.*``,
+``plane.app.views.cycle.*``, and ``plane.app.views.module.*``.
+"""
+
 # Django imports
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
@@ -30,6 +51,16 @@ def issue_queryset_grouper(
     group_by: Optional[str],
     sub_group_by: Optional[str],
 ) -> QuerySet[Issue]:
+    """Annotate an Issue queryset with consolidated m2m ID arrays for grouped pagination.
+
+    Adds ``assignee_ids``/``label_ids``/``module_ids`` ``ArrayAgg`` subquery
+    annotations (skipping the column the caller is grouping or sub-grouping
+    by so the grouping join is not double-counted by the outer annotation)
+    and applies the matching soft-delete filter from ``GROUP_FILTER_MAPPER``
+    whenever ``group_by`` or ``sub_group_by`` targets a relationship lookup,
+    preventing deleted assignees, labels, or modules from materializing as
+    ghost groups in the paginator output.
+    """
     FIELD_MAPPER: Dict[str, str] = {
         "label_ids": "labels__id",
         "assignee_ids": "assignees__id",
@@ -95,6 +126,17 @@ def issue_on_results(
     group_by: Optional[str],
     sub_group_by: Optional[str],
 ) -> List[Dict[str, Any]]:
+    """Materialize the annotated Issue queryset into the paginator's per-row dict shape.
+
+    Projects the fixed set of fields the issue layouts (Kanban, List,
+    Spreadsheet, Calendar, Gantt) depend on, swapping the consolidated m2m
+    array name (``assignee_ids``/``label_ids``/``module_ids``) for the
+    matching ORM lookup path
+    (``assignees__id``/``labels__id``/``issue_module__module_id``) whenever
+    the caller groups or sub-groups by that relationship, so the paginator
+    receives the raw foreign-key value to bucket on rather than the
+    pre-aggregated array.
+    """
     FIELD_MAPPER: Dict[str, str] = {
         "labels__id": "label_ids",
         "assignees__id": "assignee_ids",
@@ -148,6 +190,17 @@ def issue_group_values(
     filters: Dict[str, Any] = {},
     queryset: Optional[QuerySet] = None,
 ) -> List[Union[str, Any]]:
+    """Return the universe of valid bucket IDs for the requested grouping ``field``.
+
+    Drives the grouped paginator's empty-bucket initialization: depending on
+    ``field`` this resolves to state IDs, label IDs, project- or
+    workspace-member IDs, module IDs, cycle IDs, project IDs, the fixed
+    ``priority`` or ``state__group`` enumeration, or distinct
+    ``target_date``/``start_date``/``created_by`` values pulled from the
+    supplied ``queryset``, so the paginator emits an entry for every possible
+    bucket even when no issue currently falls into it. Relationship-style
+    fields append ``"None"`` to represent issues with no related row.
+    """
     if field == "state_id":
         queryset = State.objects.filter(is_triage=False, workspace__slug=slug).values_list("id", flat=True)
         if project_id:

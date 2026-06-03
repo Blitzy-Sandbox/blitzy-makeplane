@@ -4,6 +4,82 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Workspace favorites store — keyed registry of user-favorited entities
+ * (projects, cycles, modules, views, pages, and folder containers) with a
+ * reverse entity-identifier lookup, optimistic CRUD, and folder/reorder
+ * flows for the sidebar Favorites tree.
+ *
+ * The folder/group hierarchy is reconstructed from the flat `favoriteMap`
+ * via the `groupedFavorites` computed: favorites whose `parent` references
+ * another favorite id are nested under that parent's `children` array. This
+ * avoids maintaining a separate tree structure in mutable state.
+ *
+ * State slice:
+ *   - favoriteIds: ordered ids — drives the sidebar render order
+ *   - favoriteMap: keyed map of every IFavorite known in the current session
+ *   - entityMap: reverse lookup keyed by `entity_identifier`, lets consumers
+ *     resolve "is this project/cycle/etc. already favorited?" without scanning
+ *
+ * Computed:
+ *   - currentWorkspaceFavorites — favoriteMap filtered to the active workspace;
+ *     recomputes when favoriteMap or workspaceRoot.currentWorkspace changes
+ *   - existingFolders — names of all favorites; used for unique-name validation
+ *     when creating a new folder
+ *   - groupedFavorites — nested tree built from currentWorkspaceFavorites,
+ *     populating each parent's `children` array; recomputes on the same inputs
+ *
+ * Actions — two patterns coexist depending on rollback complexity:
+ *
+ *   Optimistic (mutate state under runInAction BEFORE awaiting the service;
+ *   restore the captured prior state under a second runInAction on rejection,
+ *   then re-throw so callers can surface a toast):
+ *     - addFavorite(workspaceSlug, data) → POST; inserts under a temporary
+ *       uuid then swaps to the server-issued id on success; deduplicates by
+ *       entity_identifier (returns the existing favorite if already present)
+ *     - updateFavorite(workspaceSlug, favoriteId, data) → PATCH; merges data
+ *       into favoriteMap[favoriteId], restores initialState on failure
+ *     - removeFavoriteEntity(workspaceSlug, entityId) → resolves the
+ *       favoriteId via entityMap and delegates to deleteFavorite; restores
+ *       the entityMap entry on failure
+ *
+ *   Server-first (await FavoriteService, then mutate state on success;
+ *   the catch block still restores initialState defensively):
+ *     - fetchFavorite(workspaceSlug) → GET workspace favorites; populates
+ *       favoriteMap / favoriteIds / entityMap
+ *     - fetchGroupedFavorites(workspaceSlug, favoriteId) → GET children of a
+ *       folder; merges into the same maps with uniqBy on favoriteIds
+ *     - moveFavoriteToFolder / removeFromFavoriteFolder → PATCH `parent`
+ *     - reOrderFavorite(workspaceSlug, favoriteId, destinationId, edge) →
+ *       computes a new `sequence` value between neighbors (midpoint above /
+ *       fixed offset below) then PATCHes it
+ *     - deleteFavorite(workspaceSlug, favoriteId) → DELETE; removes the
+ *       favorite + its children locally and triggers downstream cross-store
+ *       cleanup; restores state on failure
+ *
+ * Cross-store synchronization (downward writes into sibling domain stores):
+ *   - removeFavoriteEntityFromStore(entity_identifier, entity_type) flips
+ *     `is_favorite = false` on the matching entity in viewStore, moduleStore,
+ *     pageStore, cycleStore, or projectStore. These references are captured
+ *     in the constructor from rootStore.projectView, .module, .projectPages,
+ *     .cycle, and .projectRoot.project respectively, keeping the favorite
+ *     boolean on each entity in sync with its presence in this store.
+ *   - removeFavoriteFromStore(entity_identifier) is a synchronous helper
+ *     invoked externally when an underlying entity is deleted (e.g. project
+ *     deletion) and recursively prunes any project-scoped sub-favorites.
+ *
+ * Consumers:
+ *   - Hook: apps/web/core/hooks/store/use-favorite.ts (`useFavorite`)
+ *   - apps/web/core/components/workspace/sidebar/favorites/** — favorites-menu,
+ *     favorite-folder, new-fav-folder, favorite-items/** (tree, quick actions,
+ *     helpers)
+ *   - apps/web/core/layouts/auth-layout/workspace-wrapper.tsx (boot-time fetch)
+ *   - apps/web/app/(all)/[workspaceSlug]/(projects)/sidebar.tsx
+ *   - Cross-store writes back to rootStore.projectView / .module /
+ *     .projectPages / .cycle / .projectRoot.project for entity-favorite
+ *     synchronization
+ */
+
 import { orderBy, uniqBy, set } from "lodash-es";
 import { action, observable, makeObservable, runInAction, computed } from "mobx";
 import { v4 as uuidv4 } from "uuid";

@@ -4,5 +4,10 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Barrel for page-domain types — re-exports the core page entity from `./core`
+ * and the extension-point alias from `./extended`.
+ */
+
 export * from "./core";
 export * from "./extended";

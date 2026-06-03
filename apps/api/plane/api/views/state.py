@@ -2,6 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Workflow-state endpoints for the external ``/api/v1/`` API surface.
+
+Exposes two endpoints under
+``/api/v1/workspaces/<slug>/projects/<project_id>/states/`` for managing
+the per-project workflow states used by work items (issues). Authentication
+is via the ``X-Api-Key`` header (see
+``plane.api.middleware.api_authentication.APIKeyAuthentication``).
+"""
+
 # Django imports
 from django.db import IntegrityError
 
@@ -37,7 +46,46 @@ from plane.utils.openapi import (
 
 
 class StateListCreateAPIEndpoint(BaseAPIView):
-    """State List and Create Endpoint"""
+    """List and create workflow states within a project.
+
+    HTTP methods + URL pattern:
+        GET    /api/v1/workspaces/<slug>/projects/<uuid:project_id>/states/
+        POST   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/states/
+
+    Request body (POST) — see ``StateSerializer``:
+        name             (str, required)   – display name; unique per project.
+        color            (str, optional)   – hex color (e.g. ``"#26b5ce"``).
+        group            (str, optional)   – one of ``backlog | unstarted |
+                                              started | completed | cancelled``.
+        description      (str, optional)   – plain-text description.
+        sequence         (float, optional) – ordering hint within the group.
+        external_id      (str, optional)   – integration de-duplication key.
+        external_source  (str, optional)   – integration source identifier.
+
+    Response shape — see ``StateSerializer``:
+        ``id``, ``name``, ``color``, ``group``, ``description``, ``sequence``,
+        ``project``, ``workspace``, ``is_triage``, ``default``,
+        ``external_id``, ``external_source``, ``created_at``, ``updated_at``,
+        ``created_by``, ``updated_by``. List responses are paginated via
+        ``BasePaginator``.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectEntityPermission`` — workspace member for safe methods,
+        project ``ADMIN`` or ``MEMBER`` role for ``POST``.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Side effects on POST:
+        Writes a single ``State`` row scoped to the current
+        ``(workspace, project)``. No Celery enqueues. On
+        ``IntegrityError`` (duplicate name) or matching
+        ``external_id``/``external_source`` tuple, responds with HTTP 409
+        and the existing row's ``id``.
+    """
 
     serializer_class = StateSerializer
     model = State
@@ -45,6 +93,17 @@ class StateListCreateAPIEndpoint(BaseAPIView):
     use_read_replica = True
 
     def get_queryset(self):
+        """Return non-triage workflow states scoped to the request route.
+
+        Filter chain: workspace ``slug`` and ``project_id`` from URL kwargs,
+        plus ``is_triage=False`` to hide the triage state used internally
+        for intake, plus the project-member visibility filter
+        (``project_projectmember__member=self.request.user`` and
+        ``is_active=True``), plus ``project__archived_at__isnull=True`` to
+        hide states of archived projects. ``select_related`` joins
+        ``project`` and ``workspace``; ``distinct()`` is required because
+        the project-member filter joins through a many-to-many relation.
+        """
         return (
             State.objects.filter(workspace__slug=self.kwargs.get("slug"))
             .filter(project_id=self.kwargs.get("project_id"))
@@ -78,7 +137,7 @@ class StateListCreateAPIEndpoint(BaseAPIView):
         },
     )
     def post(self, request, slug, project_id):
-        """Create state
+        """Create state.
 
         Create a new workflow state for a project with specified name, color, and group.
         Supports external ID tracking for integration purposes.
@@ -147,7 +206,7 @@ class StateListCreateAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, project_id):
-        """List states
+        """List states.
 
         Retrieve all workflow states for a project.
         Returns paginated results when listing all states.
@@ -160,7 +219,42 @@ class StateListCreateAPIEndpoint(BaseAPIView):
 
 
 class StateDetailAPIEndpoint(BaseAPIView):
-    """State Detail Endpoint"""
+    """Retrieve, partially update, or delete a single workflow state.
+
+    HTTP methods + URL pattern:
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:project_id>/states/<uuid:state_id>/
+        PATCH   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/states/<uuid:state_id>/
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/states/<uuid:state_id>/
+
+    Request body (PATCH) — partial ``StateSerializer`` payload:
+        Any subset of ``name``, ``color``, ``group``, ``description``,
+        ``sequence``, ``external_id``, ``external_source``.
+
+    Response shape — see ``StateSerializer`` (same fields as
+    ``StateListCreateAPIEndpoint``).
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectEntityPermission`` — workspace member for ``GET``, project
+        ``ADMIN`` or ``MEMBER`` role for ``PATCH``/``DELETE``.
+
+    Constraints on DELETE:
+        - Cannot delete a state with ``default=True`` (returns HTTP 400).
+        - Cannot delete a state that has work items assigned (returns HTTP
+          400 with ``"only empty states can be deleted"``).
+
+    Constraints on PATCH:
+        - If ``external_id`` is changed and the new
+          ``(external_source, external_id)`` already exists on another
+          state of the same ``(workspace, project)``, responds with
+          HTTP 409 and the conflicting state ``id``.
+
+    Side effects:
+        No Celery enqueues. State changes do not directly produce activity
+        log entries.
+    """
 
     serializer_class = StateSerializer
     model = State
@@ -168,6 +262,13 @@ class StateDetailAPIEndpoint(BaseAPIView):
     use_read_replica = True
 
     def get_queryset(self):
+        """Return non-triage workflow states scoped to the request route.
+
+        Same filter chain as
+        ``StateListCreateAPIEndpoint.get_queryset`` — both classes use the
+        identical scoping to ensure consistent visibility across list and
+        detail surfaces.
+        """
         return (
             State.objects.filter(workspace__slug=self.kwargs.get("slug"))
             .filter(project_id=self.kwargs.get("project_id"))
@@ -198,7 +299,7 @@ class StateDetailAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, project_id, state_id):
-        """Retrieve state
+        """Retrieve state.
 
         Retrieve details of a specific state.
         Returns paginated results when listing all states.
@@ -223,7 +324,7 @@ class StateDetailAPIEndpoint(BaseAPIView):
         },
     )
     def delete(self, request, slug, project_id, state_id):
-        """Delete state
+        """Delete state.
 
         Permanently remove a workflow state from a project.
         Default states and states with existing work items cannot be deleted.
@@ -270,7 +371,7 @@ class StateDetailAPIEndpoint(BaseAPIView):
         },
     )
     def patch(self, request, slug, project_id, state_id):
-        """Update state
+        """Update state.
 
         Partially update an existing workflow state's properties like name, color, or group.
         Validates external ID uniqueness if provided.

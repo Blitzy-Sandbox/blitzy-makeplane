@@ -4,6 +4,42 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for issue comments — normalized per-issue comment-id lists plus a comment-by-id cache used by
+ * the issue-detail comment panel. Hydrates the sibling comment-reaction store from comment payloads to avoid
+ * a second round-trip when comments load.
+ *
+ * State slice:
+ * - loader: TCommentLoader — current loader state ("fetch" | "create" | "update" | "delete" | "mutate" | undefined)
+ * - comments: TIssueCommentIdMap — per-issue ordered lists of comment ids
+ * - commentMap: TIssueCommentMap — normalized cache of comment entities keyed by comment id
+ *
+ * Actions:
+ * - fetchComments(workspaceSlug, projectId, issueId, loaderType?): incremental fetch — when the per-issue list
+ *   already has entries, only comments with `created_at > latestCachedComment.created_at` are requested. After
+ *   the response, `commentReaction.applyCommentReactions` is invoked for each comment so reactions hydrate
+ *   without a separate fetch.
+ * - createComment(workspaceSlug, projectId, issueId, data): POST via IssueCommentService.createIssueComment;
+ *   appends the new id to the per-issue list and inserts the new comment into the map.
+ * - updateComment(workspaceSlug, projectId, issueId, commentId, data): OPTIMISTIC — the local commentMap is
+ *   mutated first, then PATCH via IssueCommentService.patchIssueComment; the `updated_at` and `edited_at`
+ *   fields from the response are reconciled back into the cache. On failure, the activity feed is refreshed
+ *   so the user sees the canonical server state (no rollback is attempted because the previous values were
+ *   not snapshotted).
+ * - removeComment(workspaceSlug, projectId, issueId, commentId): DELETE via the service; pulls the id from
+ *   the per-issue list and deletes the entry from commentMap.
+ *
+ * Helper queries: getCommentsByIssueId, getCommentById.
+ *
+ * Service: backed by IssueCommentService which is constructed with the parent IssueDetail's `serviceType`
+ * (EIssueServiceType.ISSUES | EPICS), so the same store powers both work items and epics.
+ *
+ * Consumers: comment widgets under apps/web/core/components/issues/issue-detail/**,
+ * apps/web/core/components/issues/issue-detail-widgets/** and apps/web/core/components/issues/peek-overview/**,
+ * accessed via apps/web/core/hooks/store/use-issue-detail.ts. The sibling `commentReaction` store is also a
+ * consumer in that it is hydrated by this store on every fetchComments call.
+ */
+
 import { pull, concat, update, uniq, set } from "lodash-es";
 import { action, makeObservable, observable, runInAction } from "mobx";
 // Plane Imports

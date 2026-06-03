@@ -4,11 +4,31 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Workspace vocabulary — onboarding org-size buckets, role labels, static view
+ * catalogs, and the global-search result shape seed — consumed by
+ * `apps/web/core/components/workspace/**` and workspace MobX stores.
+ */
+
 import type { TStaticViewTypes, IWorkspaceSearchResults } from "@plane/types";
 import { EUserWorkspaceRoles } from "@plane/types";
 
+/**
+ * Predefined organization-size buckets shown in the workspace onboarding picker.
+ *
+ * Consumers: onboarding flow in `apps/web/core/components/onboarding/**`.
+ */
 export const ORGANIZATION_SIZE: string[] = ["Just myself", "2-10", "11-50", "51-200", "201-500", "500+"];
 
+/**
+ * URL path segments that cannot be used as workspace slugs because they collide
+ * with first-party routes (e.g., `api`, `admin`, `signin`, `live`) or with
+ * marketing/feature pages reserved on `app.plane.so`.
+ *
+ * Consumers: workspace-slug validators in `apps/web/core/components/workspace/**`
+ * and `apps/api/plane/app/serializers/workspace.py` (mirrored validation on the
+ * server side).
+ */
 export const RESTRICTED_URLS: string[] = [
   "404",
   "accounts",
@@ -77,12 +97,25 @@ export const RESTRICTED_URLS: string[] = [
   "instance",
 ];
 
+/**
+ * Display label per `EUserWorkspaceRoles` value — used wherever a role needs to
+ * be shown as a human-readable string (member lists, role pickers).
+ *
+ * Consumers: `apps/web/core/components/workspace/**` and `apps/web/core/components/project/**`
+ * member-management UIs.
+ */
 export const ROLE = {
   [EUserWorkspaceRoles.GUEST]: "Guest",
   [EUserWorkspaceRoles.MEMBER]: "Member",
   [EUserWorkspaceRoles.ADMIN]: "Admin",
 };
 
+/**
+ * Localization keys per workspace role — used in role-picker tooltips/details so
+ * the i18n layer can render the title + description for each role.
+ *
+ * Consumers: role pickers in member-invite modals across `apps/web/core/components/workspace/**`.
+ */
 export const ROLE_DETAILS = {
   [EUserWorkspaceRoles.GUEST]: {
     i18n_title: "role_details.guest.title",
@@ -98,6 +131,12 @@ export const ROLE_DETAILS = {
   },
 };
 
+/**
+ * Onboarding job-title options paired with their i18n labels — used in the user
+ * profile/onboarding step to capture role context for product analytics.
+ *
+ * Consumers: `apps/web/core/components/onboarding/**`.
+ */
 export const USER_ROLES = [
   {
     value: "Product / Project Manager",
@@ -132,6 +171,14 @@ export const USER_ROLES = [
   { value: "Other", i18n_label: "user_roles.other" },
 ];
 
+/**
+ * Available data importers shown in the workspace import settings — each entry's
+ * `provider` matches a corresponding importer in the backend importer registry.
+ *
+ * Consumers: import settings UI in `apps/web/core/components/workspace/**`, paired
+ * with the importer model at `apps/api/plane/db/models/importer.py` and integration
+ * models at `apps/api/plane/db/models/integration/**`.
+ */
 export const IMPORTERS_LIST = [
   {
     provider: "github",
@@ -147,6 +194,10 @@ export const IMPORTERS_LIST = [
   },
 ];
 
+/**
+ * Data exporters (CSV/Excel/JSON) shown in workspace export settings — `xlsx`/`json` intentionally reuse `exporter.csv.description` as a shared i18n string (not a copy-paste error).
+ * Consumers: export settings UI in `apps/web/core/components/workspace/**`, paired with the `apps/api/plane/bgtasks/export_task.py` server-side job.
+ */
 export const EXPORTERS_LIST = [
   {
     provider: "csv",
@@ -168,6 +219,12 @@ export const EXPORTERS_LIST = [
   },
 ];
 
+/**
+ * The four built-in global views available to every workspace (cannot be deleted):
+ * all-issues, assigned-to-me, created-by-me, subscribed.
+ *
+ * Consumers: workspace global views shell in `apps/web/core/components/workspace/views/**`.
+ */
 export const DEFAULT_GLOBAL_VIEWS_LIST: {
   key: TStaticViewTypes;
   i18n_label: string;
@@ -190,6 +247,13 @@ export const DEFAULT_GLOBAL_VIEWS_LIST: {
   },
 ];
 
+/**
+ * Shape of a workspace sidebar navigation entry — `access` lists the roles
+ * permitted to see the link and `highlight` decides when the link should render
+ * in the active state for a given pathname.
+ *
+ * Consumers: workspace sidebar renderer in `apps/web/core/components/workspace/**`.
+ */
 export interface IWorkspaceSidebarNavigationItem {
   key: string;
   labelTranslationKey: string;
@@ -198,6 +262,13 @@ export interface IWorkspaceSidebarNavigationItem {
   highlight: (pathname: string, url: string) => boolean;
 }
 
+/**
+ * Workspace sidebar entries that surface only when the workspace has the
+ * corresponding feature enabled or workspace-level data ("dynamic" in the sense
+ * of feature-gated): views (all roles), analytics + archives (admin + member only).
+ *
+ * Consumers: workspace sidebar in `apps/web/core/components/workspace/**`.
+ */
 export const WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS: Record<string, IWorkspaceSidebarNavigationItem> = {
   views: {
     key: "views",
@@ -222,12 +293,22 @@ export const WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS: Record<string, IWorkspa
   },
 };
 
+/**
+ * Array projection of `WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS` preserving the
+ * desired sidebar render order (views, analytics, archives).
+ *
+ * Consumers: sidebar render loop in `apps/web/core/components/workspace/**`.
+ */
 export const WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS_LINKS: IWorkspaceSidebarNavigationItem[] = [
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["views"],
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["analytics"],
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["archives"],
 ];
 
+/**
+ * Always-present workspace sidebar entries (home, inbox, your-work, stickies, drafts, projects); `your-work` and `drafts` are hidden from guests.
+ * Consumers: workspace sidebar in `apps/web/core/components/workspace/**`.
+ */
 export const WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS: Record<string, IWorkspaceSidebarNavigationItem> = {
   home: {
     key: "home",
@@ -273,15 +354,40 @@ export const WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS: Record<string, IWorkspac
   },
 };
 
+/**
+ * Array of static sidebar entries that appear in the main (non-pinned) sidebar
+ * section — currently the home link only.
+ *
+ * Consumers: workspace sidebar in `apps/web/core/components/workspace/**`.
+ */
 export const WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS_LINKS: IWorkspaceSidebarNavigationItem[] = [
   WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS["home"],
 ];
 
+/**
+ * Array of static sidebar entries that appear in the pinned sidebar section
+ * (rendered above user-pinned projects/favorites) — currently the projects link.
+ *
+ * Consumers: workspace sidebar in `apps/web/core/components/workspace/**`.
+ */
 export const WORKSPACE_SIDEBAR_STATIC_PINNED_NAVIGATION_ITEMS_LINKS: IWorkspaceSidebarNavigationItem[] = [
   WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS["projects"],
 ];
 
+/**
+ * localStorage key persisting whether the sidebar's favorites menu is expanded
+ * across reloads.
+ *
+ * Consumers: sidebar favorites toggle in `apps/web/core/components/workspace/**`.
+ */
 export const IS_FAVORITE_MENU_OPEN = "is_favorite_menu_open";
+/**
+ * Empty-shape default for the workspace global search result — used as the
+ * initial value in search hooks/stores so consumers can rely on every resource
+ * key (workspace, project, issue, cycle, module, issue_view, page) being present.
+ *
+ * Consumers: global command palette / search in `apps/web/ce/components/command-palette/**`.
+ */
 export const WORKSPACE_DEFAULT_SEARCH_RESULT: IWorkspaceSearchResults = {
   results: {
     workspace: [],
@@ -294,6 +400,12 @@ export const WORKSPACE_DEFAULT_SEARCH_RESULT: IWorkspaceSearchResults = {
   },
 };
 
+/**
+ * Onboarding use-case option strings — capture the workspace's intended
+ * application for product analytics.
+ *
+ * Consumers: onboarding flow in `apps/web/core/components/onboarding/**`.
+ */
 export const USE_CASES = [
   "Plan and track product roadmaps",
   "Manage engineering sprints",

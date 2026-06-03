@@ -4,11 +4,41 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Plane-specific row-deletion command for the `Table` extension —
+ * symmetric to `./delete-column.ts`.
+ *
+ * MUTATES editor state via dispatch — delegates to either `deleteRow`
+ * (when more than one row remains) or `deleteTable` (when only one row
+ * remains) from `@tiptap/pm/tables`.
+ *
+ * Bound to the `deleteRow` command in `../table.ts` (line 162).
+ */
+
 import type { Command } from "@tiptap/core";
 import { deleteRow, deleteTable } from "@tiptap/pm/tables";
 // local imports
 import { isCellSelection } from "./helpers";
 
+/**
+ * Delete the currently-selected row, or the entire table when only one
+ * row would remain.
+ *
+ * Input (via the returned `Command`'s `(state, dispatch)` call):
+ *   - `state.selection` MUST be a `CellSelection` (returns `false`
+ *     otherwise).
+ *
+ * Output:
+ *   - `true` on successful row or table deletion.
+ *   - `false` when the selection isn't a `CellSelection` or when no
+ *     table can be resolved at the selection's anchor.
+ *
+ * WHY a custom utility (symmetric to `./delete-column.ts`):
+ *   Upstream's `deleteRow` leaves a zero-row table behind. This wrapper
+ *   counts rows via `selectedTable.childCount` and delegates to
+ *   `deleteTable` when `totalRows === 1` so the user-visible result
+ *   matches user intent.
+ */
 export const deleteRowOrTable: () => Command =
   () =>
   ({ state, dispatch }) => {

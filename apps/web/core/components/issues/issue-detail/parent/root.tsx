@@ -4,6 +4,65 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Compact parent summary strip rendered above the issue title on the issue detail page.
+ *
+ * Rendered purpose: when the active work item has a parent, displays a single bordered row that
+ * shows the parent's state-color dot, the optional `IssueIdentifier` badge (when the parent
+ * belongs to a project the user can resolve), and the parent's truncated name. The row is
+ * clickable and routes to the parent — epic parents use `router.push(workItemLink)` (full
+ * navigation), non-epic parents open via `handleRedirection` (the peek-overview redirection
+ * helper, which preserves the current page context). The row also exposes an overflow menu
+ * containing the sibling work-items submenu and a destructive "Remove parent" action.
+ *
+ * Props (TIssueParentDetail, exported):
+ *   - workspaceSlug (string, required): scopes the parent-removal mutation
+ *   - projectId (string, required): scopes the parent-removal mutation (this is the CURRENT
+ *     issue's project, not necessarily the parent's project — parents may live cross-project)
+ *   - issueId (string, required): the work item whose parent is being summarized
+ *   - issue (TIssue, required): the live issue snapshot — `issue.parent_id` is the lookup key
+ *   - issueOperations (TIssueOperations, required): the issue-update contract published from
+ *     `../root` — only the `update` method is invoked here (with `{ parent_id: null }` to clear)
+ *
+ * MobX stores read:
+ *   - `useIssues()` — `issueMap` is used to resolve the parent issue snapshot by `issue.parent_id`
+ *   - `useProject()` — `getProjectIdentifierById(parentIssue.project_id)` for the
+ *     `generateWorkItemLink` call and the identifier badge
+ *   - `useProjectState()` — `getProjectStates(parentIssue.project_id)` to resolve the parent's
+ *     state color dot via `state.id === parentIssue.state_id`
+ *
+ * Side effects:
+ *   - Navigation (epic parent): `router.push(workItemLink)` via `next/navigation` — preserved
+ *     verbatim as a `next/navigation` import even though the repository runs on React Router v7
+ *     via a workspace shim (per AAP system boundary forbidding refactoring/renaming).
+ *   - Navigation (non-epic parent): `handleRedirection(workspaceSlug, parentIssue, isMobile)` —
+ *     the peek-overview redirection hook chooses between full-page navigation and peek modal
+ *     based on the platform and current context.
+ *   - Mutation (clear parent): `issueOperations.update(workspaceSlug, projectId, issueId,
+ *     { parent_id: null })` — routes through the issue-detail store action which calls
+ *     `IssueService.patchIssue` against `apps/api`'s issue endpoint; toast emission is the
+ *     contract layer's responsibility (handled in `../root.tsx`).
+ *
+ * Derived state notes:
+ *   - `parentIssue = issueMap?.[issue.parent_id || ""] || undefined` — falls back to `undefined`
+ *     when `parent_id` is null/empty so the early-exit guard handles both unset and missing cases.
+ *   - `isParentEpic = parentIssue?.is_epic` — drives the navigation branch (full route vs. peek).
+ *   - `stateColor` is `undefined` when the parent's state cannot be resolved; the dot still
+ *     renders but with no background color (preserves the existing visual fallback).
+ *   - `workItemLink` is composed only AFTER the early-exit guard so `generateWorkItemLink` always
+ *     receives a defined `parentIssue.id`.
+ *
+ * Conditional rendering:
+ *   - Returns `<></>` early when `parentIssue` cannot be resolved — keeps the surrounding layout
+ *     identical for issues without a parent.
+ *   - The `IssueIdentifier` badge is gated on `parentIssue.project_id` so cross-project parents
+ *     without a resolvable project still render the dot and name fragment.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/issues/issue-detail/main-content.tsx` mounts this component above
+ *     the title editor and below the issue-type switcher.
+ */
+
 import { observer } from "mobx-react";
 import { useRouter } from "next/navigation";
 import { MinusCircle } from "lucide-react";

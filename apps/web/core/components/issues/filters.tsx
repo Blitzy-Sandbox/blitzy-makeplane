@@ -4,6 +4,42 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Header control strip that coordinates layout selection, work item filters, display filters/properties,
+ * and analytics access for the project issues / epics page.
+ *
+ * Rendered purpose: a horizontal toolbar combining responsive `LayoutSelection` / `MobileLayoutSelection`,
+ * a work-item filter toggle, a display-filters dropdown, and an Analytics modal launcher. Variants are
+ * driven by `storeType` (PROJECT vs EPIC).
+ *
+ * Props:
+ *   - currentProjectDetails (TProject | undefined, required): used to gate cycle/module view options
+ *   - projectId (string, required): scopes filter mutations
+ *   - workspaceSlug (string, required): scopes filter mutations
+ *   - canUserCreateIssue (boolean | undefined, required): gates the Analytics modal launcher button
+ *   - storeType (EIssuesStoreType.PROJECT | EIssuesStoreType.EPIC, optional, default=PROJECT): selects which
+ *     issues store to operate on (and switches some user-facing copy between "work items" and "epics")
+ *
+ * MobX stores read:
+ *   - `useIssues(storeType)` — `issuesFilter.issueFilters` and `issuesFilter.updateFilters`
+ *
+ * Side effects:
+ *   - Mutations: `updateFilters(workspaceSlug, projectId, EIssueFilterType.DISPLAY_FILTERS | DISPLAY_PROPERTIES, …)`
+ *     on the corresponding issues filter store. These actions in turn persist via the workspace/project view
+ *     services (`IssueService` / `ViewService`) — handled inside the store.
+ *   - Opens / closes a local `analyticsModal` boolean controlling the `WorkItemsModal`.
+ *
+ * Derived state notes:
+ *   - `activeLayout = issueFilters?.displayFilters?.layout` selects which option set is shown in the dropdown.
+ *   - `LAYOUTS` is a module-scope constant listing the five layout options (list, kanban, calendar, spreadsheet, gantt).
+ *   - `ISSUE_STORE_TO_FILTERS_MAP` from `@plane/constants` resolves the layout-specific filter option schema.
+ *   - The three handler callbacks (`handleLayoutChange`, `handleDisplayFilters`, `handleDisplayProperties`) are
+ *     memoized with `useCallback` and short-circuit when `workspaceSlug` or `projectId` is falsy.
+ *
+ * Consumers: rendered by the project issues / epics header — e.g., the project route headers under
+ * `apps/web/app/[workspaceSlug]/projects/(detail)/[projectId]/issues/` and the corresponding epics routes.
+ */
+
 import { useCallback, useState } from "react";
 import { observer } from "mobx-react";
 import { ChartNoAxesColumn, SlidersHorizontal } from "lucide-react";

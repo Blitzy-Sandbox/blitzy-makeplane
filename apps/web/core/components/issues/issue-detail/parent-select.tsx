@@ -4,6 +4,56 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Parent assignment selector for the issue detail sidebar.
+ *
+ * Rendered purpose: a button-like row that opens the `ParentIssuesListModal` for picking a parent
+ * work item. When the issue already has a parent, displays the parent's `IssueIdentifier` badge
+ * (linkified to the parent issue) with an inline remove affordance; otherwise shows an "Add parent"
+ * placeholder. An edit pencil icon appears on hover when not disabled.
+ *
+ * Props (TIssueParentSelect):
+ *   - className (string, optional, default=""): wrapper class overrides
+ *   - disabled (boolean, optional, default=false): suppresses interactivity (modal cannot open,
+ *     remove affordance hidden, cursor changes to `not-allowed`)
+ *   - issueId (string, required): the work item being assigned a parent
+ *   - projectId (string, required): scopes the parent picker
+ *   - workspaceSlug (string, required): scopes the parent picker
+ *   - handleParentIssue ((issueId?: string | null) => Promise<void>, required): called with the
+ *     picked parent id; clearing the parent is the caller's responsibility (typically resolves to a
+ *     `PATCH /issues/<id>/ { parent_id: null }` via the issue-detail store action)
+ *   - handleRemoveSubIssue ((workspaceSlug, projectId, parentIssueId, issueId) => Promise<void>, required):
+ *     invoked when the user clicks the inline `X` next to the current parent badge — this calls the
+ *     parent's sub-issue remove endpoint (DELETE on the parent, not on the current issue)
+ *   - workItemLink (string, required): the URL for the linkified parent badge (pre-built by the
+ *     caller via `generateWorkItemLink`)
+ *
+ * MobX stores read:
+ *   - `useProject()` — `getProjectById` for resolving the parent's project identifier
+ *   - `useIssueDetail()` — `issue.getIssueById(issueId)` for the current issue,
+ *     `getIssueById(issue.parent_id)` for the parent snapshot, `isParentIssueModalOpen`, and
+ *     `toggleParentIssueModal(...)`
+ *
+ * Side effects:
+ *   - Toggles the parent-issue modal via `toggleParentIssueModal(issue.id)` / `toggleParentIssueModal(null)`.
+ *   - Delegates the actual parent assignment / removal to the caller-supplied async handlers.
+ *   - No direct service calls or toasts in this file.
+ *
+ * Imperative DOM/event notes:
+ *   - The parent badge `<Link>` uses `e.stopPropagation()` to prevent the outer button's
+ *     `toggleParentIssueModal` handler from firing on link click — preserve this exactly.
+ *   - The remove `X` uses both `preventDefault()` AND `stopPropagation()` for the same reason.
+ *   - The parent badge opens in a new tab (`target="_blank" rel="noopener noreferrer"`).
+ *
+ * Derived state notes:
+ *   - `isParentIssueModalOpen === issueId` is the per-issue gate so two parent selectors on the
+ *     same page (e.g., main + peek) do not share modal state.
+ *   - Returns `<></>` early if the current issue cannot be resolved.
+ *
+ * Consumers: rendered by `./sidebar.tsx` (`IssueDetailsSidebar`) and the peek-overview
+ * properties panel as the parent-work-item assignment affordance.
+ */
+
 import React from "react";
 import { observer } from "mobx-react";
 import Link from "next/link";

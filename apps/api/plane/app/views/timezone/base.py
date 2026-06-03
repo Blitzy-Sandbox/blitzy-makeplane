@@ -2,6 +2,20 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""HTTP endpoint exposing the canonical list of supported IANA timezones.
+
+Defines :class:`TimezoneEndpoint`, the public DRF ``APIView`` mounted at
+``/api/timezones/`` (see ``apps/api/plane/app/urls/timezone.py``). The
+endpoint is consumed by the ``apps/web`` user-preferences dropdowns and
+onboarding flows to populate timezone pickers with a curated, sorted list
+of IANA zones and their live UTC/GMT offsets.
+
+Responses are server-side cached for two hours via Django's
+``cache_page`` (Redis backend per architectural context: Redis is used
+for caching and session only -- task queueing routes through RabbitMQ
+via Celery).
+"""
+
 # Python imports
 import pytz
 from datetime import datetime
@@ -21,12 +35,98 @@ from plane.authentication.rate_limit import AuthenticationThrottle
 
 
 class TimezoneEndpoint(APIView):
+    """Public read-only endpoint returning the curated list of supported IANA timezones.
+
+    Resource managed:
+        Enumeration of IANA timezone identifiers with live UTC and GMT
+        offsets, consumed by the ``apps/web`` user-preferences dropdowns
+        and onboarding timezone pickers.
+
+    HTTP methods + URL pattern:
+        GET /api/timezones/  (name: ``timezone-list``)
+
+    Request body:
+        None -- this is a ``GET`` endpoint with no query parameters.
+
+    Response shape (HTTP 200):
+        ``{``
+        ``    "timezones": [``
+        ``        {``
+        ``            "utc_offset": "UTC+05:30",        # str, formatted "UTC<sign><HH>:<MM>"``
+        ``            "gmt_offset": "GMT+05:30",        # str, formatted "GMT<sign><HH>:<MM>"``
+        ``            "value":      "Asia/Kolkata",      # str, IANA timezone identifier``
+        ``            "label":      "Kolkata"            # str, human-friendly display label``
+        ``        },``
+        ``        ...``
+        ``    ]``
+        ``}``
+
+        The list is sorted by the numeric UTC offset (ascending) then by
+        label (ascending). The temporary ``offset`` numeric field used
+        for sorting is stripped before serialization (see lines
+        211-213).
+
+    Permissions:
+        ``permission_classes = [AllowAny]`` (declared on the class
+        attribute; see
+        ``apps/api/plane/app/views/timezone/base.py``) -- the endpoint
+        is intentionally public so unauthenticated onboarding clients
+        can populate timezone pickers before sign-in.
+
+    Throttling:
+        ``throttle_classes = [AuthenticationThrottle]`` -- a custom DRF
+        throttle from :mod:`plane.authentication.rate_limit` is applied
+        despite the public permission, to prevent abuse of the
+        unauthenticated surface.
+
+    Caching:
+        The ``get`` handler is wrapped in ``cache_page(60 * 60 * 2)``
+        (Django's per-view cache) so identical anonymous requests are
+        served from the configured cache backend for 2 hours. Per the
+        project's architectural context, Redis is used for caching and
+        session storage only -- task queueing routes through RabbitMQ
+        via Celery.
+
+    Note:
+        ``TimezoneEndpoint`` inherits directly from DRF's
+        :class:`rest_framework.views.APIView` (NOT from
+        :class:`plane.app.views.base.BaseAPIView`) because the endpoint
+        does not need ``IsAuthenticated``, read-replica routing, or the
+        timezone-activation mixin that ``BaseAPIView`` provides --
+        responses are static per-request and the requester's local
+        timezone is irrelevant to the returned data.
+
+    Cross-references:
+        * Throttle: ``AuthenticationThrottle`` in
+          ``apps/api/plane/authentication/rate_limit.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/timezone.py``.
+    """
+
     permission_classes = [AllowAny]
 
     throttle_classes = [AuthenticationThrottle]
 
     @method_decorator(cache_page(60 * 60 * 2))
     def get(self, request):
+        """Return the curated list of supported IANA timezones with their live UTC and GMT offsets.
+
+        Iterates a hard-coded catalog of 148 ``(friendly_name,
+        IANA_identifier)`` pairs covering every UTC offset from -11:00
+        (Midway Island) to +14:00 (Kiritimati Island). For each
+        identifier the handler resolves the zone via ``pytz.timezone``,
+        computes the current ``UTC+HH:MM`` / ``GMT+HH:MM`` offsets from
+        ``datetime.now()``, and skips entries whose identifier raises
+        :class:`pytz.exceptions.UnknownTimeZoneError`. The final list is
+        sorted by numeric offset (ascending) then label (ascending);
+        the temporary numeric ``offset`` field used for sorting is
+        stripped before serialization.
+
+        The response is cached for 2 hours by the surrounding
+        ``cache_page`` decorator, so this function body runs at most
+        once per 7200 seconds across all anonymous callers hitting the
+        same cache key.
+        """
         timezone_locations = [
             ("Midway Island", "Pacific/Midway"),  # UTC-11:00
             ("American Samoa", "Pacific/Pago_Pago"),  # UTC-11:00

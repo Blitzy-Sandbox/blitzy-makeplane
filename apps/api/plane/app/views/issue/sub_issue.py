@@ -2,6 +2,25 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Sub-issue (parent-child tree) HTTP endpoints.
+
+Exposes :class:`SubIssuesEndpoint` for browsing and editing the
+parent-child tree of issues. The relationship is modeled by the
+``Issue.parent_id`` self-FK; this endpoint surfaces the immediate
+children of a given issue along with a ``state_distribution`` summary
+that groups child IDs by state group.
+
+GET supports flexible ``order_by`` and ``group_by`` query parameters;
+POST reparents one or more existing issues under the given parent in a
+single bulk_update operation and enqueues one
+``plane.bgtasks.issue_activities_task.issue_activity`` Celery task
+(RabbitMQ) per re-parented issue.
+
+Response bodies use gzip compression on GET
+(``@method_decorator(gzip_page)``) because annotated sub-issue lists
+can be large.
+"""
+
 # Python imports
 import json
 
@@ -31,10 +50,84 @@ from plane.utils.order_queryset import order_issue_queryset
 
 
 class SubIssuesEndpoint(BaseAPIView):
+    """List + bulk-reparent endpoint for sub-issues (the ``Issue.parent`` tree).
+
+    HTTP methods + URL patterns:
+        GET  /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/sub-issues/
+              -- list immediate children of <issue_id>.
+        POST /api/workspaces/<slug>/projects/<project_id>/issues/<issue_id>/sub-issues/
+              -- reparent ``sub_issue_ids`` under <issue_id>.
+
+    Query parameters (GET):
+        order_by (str, optional, default ``-created_at``): forwarded to
+            :func:`plane.utils.order_queryset.order_issue_queryset`.
+        group_by (str, optional): groups the response by the named
+            field. Special-cased value ``assignees__ids`` explodes the
+            multi-valued ``assignee_ids`` array into one bucket per
+            assignee; empty arrays are bucketed under the literal
+            ``"None"`` key.
+
+    Request body (POST):
+        sub_issue_ids (list[UUID], required): the issues to reparent.
+        Returns HTTP 400 ``"Sub Issue IDs are required"`` on empty
+        list.
+
+    Response shape:
+        ``{"sub_issues": <list-or-dict>, "state_distribution":
+        {<state_group>: [<issue_id>, ...], ...}}``. On GET ``sub_issues``
+        is either a flat list (default) or a dict keyed by ``group_by``
+        when grouping is requested. On POST it is the
+        :class:`IssueSerializer` output of the re-parented rows.
+
+    Annotations (GET):
+        ``cycle_id`` (current cycle assignment),
+        ``link_count``, ``attachment_count``, ``sub_issues_count``,
+        ``label_ids`` (array), ``assignee_ids`` (array filtered to
+        active project members), ``module_ids`` (array filtered to
+        non-archived modules), ``state_group``. Datetime fields
+        (``created_at``, ``updated_at``) are converted to the requesting
+        user's ``user_timezone`` via
+        :func:`plane.utils.timezone_converter.user_timezone_converter`.
+
+    Permissions:
+        ``permission_classes = [ProjectEntityPermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/issue/sub_issue.py`). Defined in
+        :class:`plane.app.permissions.project.ProjectEntityPermission`.
+
+    Side effects (POST -- Celery via RabbitMQ, NOT Redis):
+        ``Issue.objects.bulk_update(..., ["parent"], batch_size=10)`` --
+        note ``Issue.objects`` is used here (the default manager, NOT
+        ``issue_objects``) so the update reaches even archived rows.
+        For each reparented issue an ``issue_activity.delay(...)``
+        Celery task with ``type="issue.activity.updated"`` is enqueued
+        (via RabbitMQ) recording the parent change.
+
+    Compression:
+        ``get`` is decorated with ``@method_decorator(gzip_page)`` --
+        sub-issue listings can be large, so the response is gzipped.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectEntityPermission``.
+        - Serializers: ``plane.app.serializers.IssueSerializer``.
+        - Models: ``plane.db.models.Issue``, ``plane.db.models.CycleIssue``,
+          ``plane.db.models.IssueLink``, ``plane.db.models.FileAsset``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
+    """
+
     permission_classes = [ProjectEntityPermission]
 
     @method_decorator(gzip_page)
     def get(self, request, slug, project_id, issue_id):
+        """List immediate sub-issues of ``issue_id`` with annotations and an optional ``group_by`` bucketing.
+
+        Returns ``{"sub_issues": <list or grouped dict>,
+        "state_distribution": {<state_group>: [<id>, ...]}}``. The
+        ``assignees__ids`` group_by mode explodes the multi-valued
+        ``assignee_ids`` array into one bucket per assignee, with the
+        empty-list case bucketed under the literal ``"None"`` key.
+        """
         sub_issues = (
             Issue.issue_objects.filter(parent_id=issue_id, workspace__slug=slug)
             .annotate(
@@ -202,6 +295,13 @@ class SubIssuesEndpoint(BaseAPIView):
 
     # Assign multiple sub issues
     def post(self, request, slug, project_id, issue_id):
+        """Reparent the supplied ``sub_issue_ids`` under ``issue_id``.
+
+        Issues a single ``Issue.objects.bulk_update`` and enqueues one
+        ``issue.activity.updated`` Celery task per child. Returns HTTP
+        400 ``"Sub Issue IDs are required"`` if ``sub_issue_ids`` is
+        empty.
+        """
         parent_issue = Issue.issue_objects.get(pk=issue_id)
         sub_issue_ids = request.data.get("sub_issue_ids", [])
 

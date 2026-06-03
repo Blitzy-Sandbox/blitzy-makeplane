@@ -2,6 +2,30 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Cycle archive / unarchive HTTP endpoint and archived-cycle read API.
+
+Defines :class:`CycleArchiveUnarchiveEndpoint`, the DRF ``APIView``
+subclass mounted at three URL patterns:
+
+* ``GET    /api/workspaces/<slug>/projects/<project_id>/archived-cycles/``
+* ``GET    /api/workspaces/<slug>/projects/<project_id>/archived-cycles/<pk>/``
+* ``POST   /api/workspaces/<slug>/projects/<project_id>/cycles/<cycle_id>/archive/``
+* ``DELETE /api/workspaces/<slug>/projects/<project_id>/cycles/<cycle_id>/archive/``
+
+Archive semantics: only cycles whose ``end_date`` has passed (completed
+cycles) can be archived; archiving stamps ``archived_at = timezone.now()``
+and cascades a hard delete on any matching :class:`UserFavorite` rows so
+the cycle disappears from users' favorites lists. Unarchiving simply nulls
+``archived_at`` without restoring favorites.
+
+The detail-mode ``GET`` enriches the cycle record with per-state issue
+counts, per-state estimate-point sums, assignee/label distributions, and a
+burndown chart (computed via :func:`plane.utils.analytics_plot.burndown_plot`
+when both ``start_date`` and ``end_date`` are set). Cycle status is derived
+from the current time relative to those date bounds (CURRENT / UPCOMING /
+COMPLETED / DRAFT).
+"""
+
 # Django imports
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
@@ -38,7 +62,143 @@ from .. import BaseAPIView
 
 
 class CycleArchiveUnarchiveEndpoint(BaseAPIView):
+    """Archive / unarchive a cycle and read archived-cycle records.
+
+    Resource managed:
+        Archived :class:`plane.db.models.Cycle` records (cycles whose
+        ``archived_at`` field is non-null) and the archive-state
+        transitions that produce them.
+
+    HTTP methods + URL patterns:
+        GET    /api/workspaces/<slug>/projects/<project_id>/archived-cycles/
+        GET    /api/workspaces/<slug>/projects/<project_id>/archived-cycles/<uuid:pk>/
+        POST   /api/workspaces/<slug>/projects/<project_id>/cycles/<uuid:cycle_id>/archive/
+        DELETE /api/workspaces/<slug>/projects/<project_id>/cycles/<uuid:cycle_id>/archive/
+
+    Request body (POST):
+        Empty -- the archive operation requires no fields. The cycle to
+        archive is identified entirely by the URL's ``cycle_id`` kwarg.
+
+    Request body (DELETE):
+        Empty -- unarchive is identified entirely by the URL's
+        ``cycle_id`` kwarg.
+
+    Response shape (GET list):
+        Array of dictionaries with the keys: ``id``, ``workspace_id``,
+        ``project_id``, ``name``, ``description``, ``start_date``,
+        ``end_date``, ``owned_by_id``, ``view_props``, ``sort_order``,
+        ``external_source``, ``external_id``, ``progress_snapshot``,
+        ``total_issues``, ``is_favorite``, ``cancelled_issues``,
+        ``completed_issues``, ``started_issues``, ``unstarted_issues``,
+        ``backlog_issues``, ``assignee_ids``, ``status``, ``archived_at``.
+        Ordered by ``-is_favorite, -created_at``.
+
+    Response shape (GET detail):
+        Single dictionary with the list-mode keys plus ``sub_issues``,
+        ``logo_props``, ``completed_estimate_points``,
+        ``total_estimate_points``, ``created_by``, and two nested keys:
+
+        * ``estimate_distribution`` -- present (and populated) only when
+          the project has an estimate of ``type="points"``. Contains
+          ``{"assignees": [...], "labels": [...], "completion_chart": {...}}``.
+          The completion chart is filled only when both ``start_date`` and
+          ``end_date`` are set on the cycle.
+        * ``distribution`` -- always populated. Same shape as
+          ``estimate_distribution`` but counts ISSUES rather than
+          estimate points.
+
+    Response shape (POST):
+        ``{"archived_at": "<iso-datetime>"}`` with HTTP 200.
+
+    Response shape (DELETE):
+        Empty body with HTTP 204.
+
+    Permissions:
+        permission_classes = [IsAuthenticated]
+            (inherited from :class:`plane.app.views.base.BaseAPIView`)
+
+        Per-method via the ``@allow_permission`` decorator:
+            * ``get``   -- ROLE.ADMIN, ROLE.MEMBER
+            * ``post``  -- ROLE.ADMIN, ROLE.MEMBER
+            * ``delete`` -- ROLE.ADMIN, ROLE.MEMBER
+
+        Note: archived-cycle READ is restricted to ADMIN+MEMBER (no
+        GUEST), unlike the active-cycle list which permits GUEST. The
+        archive/unarchive MUTATIONS are also ADMIN+MEMBER (not
+        ADMIN-only) -- per project policy, members can archive cycles
+        they did not create as long as the cycle is completed.
+
+    Archive guard:
+        ``post`` rejects with HTTP 400 ``{"error": "Only completed cycles
+        can be archived"}`` if ``cycle.end_date >= timezone.now()`` --
+        i.e., only cycles whose end date has passed may be archived. There
+        is no symmetric guard on ``delete``: any archived cycle (or even a
+        non-archived cycle, which becomes a no-op) can be unarchived.
+
+    Side effects:
+        * ``post``: stamps ``archived_at = timezone.now()`` and hard-deletes
+          every :class:`UserFavorite` row pointing at this cycle (so the
+          cycle disappears from every user's favorites list).
+        * ``delete``: nulls ``archived_at`` (does NOT restore favorites).
+
+    Queryset filter logic (``get_queryset``):
+        Restricts to archived cycles (``archived_at__isnull=False``) in
+        the current workspace and project where the requesting user is an
+        ACTIVE member of the project and the project itself is not
+        archived. Heavy annotations follow:
+
+        * ``is_favorite`` -- Exists subquery against UserFavorite.
+        * Six per-state issue counts (``total_issues``,
+          ``completed_issues``, ``cancelled_issues``, ``started_issues``,
+          ``unstarted_issues``, ``backlog_issues``) via distinct Count
+          on ``issue_cycle__issue__id`` filtered by state group.
+        * Six per-state estimate-point sums (matching the issue counts)
+          via Subquery against issues with
+          ``estimate_point__estimate__type="points"``.
+        * ``status`` -- Case expression yielding ``CURRENT`` /
+          ``UPCOMING`` / ``COMPLETED`` / ``DRAFT`` based on ``timezone.now()``
+          vs. ``start_date`` / ``end_date``. NOTE: this uses raw
+          ``timezone.now()`` (UTC) rather than the project-timezone-aware
+          comparison used by :class:`plane.app.views.cycle.base.CycleViewSet`
+          -- archived cycles are by definition completed so the
+          discrepancy has no practical effect.
+        * ``assignee_ids`` -- ArrayAgg of all assignee UUIDs across all
+          issues in the cycle.
+
+        Heavy ``.annotate(Count(...))`` aggregation -- read replica
+        routing helps when this endpoint is called frequently (subclasses
+        of BaseAPIView may set ``use_read_replica = True``).
+
+    Architectural notes:
+        * Cycle progress snapshots are written by a Celery task (queued
+          via RabbitMQ per the shared architectural context) when a cycle
+          is transferred; this endpoint does NOT consult the snapshot --
+          it always computes distributions live from the cycle's current
+          issues (unlike :class:`CycleAnalyticsEndpoint` which prefers
+          the snapshot when present).
+
+    Cross-references:
+        * Permission decorator: :func:`plane.app.permissions.allow_permission`
+          (``apps/api/plane/app/permissions/base.py``)
+        * Burndown helper: :func:`plane.utils.analytics_plot.burndown_plot`
+          (``apps/api/plane/utils/analytics_plot.py``)
+        * Models: :class:`plane.db.models.Cycle`,
+          :class:`plane.db.models.Issue`,
+          :class:`plane.db.models.UserFavorite`,
+          :class:`plane.db.models.Label`,
+          :class:`plane.db.models.User`,
+          :class:`plane.db.models.Project`
+          (``apps/api/plane/db/models/``)
+        * URL: ``apps/api/plane/app/urls/cycle.py``
+    """
+
     def get_queryset(self):
+        """Return the archived-cycle queryset for the current workspace/project.
+
+        Annotated with per-state issue counts, estimate-point sums, favorite
+        flag, assignee IDs, and derived status (see class docstring for the
+        full annotation list).
+        """
         favorite_subquery = UserFavorite.objects.filter(
             user=self.request.user,
             entity_type="cycle",
@@ -270,6 +430,11 @@ class CycleArchiveUnarchiveEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def get(self, request, slug, project_id, pk=None):
+        """List archived cycles or retrieve a single archived cycle by ``pk``.
+
+        Detail mode (``pk`` provided) adds the full estimate/issue
+        distribution and a burndown completion chart.
+        """
         if pk is None:
             queryset = (
                 self.get_queryset().values(
@@ -585,6 +750,12 @@ class CycleArchiveUnarchiveEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def post(self, request, slug, project_id, cycle_id):
+        """Archive a completed cycle by stamping ``archived_at = timezone.now()``.
+
+        Rejects with HTTP 400 when ``cycle.end_date >= timezone.now()`` and
+        cascades a hard delete of every :class:`UserFavorite` row pointing
+        at the cycle.
+        """
         cycle = Cycle.objects.get(pk=cycle_id, project_id=project_id, workspace__slug=slug)
 
         if cycle.end_date >= timezone.now():
@@ -605,6 +776,11 @@ class CycleArchiveUnarchiveEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def delete(self, request, slug, project_id, cycle_id):
+        """Unarchive a cycle by nulling its ``archived_at`` field.
+
+        Does not restore :class:`UserFavorite` rows deleted when the cycle
+        was archived.
+        """
         cycle = Cycle.objects.get(pk=cycle_id, project_id=project_id, workspace__slug=slug)
         cycle.archived_at = None
         cycle.save()

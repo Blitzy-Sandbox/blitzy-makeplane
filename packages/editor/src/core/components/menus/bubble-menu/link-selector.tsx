@@ -4,6 +4,37 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Link selector for the bubble menu inside the `@plane/editor` TipTap wrapper.
+ *
+ * Renders a "Link" trigger that opens a floating URL input with validation,
+ * apply, and clear/delete actions. The trigger reflects the active state of
+ * the custom link extension at the current selection. URL normalization (e.g.,
+ * prefixing `https://` when missing, blocking dangerous protocols like
+ * `javascript:` / `data:`) is centralized in `isValidHttpUrl` from
+ * `@/helpers/common`, so this selector never touches a raw `href` value.
+ *
+ * TipTap framing:
+ *   - EXPOSES the custom link mark via the `setLinkEditor(editor, url)` and
+ *     `unsetLinkEditor(editor)` wrappers from `@/helpers/editor-commands`.
+ *   - EXPOSES the active state of the custom link extension via
+ *     `editor.isActive(CORE_EXTENSIONS.CUSTOM_LINK)` — drives the
+ *     `text-primary` styling on the trigger when a link is active at the cursor.
+ *   - OVERRIDES the default `@tiptap/extension-link` behavior, which ships no
+ *     UI for editing href values; this selector is the entire link-editing
+ *     surface that downstream editor variants ship to the user.
+ *   - HIDES raw chain invocations such as
+ *     `editor.chain().focus().setLink({ href }).run()` behind the helper
+ *     wrappers so URL normalization stays centralized in `isValidHttpUrl`.
+ *     Future contributors must not call `editor.chain().setLink(...)` directly
+ *     — route through the helper.
+ *
+ * Consumer surface: mounted only inside `./root.tsx` (`EditorBubbleMenu`) —
+ * not consumed elsewhere. The parent hides this selector when
+ * `editorState.code` is true because link marks inside code blocks render as
+ * plain text in most downstream renderers.
+ */
+
 import type { Editor } from "@tiptap/core";
 
 import { useCallback, useRef, useState } from "react";
@@ -22,6 +53,95 @@ type Props = {
   editor: Editor;
 };
 
+/**
+ * Contextual hyperlink editor anchored to the current text selection inside
+ * `EditorBubbleMenu`.
+ *
+ * Shows a "Link" trigger that opens a floating URL input. On submit, validates
+ * the input via `isValidHttpUrl` (which also normalizes missing-scheme inputs
+ * by prefixing `https://`), applies the link mark, and closes the menu. The
+ * right-side action button swaps between `CheckIcon` (apply) and `TrashIcon`
+ * (delete) based on whether a link is already present at the selection.
+ *
+ * Props (see the local `Props` type):
+ *   - `editor` (`Editor` from `@tiptap/core`) — the active TipTap editor instance.
+ *
+ * Unlike `BubbleMenuColorSelector` and `TextAlignmentSelector`, this selector
+ * does NOT receive an `editorState` prop because it queries link active state
+ * directly via `editor.isActive(CORE_EXTENSIONS.CUSTOM_LINK)` (synchronous, no
+ * subscription needed) and reads the existing link's `href` directly via
+ * `editor.getAttributes("link").href` — neither lookup requires the parent's
+ * derived state slice.
+ *
+ * Local state:
+ *   - `error: boolean` — true when the user submitted an invalid URL; toggles
+ *     the input's `border-danger-strong` border and the inline "Please enter a
+ *     valid URL" message rendered below the input.
+ *   - `useFloatingMenu({})` returns `options`, `getReferenceProps`,
+ *     `getFloatingProps`; `options.context` provides Floating UI's
+ *     `onOpenChange` controller used to close the menu after apply/delete.
+ *   - `inputRef: HTMLInputElement | null` — DOM ref used to read the input
+ *     value on submit (the input is uncontrolled — `defaultValue` is sourced
+ *     from `editor.getAttributes("link").href` at first render).
+ *
+ * Side effects:
+ *   - `handleLinkSubmit` (memoized via `useCallback([editor, inputRef, context])`)
+ *     reads `inputRef.current.value`, validates via `isValidHttpUrl(url)` from
+ *     `@/helpers/common` (returns `{ isValid, url: validatedUrl }`). On valid
+ *     input, dispatches `setLinkEditor(editor, validatedUrl)` from
+ *     `@/helpers/editor-commands`, closes the menu via
+ *     `context.onOpenChange(false)`, and clears the error state. On invalid
+ *     input, sets `error` to true and leaves the menu open so the user can
+ *     correct the input.
+ *   - The trash button's `onClick` handler dispatches `unsetLinkEditor(editor)`
+ *     from `@/helpers/editor-commands` to clear the link mark on the current
+ *     selection, then closes the menu via `context.onOpenChange(false)`.
+ *   - Input handlers: `Enter` submits via `handleLinkSubmit()`; any `keydown`
+ *     and `focus` clear the error state.
+ *
+ * TipTap behavior:
+ *   - EXPOSES `editor.commands.setLink` and `editor.commands.unsetLink` via the
+ *     `setLinkEditor` / `unsetLinkEditor` wrappers from
+ *     `@/helpers/editor-commands`.
+ *   - EXPOSES the active state of the custom link extension via
+ *     `editor.isActive(CORE_EXTENSIONS.CUSTOM_LINK)`, driving the
+ *     `text-primary` styling on the trigger when a link is active at the cursor.
+ *   - OVERRIDES the default `@tiptap/extension-link` behavior — the upstream
+ *     extension ships no UI for editing href values; this selector is the
+ *     entire link-editing surface.
+ *   - HIDES the direct chain invocation
+ *     `editor.chain().focus().setLink({ href }).run()` behind the
+ *     `setLinkEditor` helper so URL normalization stays centralized in
+ *     `isValidHttpUrl`.
+ *
+ * Behavior notes (WHY):
+ *   - The `isActive` check uses `editor.isActive(CORE_EXTENSIONS.CUSTOM_LINK)`
+ *     while the `getAttributes` calls use the literal string `"link"`. The
+ *     enum value `CORE_EXTENSIONS.CUSTOM_LINK` is defined as `"link"`, so the
+ *     two strings are equal today — but the lookups are semantically distinct:
+ *     `isActive` queries by extension key, `getAttributes` queries by mark
+ *     name. The same literal-`"link"` convention is used by `LinkItem` in
+ *     `../menu-items.ts`. Do NOT "harmonize" these two calls to a single form
+ *     because they target different TipTap APIs with different naming
+ *     contracts.
+ *   - The right-side button swaps between `CheckIcon` (apply mode) and
+ *     `TrashIcon` (delete mode) based on whether `editor.getAttributes("link").href`
+ *     is truthy at the selection — one button serves two semantically distinct
+ *     actions, communicated through the icon swap without button text.
+ *   - `autoFocus` on the input is a deliberate UX choice: the user reaches
+ *     this selector by selecting text and clicking "Link", so the input must
+ *     be ready for immediate typing without an additional click.
+ *   - The error message uses Tailwind `animate-in fade-in slide-in-from-top-0`
+ *     animation tokens with `pointer-events-none` so it animates in but does
+ *     not intercept the input's focus.
+ *   - The input's `onClick={(e) => e.stopPropagation()}` is required because
+ *     `FloatingMenuRoot` uses `useDismiss` from `@floating-ui/react`, which
+ *     closes the menu on any outside click. Without `stopPropagation`, every
+ *     click inside the input itself would trigger that handler and close the
+ *     menu mid-typing.
+ *
+ * Consumer surface: mounted inside `./root.tsx` (`EditorBubbleMenu`).
+ */
 export function BubbleMenuLinkSelector(props: Props) {
   const { editor } = props;
   // states

@@ -4,12 +4,33 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Token-to-styling helpers backing the Avatar primitives (size scale + shape resolution).
+ *
+ * Centralizes the avatar design tokens so `Avatar` and `AvatarGroup` stay visually
+ * aligned and consumers cannot drift off the supported size/shape set.
+ */
+
+/**
+ * Supported avatar size tokens plus a raw pixel escape hatch.
+ *
+ * String tokens (`"sm"`, `"md"`, `"base"`, `"lg"`) map to the design-system size
+ * scale through `getSizeInfo`; a `number` value means "render at this exact pixel
+ * dimension" and bypasses the token map for ad-hoc sizing requirements.
+ */
 export type TAvatarSize = "sm" | "md" | "base" | "lg" | number;
 
 /**
- * Get the size details based on the size prop
- * @param size The size of the avatar
- * @returns The size details
+ * Resolve a size token to the Tailwind class fragments used by the avatar primitives.
+ *
+ * Returned class fragments are consumed by both `Avatar` (wrapper dimension + font
+ * size on the initial fallback) and `AvatarGroup` (inter-avatar spacing) so the two
+ * components stay visually aligned. Numeric (pixel) sizes fall through to the `md`
+ * default class set — callers must apply pixel sizing via inline `style`, not via
+ * the returned `avatarSize` class.
+ *
+ * @param size Avatar size token; non-string inputs fall through to the `md` default.
+ * @returns Object with `avatarSize`, `fontSize`, and `spacing` Tailwind class fragments.
  */
 export const getSizeInfo = (size: TAvatarSize) => {
   switch (size) {
@@ -47,9 +68,13 @@ export const getSizeInfo = (size: TAvatarSize) => {
 };
 
 /**
- * Get the border radius based on the shape prop
- * @param shape The shape of the avatar
- * @returns The border radius
+ * Resolve the avatar's wrapper border-radius class from its shape token.
+ *
+ * Encodes the "circle vs square" choice in a single helper so the image and
+ * fallback branches inside `Avatar` cannot drift apart visually.
+ *
+ * @param shape Either `"circle"` (default — `rounded-full`) or `"square"` (`rounded-sm`).
+ * @returns Tailwind border-radius class fragment.
  */
 export const getBorderRadius = (shape: "circle" | "square") => {
   switch (shape) {
@@ -63,8 +88,14 @@ export const getBorderRadius = (shape: "circle" | "square") => {
 };
 
 /**
- * Check if the value is a valid number
- * @param value The value to check
- * @returns Whether the value is a valid number or not
+ * Type-narrow a raw value into the "render at exact pixel dimension" branch.
+ *
+ * Required because `TAvatarSize` accepts both string tokens and numbers; the
+ * avatar components call this guard to choose between inline-style pixel sizing
+ * and the Tailwind token map returned by `getSizeInfo`. Rejects `NaN` so a failed
+ * coercion upstream cannot pass through silently.
+ *
+ * @param value Arbitrary value to test (typically the `size` prop).
+ * @returns `true` only for real finite numbers; `false` for `NaN` and non-number types.
  */
 export const isAValidNumber = (value: unknown) => typeof value === "number" && !isNaN(value);

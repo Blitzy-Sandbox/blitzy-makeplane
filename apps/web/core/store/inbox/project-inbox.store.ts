@@ -4,6 +4,105 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Project-scoped inbox MobX store: orchestrates the intake queue of issues
+ * for a single project — listing, filtering, sorting, paginating, and
+ * mutating individual entries via per-issue `InboxIssueStore` instances.
+ *
+ * Architectural context: MobX is the exclusive frontend state layer; this
+ * store is instantiated by `CoreRootStore` as `projectInbox` and injected
+ * via React context. Backend I/O is mediated by `InboxIssueService`
+ * (`@/services/inbox`). Server reads use the paginated `inbox-issues` list
+ * endpoint; the underlying issue payload conforms to `TInboxIssue` from
+ * `@plane/types`.
+ *
+ * State slice (observables wired via `makeObservable` in the constructor):
+ *   - currentTab: TInboxIssueCurrentTab           — OPEN | CLOSED (observable.ref)
+ *   - loader: TLoader                              — undefined | init-loading |
+ *       mutation-loading | filter-loading | pagination-loading | issue-loading
+ *   - error: { message; status: "init-error" | "pagination-error" } | undefined
+ *   - currentInboxProjectId: string                — last fetched project id
+ *   - filtersMap: Record<projectId, Partial<TInboxIssueFilter>>
+ *   - sortingMap: Record<projectId, Partial<TInboxIssueSorting>>
+ *   - inboxIssuePaginationInfo: TInboxIssuePaginationInfo | undefined
+ *   - inboxIssues: Record<issueId, IInboxIssueStore>  — cached per-issue stores
+ *   - inboxIssueIds: string[]                       — ordered loaded-issue ids
+ *
+ * Constants:
+ *   - PER_PAGE_COUNT = 10                          — server page size
+ *
+ * Computed (recompute conditions in parentheses):
+ *   - inboxFilters         — filtersMap[currentInboxProjectId]
+ *                            (recomputes when currentInboxProjectId or filtersMap change)
+ *   - inboxSorting         — sortingMap[currentInboxProjectId]
+ *                            (recomputes when currentInboxProjectId or sortingMap change)
+ *   - getAppliedFiltersCount — total selected filter values across keys
+ *                              (recomputes when inboxFilters change)
+ *   - filteredInboxIssueIds — tab-aware filtered list; for OPEN the PENDING +
+ *                            SNOOZED buckets are split by snooze-deadline
+ *                            (entries become PENDING-visible once
+ *                            snoozed_till < now). Recomputes when currentTab,
+ *                            inboxFilters.status, inboxIssueIds, or any
+ *                            inboxIssues[id].status / snoozed_till change.
+ *
+ * Computed-fn (memoized per-argument):
+ *   - getIssueInboxByIssueId(issueId)   — returns inboxIssues[issueId]
+ *   - getIsIssueAvailable(inboxIssueId) — boolean, presence in inboxIssueIds
+ *
+ * Actions:
+ *   - handleCurrentTab(workspaceSlug, projectId, tab)
+ *       Resets cached ids/pagination, seeds tab-default filters and sorting,
+ *       then re-fetches with loader="filter-loading".
+ *   - handleInboxIssueFilters(key, value)
+ *       Updates filtersMap[projectId][key], clears pagination, re-fetches
+ *       with loader="filter-loading". Workspace slug is read from
+ *       `store.router.workspaceSlug`.
+ *   - handleInboxIssueSorting(key, value)
+ *       Symmetric with the filter handler; updates sortingMap[projectId][key].
+ *   - fetchInboxIssues(workspaceSlug, projectId, loadingType?, tab?)
+ *       Cold-loads page 1 via InboxIssueService.list. Resets caches if
+ *       projectId changed. Mutates loader, inboxIssuePaginationInfo,
+ *       inboxIssueIds, inboxIssues. Sets error.status="init-error" on failure.
+ *   - fetchInboxPaginationIssues(workspaceSlug, projectId)
+ *       Appends the next page via the pagination cursor. Deduplicates ids
+ *       with `lodash-es#uniq`. Sets next_page_results=false when exhausted.
+ *       Sets error.status="pagination-error" on failure.
+ *   - fetchInboxIssueById(workspaceSlug, projectId, inboxIssueId)
+ *       Retrieves a single inbox entry; on success primes the issue-detail
+ *       subsystem with parallel fetchReactions / fetchActivities /
+ *       fetchComments / fetchAttachments via `store.issue.issueDetail`.
+ *   - createInboxIssue(workspaceSlug, projectId, data)
+ *       POST via InboxIssueService.create. Constructs a new InboxIssueStore,
+ *       inserts into inboxIssues, appends to inboxIssueIds, increments
+ *       inboxIssuePaginationInfo.total_results, and increments
+ *       store.projectRoot.project.projectMap[projectId].intake_count if the
+ *       newly created entry is PENDING.
+ *   - deleteInboxIssue(workspaceSlug, projectId, inboxIssueId)
+ *       DELETE via InboxIssueService.destroy. Removes the id and cached
+ *       store entry; adjusts pagination total and intake_count if the
+ *       removed entry was PENDING.
+ *
+ * Helper methods (not @action; pure transforms):
+ *   - inboxIssueQueryParams(filters, sorting, perPage, cursor)
+ *       Translates UI filter/sort state into backend query params.
+ *       `created_at`/`updated_at` filters are mapped through
+ *       `getCustomDates` (from `@plane/utils`) into backend date strings.
+ *   - createOrUpdateInboxIssue(items, workspaceSlug, projectId)
+ *       Per item: merges into the existing InboxIssueStore via
+ *       Object.assign, else constructs and inserts a new one.
+ *   - initializeDefaultFilters(projectId, tab)
+ *       Seeds filtersMap[projectId] and sortingMap[projectId] when empty.
+ *
+ * Consumers:
+ *   - React hook: `apps/web/core/hooks/store/use-project-inbox.ts`
+ *   - Component subtree: `apps/web/core/components/inbox/**` —
+ *     `content/{root, issue-root, inbox-issue-header}.tsx`, `root.tsx`,
+ *     `modals/create-modal/*`, `inbox-filter/filters/*`,
+ *     `inbox-filter/applied-filters/*`.
+ *   - Indirectly by `apps/web/core/components/issues/**` peek/detail flows
+ *     when accepted inbox entries surface in the project issue list.
+ */
+
 import { uniq, update, isEmpty, omit, set } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";

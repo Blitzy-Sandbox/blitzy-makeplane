@@ -4,6 +4,79 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Issue domain composition root — the single MobX node that owns the entire issue subsystem
+ * on the frontend.
+ *
+ * Mirrors route-derived ids and global lookup maps from the application `RootStore` into a
+ * local observable surface and eagerly instantiates the full graph of issue sub-stores so
+ * every child shares one reactive context. This module is the index for every issue
+ * sub-store: engineers can find them all here without reading the implementation.
+ *
+ * State slice (route + lookup mirrors — all set by the constructor `autorun` from the parent
+ * `RootStore`; see Reactions below):
+ *   Route ids (observable.ref):
+ *     - currentUserId, workspaceSlug, teamspaceId, projectId, cycleId, moduleId, viewId,
+ *       globalViewId, userId
+ *   Lookup maps (observable):
+ *     - stateMap, stateDetails, workspaceStateDetails — state tables sourced from
+ *       `rootStore.state`
+ *     - labelMap — workspace label index sourced from `rootStore.label`
+ *     - memberMap, workSpaceMemberRolesMap — member directories sourced from
+ *       `rootStore.memberRoot`
+ *     - projectMap, moduleMap, cycleMap — domain indices sourced from
+ *       `rootStore.projectRoot`, `rootStore.module`, `rootStore.cycle`
+ *
+ * References held on `this`:
+ *   - rootStore: RootStore — the application-level root store
+ *   - serviceType: TIssueServiceType — `EIssueServiceType.ISSUES` (default) or
+ *     `EIssueServiceType.EPICS`; threaded into the detail-store branches so the same shape
+ *     can serve the Issue feature and the Epic feature
+ *
+ * Composed sub-stores (eagerly instantiated in the constructor — local relative paths are
+ * sibling stores in this directory, `@/plane-web/...` paths are the plane-web tier overrides):
+ *   Shared cache:
+ *     - issues: IIssueStore (./issue.store) — the shared TIssue cache
+ *   Detail roots, twinned by serviceType:
+ *     - issueDetail: IIssueDetail wired with EIssueServiceType.ISSUES
+ *       (@/plane-web/store/issue/issue-details/root.store)
+ *     - epicDetail: IIssueDetail wired with EIssueServiceType.EPICS
+ *       (same module)
+ *   Per-scope (filter, issues) pairs:
+ *     - workspaceIssuesFilter (./workspace) + workspaceIssues
+ *       (@/plane-web/store/issue/workspace/issue.store)
+ *     - workspaceDraftIssuesFilter + workspaceDraftIssues (./workspace-draft)
+ *     - profileIssuesFilter + profileIssues (./profile)
+ *     - teamIssuesFilter + teamIssues (@/plane-web/store/issue/team)
+ *     - projectIssuesFilter + projectIssues (./project)
+ *     - cycleIssuesFilter + cycleIssues (./cycle)
+ *     - moduleIssuesFilter + moduleIssues (./module)
+ *     - teamViewIssuesFilter + teamViewIssues (@/plane-web/store/issue/team-views)
+ *     - projectViewIssuesFilter + projectViewIssues (./project-views)
+ *     - teamProjectWorkItemsFilter + teamProjectWorkItems
+ *       (@/plane-web/store/issue/team-project)
+ *     - archivedIssuesFilter + archivedIssues (./archived)
+ *     - projectEpicsFilter + projectEpics (@/plane-web/store/issue/epic)
+ *   View-mode stores:
+ *     - issueKanBanView: IIssueKanBanViewStore (./issue_kanban_view.store)
+ *     - issueCalendarView: ICalendarStore (./issue_calendar_view.store)
+ *
+ * Reactions / wiring:
+ *   - The constructor `autorun()` is the central reactive contract: it synchronizes the
+ *     route ids above from `rootStore.router` and the lookup maps from
+ *     `rootStore.{user,state,label,memberRoot,projectRoot,module,cycle}`. Every child store
+ *     assumes these inputs are kept up to date here, which is what lets the children stay
+ *     reactive to route changes without per-store wiring.
+ *
+ * Consumers:
+ *   - apps/web/core/lib/store-context.tsx — this root is composed into the application
+ *     root store as `context.issue` and exposed via the `StoreContext` provider
+ *   - Typed hooks under apps/web/core/hooks/store/ (`useIssues`, `useIssueDetail`,
+ *     `useKanbanView`, `useCalendarView`, …) — the indirection used by components under
+ *     apps/web/core/components/issues/** and apps/web/core/components/cycles/** so those
+ *     components never need to import this module directly
+ */
+
 import { isEmpty } from "lodash-es";
 import { autorun, makeObservable, observable } from "mobx";
 // types

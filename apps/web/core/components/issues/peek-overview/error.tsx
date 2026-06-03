@@ -4,6 +4,38 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Empty / error fallback for the work item peek-overview panel.
+ *
+ * Rendered purpose: displays a standardized `EmptyState` ("Work item does not exist") when the
+ * panel cannot resolve a work item — typically because the issue was archived, deleted, or never
+ * existed under the current scope. Retains a dismiss button so the user can close the empty state.
+ *
+ * Props (TIssuePeekOverviewError):
+ *   - removeRoutePeekId (() => void, required): close-peek callback supplied by the parent view shell;
+ *     wired to the visible dismiss button (`MoveRight` icon) so the user can return to the underlying view
+ *
+ * MobX stores read: none — pure presentational primitive.
+ *
+ * Side effects: none — the only interactive element is the dismiss button, which simply calls the
+ * caller-supplied `removeRoutePeekId` callback.
+ *
+ * Architectural notes:
+ *   - `EmptyState` is the shared empty-state primitive from `@/components/common/empty-state`.
+ *   - The empty-state image is imported with the Vite `?url` query suffix
+ *     (`@/app/assets/empty-state/issue.svg?url`) so the bundler resolves it as a string URL that the
+ *     `<img>` tag can use directly. This is VITE-specific build-time URL asset resolution — the
+ *     `?url` query is baked in at build time by the Vite asset pipeline.
+ *   - `Tooltip` from `@plane/propel/tooltip`; `usePlatformOS()` (from `@/hooks/use-platform-os`) toggles
+ *     mobile tooltip behavior.
+ *
+ * Accessibility notes:
+ *   - The dismiss button retains a keyboard-focusable `<button>` wrapped in `Tooltip`, so keyboard
+ *     users can dismiss the error without using the mouse.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/issues/peek-overview/view.tsx` — rendered when `isError === true`
+ */
 import { MoveRight } from "lucide-react";
 import { Tooltip } from "@plane/propel/tooltip";
 // assets

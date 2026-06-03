@@ -4,8 +4,16 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Whitelist of `next-themes`-compatible theme identifiers (light, dark, light/dark-contrast, custom) that gate valid Plane UI theme strings.
+ * Consumers: `apps/web/core/store/theme.store.ts` and theme switchers in `apps/web/core/components/**` profile/preferences.
+ */
 export const THEMES = ["light", "dark", "light-contrast", "dark-contrast", "custom"];
 
+/**
+ * Shape of a single entry in the theme picker — pairs the theme `value` with a
+ * localized label and a small icon descriptor used to preview the palette.
+ */
 export interface I_THEME_OPTION {
   key: string;
   value: string;
@@ -18,6 +26,12 @@ export interface I_THEME_OPTION {
   };
 }
 
+/**
+ * Theme option catalog rendered by the theme picker — includes "system_preference"
+ * which delegates to the OS color scheme via `next-themes`.
+ *
+ * Consumers: `apps/web/core/components/**` preferences/theme switcher UI.
+ */
 export const THEME_OPTIONS: I_THEME_OPTION[] = [
   {
     key: "system_preference",

@@ -2,6 +2,28 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Celery task that builds issue exports (CSV / JSON / XLSX) and uploads them to S3.
+
+Trigger: explicit ``.delay(provider, workspace_id, project_ids, token_id, multiple, slug)``
+from ``apps/api/plane/app/views/exporter/base.py`` when a user requests an export.
+
+Supported formats:
+    - ``csv``
+    - ``json``
+    - ``xlsx`` (via ``openpyxl``)
+
+Download URL: each export is published as an S3 presigned URL with a 7-day TTL, stored
+on the corresponding ``ExporterHistory`` row. The paired task
+``apps/api/plane/bgtasks/exporter_expired_task.py`` later sweeps expired URLs and
+deletes the underlying S3 objects after 8 days.
+
+Async infrastructure: queued onto RabbitMQ and consumed by Celery workers per the
+``Celery via RabbitMQ`` architectural rule. Redis is caching/session only and is not
+the task broker.
+
+See tech spec section 4.10 ``EXPORT PIPELINE WORKFLOW``.
+"""
+
 # Python imports
 import io
 import zipfile
@@ -26,8 +48,12 @@ from plane.utils.porters.serializers.issue import IssueExportSerializer
 
 
 def create_zip_file(files: List[tuple[str, str | bytes]]) -> io.BytesIO:
-    """
-    Create a ZIP file from the provided files.
+    """Build an in-memory ZIP archive from the provided ``(filename, content)`` tuples.
+
+    Each tuple is written into the archive as a single entry using
+    ``ZIP_DEFLATED`` compression. The returned ``BytesIO`` buffer is rewound
+    to position 0 so callers can stream or upload it directly without an
+    additional ``seek``.
     """
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
@@ -40,8 +66,15 @@ def create_zip_file(files: List[tuple[str, str | bytes]]) -> io.BytesIO:
 
 # TODO: Change the upload_to_s3 function to use the new storage method with entry in file asset table
 def upload_to_s3(zip_file: io.BytesIO, workspace_id: UUID, token_id: str, slug: str) -> None:
-    """
-    Upload a ZIP file to S3 and generate a presigned URL.
+    """Upload the ZIP buffer to S3 and persist a 7-day presigned download URL.
+
+    The S3 key takes the form ``<workspace_id>/export-<slug>-<token_prefix>-<YYYY-MM-DD>.zip``
+    and ``ExpiresIn`` is fixed at ``7 * 24 * 60 * 60`` seconds (7 days). The resulting
+    presigned URL is written onto the ``ExporterHistory`` row matching ``token_id`` along
+    with ``status="completed"`` and ``key=<s3_key>``; if URL generation fails the row is
+    marked ``status="failed"``. On MinIO deployments two distinct boto3 clients are used:
+    the upload targets the internal endpoint while a second client signs the URL against
+    the public custom domain so the link remains reachable from browsers.
     """
     file_name = f"{workspace_id}/export-{slug}-{token_id[:6]}-{str(timezone.now().date())}.zip"
     expires_in = 7 * 24 * 60 * 60
@@ -133,11 +166,63 @@ def issue_export_task(
     multiple: bool,
     slug: str,
 ):
-    """
-    Export issues from the workspace.
-    provider (str): The provider to export the issues to csv | json | xlsx.
-    token_id (str): The export object token id.
-    multiple (bool): Whether to export the issues to multiple files per project.
+    """Build an issue export file in ``provider`` format and upload it to S3 with a 7-day presigned URL.
+
+    Trigger:
+        Explicit ``issue_export_task.delay(provider=..., workspace_id=...,
+        project_ids=..., token_id=..., multiple=..., slug=...)`` from
+        ``apps/api/plane/app/views/exporter/base.py`` when a user requests an
+        export. The Celery message is routed via RabbitMQ and consumed by a
+        worker; Redis is caching/session only and is not the broker.
+
+    Side effects:
+        - DB read: ``Issue`` rows for the requested ``project_ids`` within
+          ``workspace_id``, restricted to projects the initiating user is an
+          active member of and that are not archived. Eager-loads ``project``,
+          ``workspace``, ``state``, ``created_by``, and ``estimate_point``;
+          prefetches ``labels``, ``issue_cycle__cycle``, ``issue_module__module``,
+          ``assignees``, ``issue_link``, ``issue_subscribers``, ``issue_comments``,
+          ``issue_relation``, ``issue_related``, and ``parent``.
+        - Serialization: ``IssueExportSerializer`` (via the shared
+          ``DataExporter``) produces dict rows.
+        - In-memory file build: ``DataExporter`` emits CSV / JSON / XLSX content
+          per ``provider``. When ``multiple=True`` one file per project is built;
+          all files are bundled into a single ZIP by :func:`create_zip_file`.
+        - S3 upload: the ZIP is uploaded by :func:`upload_to_s3` to the
+          configured S3-compatible bucket (AWS S3 or MinIO); the key includes
+          ``workspace_id``, ``slug``, the leading 6 chars of ``token_id``, and
+          the current UTC date.
+        - DB write: the ``ExporterHistory`` row matching ``token_id`` is set to
+          ``status="processing"`` on entry; on success its ``url``, ``key``, and
+          ``status="completed"`` are written by :func:`upload_to_s3`. If
+          ``DataExporter`` raises ``ValueError`` for an unknown ``provider`` —
+          or any other exception is raised during export — the row is marked
+          ``status="failed"`` with ``reason`` set to the exception message and
+          ``log_exception`` is invoked.
+        - No emails are sent directly (the UI polls ``ExporterHistory`` and
+          surfaces the URL); no webhook fan-out; no cache invalidation.
+
+    Idempotency:
+        NON-idempotent. Each invocation generates a new file with a
+        date-stamped S3 key; repeated calls produce orphan S3 objects that
+        ``apps/api/plane/bgtasks/exporter_expired_task.py`` sweeps after 8
+        days.
+
+    Args:
+        provider: One of ``"csv"``, ``"json"``, ``"xlsx"`` (validated by
+            ``DataExporter``; unknown values mark the export ``"failed"``).
+        workspace_id: Workspace primary key.
+        project_ids: Project primary keys to include in the export.
+        token_id: ``ExporterHistory`` row token used to track this export;
+            ``url``, ``key``, ``status``, and ``reason`` are written back on
+            completion.
+        multiple: When ``True``, exports one file per project bundled together
+            into a single ZIP; when ``False``, exports a single combined file
+            spanning all requested projects.
+        slug: Workspace slug used as part of the S3 key prefix and the export
+            filename.
+
+    See tech spec section 4.10 ``EXPORT PIPELINE WORKFLOW``.
     """
     try:
         exporter_instance = ExporterHistory.objects.get(token=token_id)

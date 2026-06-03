@@ -4,19 +4,40 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Notification panel tab catalog and unread-count seed value consumed by
+ * `apps/web/core/components/workspace-notifications/**` and the notification MobX store.
+ */
+
 import type { TUnreadNotificationsCount } from "@plane/types";
 
+/**
+ * Notification list top-tab — partitions the notification feed into "All" vs "Mentions".
+ *
+ * Consumers: `apps/web/core/components/workspace-notifications/**` notification panel header
+ * and `apps/web/core/store/notifications/**` for tab-scoped queries.
+ */
 export enum ENotificationTab {
   ALL = "all",
   MENTIONS = "mentions",
 }
 
+/**
+ * Notification filter category — narrows the feed to notifications you created,
+ * are assigned to, or are subscribed to.
+ *
+ * Consumers: notification filter chips in `apps/web/core/components/workspace-notifications/**`.
+ */
 export enum ENotificationFilterType {
   CREATED = "created",
   ASSIGNED = "assigned",
   SUBSCRIBED = "subscribed",
 }
 
+/**
+ * Loader-state machine identifiers (init, mutation, pagination, refresh, mark-all) driving the right spinner/skeleton for each notification lifecycle stage.
+ * Consumers: `apps/web/core/store/notifications/**` loader state and panel UI in `apps/web/core/components/workspace-notifications/**`.
+ */
 export enum ENotificationLoader {
   INIT_LOADER = "init-loader",
   MUTATION_LOADER = "mutation-loader",
@@ -25,14 +46,28 @@ export enum ENotificationLoader {
   MARK_ALL_AS_READY = "mark-all-as-read",
 }
 
+/**
+ * Notification cursor query identifier — distinguishes initial fetch, current refresh,
+ * and next-page fetch URLs returned by the paginated notifications endpoint.
+ */
 export enum ENotificationQueryParamType {
   INIT = "init",
   CURRENT = "current",
   NEXT = "next",
 }
 
+/**
+ * Helper union of the notification tab values (mirrors `ENotificationTab` values).
+ */
 export type TNotificationTab = ENotificationTab.ALL | ENotificationTab.MENTIONS;
 
+/**
+ * Tab metadata for the notification panel header — pairs each tab with its i18n
+ * label and a `count` resolver that pulls the unread badge value out of the unread
+ * notifications payload.
+ *
+ * Consumers: notification panel header in `apps/web/core/components/workspace-notifications/**`.
+ */
 export const NOTIFICATION_TABS = [
   {
     i18n_label: "notification.tabs.all",
@@ -47,6 +82,12 @@ export const NOTIFICATION_TABS = [
   },
 ];
 
+/**
+ * Filter-type options for the notification panel's filter dropdown — one entry per
+ * `ENotificationFilterType` value with i18n label.
+ *
+ * Consumers: notification filter dropdown in `apps/web/core/components/workspace-notifications/**`.
+ */
 export const FILTER_TYPE_OPTIONS = [
   {
     i18n_label: "notification.filter.assigned",
@@ -62,6 +103,13 @@ export const FILTER_TYPE_OPTIONS = [
   },
 ];
 
+/**
+ * Snooze duration options for the notification snooze menu — each entry returns a
+ * fresh `Date` instance (or `undefined` for the "custom" entry) at click time, so
+ * the timestamp is always relative to "now" when the user picks an option.
+ *
+ * Consumers: notification snooze menu in `apps/web/core/components/workspace-notifications/**`.
+ */
 export const NOTIFICATION_SNOOZE_OPTIONS = [
   {
     key: "1_day",
@@ -111,6 +159,12 @@ export const NOTIFICATION_SNOOZE_OPTIONS = [
 ];
 
 // Constant for all time values in 30 minutes interval in 12 hours format
+/**
+ * Pre-computed 30-minute time-slot labels in 12-hour format (12:00 through 11:30),
+ * used by the custom-snooze picker as a quick time-of-day chooser.
+ *
+ * Consumers: custom snooze datetime picker in `apps/web/core/components/workspace-notifications/**`.
+ */
 export const allTimeIn30MinutesInterval12HoursFormat: Array<{
   label: string;
   value: string;

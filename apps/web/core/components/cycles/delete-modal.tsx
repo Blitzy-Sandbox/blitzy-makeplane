@@ -4,6 +4,43 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Destructive confirmation dialog for permanently deleting a cycle; on confirm,
+ * invokes the cycle store's delete action, redirects away from a cycle detail or
+ * peek route if currently scoped to the deleted cycle, and surfaces an i18n
+ * success or permission-aware error toast.
+ *
+ * Props (ICycleDelete):
+ *   - cycle (ICycle, required): the cycle being deleted; its `id` is used for the
+ *     delete call and `name` is shown in the confirmation copy.
+ *   - isOpen (boolean, required): controls AlertModalCore visibility.
+ *   - handleClose (() => void, required): closes the modal; called after success or
+ *     failure in the .finally block.
+ *   - workspaceSlug (string, required): workspace slug for the delete API call and
+ *     post-delete navigation.
+ *   - projectId (string, required): project ID for the delete API call and post-delete
+ *     navigation.
+ *
+ * MobX stores read:
+ *   - useCycle (cycle store): deleteCycle action.
+ *
+ * Side effects:
+ *   - API call (via store action wired to CycleService): deleteCycle(workspaceSlug,
+ *     projectId, cycle.id).
+ *   - Navigation (conditional): useAppRouter().push to
+ *     `/${workspaceSlug}/projects/${projectId}/cycles` ONLY when the current route
+ *     has a `cycleId` param OR a `peekCycle` search param — i.e., the user was
+ *     viewing the deleted cycle and must be redirected to the list.
+ *   - Toasts: TOAST_TYPE.SUCCESS on delete; TOAST_TYPE.ERROR with two variants —
+ *     `PROJECT_ERROR_MESSAGES.permissionError` when the API returns the specific
+ *     permission-denied message, otherwise `PROJECT_ERROR_MESSAGES.cycleDeleteError`.
+ *   - Route param reads: useParams().cycleId, useSearchParams().get("peekCycle") to
+ *     decide whether to redirect.
+ *
+ * Consumers: rendered from the cycle quick-actions menu (quick-actions.tsx) and the
+ * cycle detail header.
+ */
+
 import { useState } from "react";
 import { observer } from "mobx-react";
 import { useParams, useSearchParams } from "next/navigation";

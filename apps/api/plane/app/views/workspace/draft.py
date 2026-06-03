@@ -2,6 +2,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Workspace-level draft-issue endpoints.
+
+Draft issues are workspace-scoped, creator-only scratchpads that can be
+edited freely before being promoted to real ``Issue`` rows in a project.
+Promotion (``create_draft_to_issue``) moves attachments, optionally links
+the issue to a cycle and modules, and emits Celery activity events via
+``issue_activity.delay`` (Celery via RabbitMQ, per architectural
+context).
+"""
+
 # Python imports
 import json
 
@@ -44,9 +54,109 @@ from plane.utils.host import base_host
 
 
 class WorkspaceDraftIssueViewSet(BaseViewSet):
+    """Manage workspace-scoped draft issues created by the caller.
+
+    HTTP methods + URL patterns:
+        GET    /api/workspaces/<str:slug>/draft-issues/
+        POST   /api/workspaces/<str:slug>/draft-issues/
+        GET    /api/workspaces/<str:slug>/draft-issues/<uuid:pk>/
+        PATCH  /api/workspaces/<str:slug>/draft-issues/<uuid:pk>/
+        DELETE /api/workspaces/<str:slug>/draft-issues/<uuid:pk>/
+        POST   /api/workspaces/<str:slug>/draft-to-issue/<uuid:draft_id>/
+
+    Request body (POST/PATCH):
+        ``DraftIssueCreateSerializer`` fields -- ``name``, ``project_id``
+        (optional on draft, required on promotion), ``description_html``,
+        ``priority``, ``state_id``, ``parent_id``, ``assignees``,
+        ``labels``, ``cycle_id``, ``module_ids``, ``start_date``,
+        ``target_date``, ``estimate_point``.
+
+    Request body (POST ``create_draft_to_issue``):
+        ``IssueCreateSerializer`` fields plus optional ``cycle_id`` and
+        ``module_ids``; the project comes from the draft itself.
+
+    Response shape:
+        list: paginated ``DraftIssueSerializer`` rows, restricted to the
+            caller's drafts ordered by ``-created_at``.
+        create: subset of draft fields (``id``, ``name``, ``state_id``,
+            ``sort_order``, ``completed_at``, ``estimate_point``,
+            ``priority``, ``start_date``, ``target_date``, ``project_id``,
+            ``parent_id``, ``cycle_id``, ``module_ids``, ``label_ids``,
+            ``assignee_ids``, audit fields, ``type_id``,
+            ``description_html``).
+        partial_update: HTTP 204.
+        retrieve: ``DraftIssueDetailSerializer``.
+        destroy: HTTP 204.
+        create_draft_to_issue: ``IssueCreateSerializer`` on success.
+
+    Permissions:
+        list/create: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER,
+            ROLE.GUEST], level="WORKSPACE")`` -- any active workspace
+            member.
+        partial_update: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER],
+            creator=True, model=Issue, level="WORKSPACE")`` -- only the
+            draft's creator (guests excluded).
+        retrieve: ``@allow_permission([ROLE.ADMIN], creator=True,
+            model=Issue, level="WORKSPACE")`` -- admin or draft creator.
+        destroy: ``@allow_permission([ROLE.ADMIN], creator=True,
+            model=DraftIssue, level="WORKSPACE")`` -- admin or draft
+            creator.
+        create_draft_to_issue: ``@allow_permission([ROLE.ADMIN,
+            ROLE.MEMBER], level="WORKSPACE")`` -- guests cannot promote.
+
+    Side effects (``create_draft_to_issue``):
+        * Persists a new ``Issue`` via ``IssueCreateSerializer.save()``.
+        * Emits ``issue_activity.delay(type="issue.activity.created", ...)``
+          (Celery via RabbitMQ).
+        * If ``cycle_id`` is supplied, creates a ``CycleIssue`` row and
+          emits ``issue_activity.delay(type="cycle.activity.created",
+          ...)``.
+        * If ``module_ids`` is supplied, bulk-creates ``ModuleIssue`` rows
+          (batch size 10) and emits one
+          ``issue_activity.delay(type="module.activity.created", ...)``
+          per module.
+        * Reassigns every ``FileAsset`` with the draft id to the new issue
+          and switches ``entity_type`` to ``ISSUE_DESCRIPTION``.
+        * Deletes the draft after the issue is wired up.
+
+    Queryset (``get_queryset``):
+        Annotates ``cycle_id`` via a deferred subquery against
+        ``DraftIssueCycle`` and aggregates ``label_ids``, ``assignee_ids``,
+        ``module_ids`` (each filtered to exclude soft-deleted associations
+        and inactive project memberships).
+
+    Cross-references:
+        * Serializers: ``DraftIssueCreateSerializer``,
+          ``DraftIssueDetailSerializer``, ``DraftIssueSerializer``,
+          ``IssueCreateSerializer`` in
+          ``apps/api/plane/app/serializers/draft.py`` and
+          ``apps/api/plane/app/serializers/issue.py``.
+        * Models: ``DraftIssue``, ``DraftIssueCycle``,
+          ``DraftIssueModule`` in ``apps/api/plane/db/models/draft.py``;
+          ``Issue``, ``CycleIssue``, ``ModuleIssue`` in
+          ``apps/api/plane/db/models/issue.py``,
+          ``apps/api/plane/db/models/cycle.py``,
+          ``apps/api/plane/db/models/module.py``;
+          ``FileAsset`` in ``apps/api/plane/db/models/asset.py``.
+        * Permissions: ``allow_permission`` decorator in
+          ``apps/api/plane/app/permissions/base.py``.
+        * Celery task:
+          ``apps/api/plane/bgtasks/issue_activities_task.py`` (queued
+          via RabbitMQ).
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
+    """
+
     model = DraftIssue
 
     def get_queryset(self):
+        """Return draft issues with associated id arrays annotated.
+
+        Annotates each draft with its associated ``cycle_id`` (latest non-
+        deleted ``DraftIssueCycle`` row) and ``label_ids`` /
+        ``assignee_ids`` / ``module_ids`` aggregated from active, non-
+        deleted associations.
+        """
         return (
             DraftIssue.objects.filter(workspace__slug=self.kwargs.get("slug"))
             .select_related("workspace", "project", "state", "parent")
@@ -97,6 +207,13 @@ class WorkspaceDraftIssueViewSet(BaseViewSet):
     @method_decorator(gzip_page)
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def list(self, request, slug):
+        """Return a gzip-compressed, paginated list of the caller's drafts.
+
+        Applies legacy filters from ``issue_filters(request.query_params,
+        "GET")``, then restricts to drafts ``created_by=request.user``
+        ordered by ``-created_at``. The response is wrapped by
+        ``gzip_page`` because draft lists can be long.
+        """
         filters = issue_filters(request.query_params, "GET")
         issues = self.get_queryset().filter(created_by=request.user).order_by("-created_at")
 
@@ -110,6 +227,13 @@ class WorkspaceDraftIssueViewSet(BaseViewSet):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def create(self, request, slug):
+        """Persist a new draft issue for the caller.
+
+        The workspace id is resolved from ``slug``; ``project_id`` from
+        the payload (may be ``None`` until the draft is later promoted).
+        Returns the projected field subset listed in the class
+        docstring.
+        """
         workspace = Workspace.objects.get(slug=slug)
 
         serializer = DraftIssueCreateSerializer(
@@ -160,6 +284,13 @@ class WorkspaceDraftIssueViewSet(BaseViewSet):
         level="WORKSPACE",
     )
     def partial_update(self, request, slug, pk):
+        """Apply a partial update to one of the caller's drafts.
+
+        Returns HTTP 404 if no draft matches the supplied ``pk`` for the
+        caller. On success the response is HTTP 204 -- the frontend
+        already holds the updated state because
+        ``DraftIssueCreateSerializer`` is strict about field validation.
+        """
         issue = self.get_queryset().filter(pk=pk, created_by=request.user).first()
 
         if not issue:
@@ -185,6 +316,11 @@ class WorkspaceDraftIssueViewSet(BaseViewSet):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN], creator=True, model=Issue, level="WORKSPACE")
     def retrieve(self, request, slug, pk=None):
+        """Return one of the caller's drafts as ``DraftIssueDetailSerializer``.
+
+        Returns HTTP 404 if no draft matches the supplied ``pk`` for the
+        caller.
+        """
         issue = self.get_queryset().filter(pk=pk, created_by=request.user).first()
 
         if not issue:
@@ -198,12 +334,35 @@ class WorkspaceDraftIssueViewSet(BaseViewSet):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN], creator=True, model=DraftIssue, level="WORKSPACE")
     def destroy(self, request, slug, pk=None):
+        """Delete a draft by id (hard delete via ``DraftIssue.delete``)."""
         draft_issue = DraftIssue.objects.get(workspace__slug=slug, pk=pk)
         draft_issue.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def create_draft_to_issue(self, request, slug, draft_id):
+        """Promote a draft into a real issue, wiring cycle/modules and assets.
+
+        Requires the draft to carry a ``project_id``. On success:
+
+        1. Persists a new ``Issue`` via ``IssueCreateSerializer`` using
+           the draft's project and workspace.
+        2. Emits ``issue_activity.delay(type="issue.activity.created",
+           ...)`` (Celery via RabbitMQ).
+        3. If ``cycle_id`` is supplied, creates a ``CycleIssue`` row and
+           emits ``issue_activity.delay(type="cycle.activity.created",
+           ...)``.
+        4. If ``module_ids`` is supplied, bulk-creates ``ModuleIssue``
+           rows (batch size 10) and emits one
+           ``issue_activity.delay(type="module.activity.created", ...)``
+           per module.
+        5. Reassigns every ``FileAsset.draft_issue_id`` to the new issue
+           id and switches ``entity_type`` to ``ISSUE_DESCRIPTION``.
+        6. Deletes the draft.
+
+        Returns the created issue payload on HTTP 201; HTTP 400 if the
+        draft lacks a ``project_id`` or serializer validation fails.
+        """
         draft_issue = self.get_queryset().filter(pk=draft_id).first()
 
         if not draft_issue.project_id:

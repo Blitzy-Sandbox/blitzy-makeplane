@@ -4,6 +4,35 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * CycleSidebarDetails — read-only metadata block inside the cycle peek-overview sidebar.
+ *
+ * Rendered purpose:
+ *   Shows the cycle description (if any), the cycle lead (owner), assignee avatars,
+ *   work-item totals (completed/total), and optionally estimate-point totals when the
+ *   project's estimate system is configured for points.
+ *
+ * Props:
+ *   - projectId: string (required) — keys the estimate-enablement lookup.
+ *   - cycleDetails: ICycle (required) — supplies description, owner id, assignees,
+ *     and total/completed counts; the `progress_snapshot` is preferred over live counts
+ *     once the cycle is completed.
+ *
+ * MobX stores read:
+ *   - `useMember` — `getUserDetails(userId)` resolves owner and assignee display names + avatars.
+ *   - `useProjectEstimates` — `areEstimateEnabledByProjectId`, `currentActiveEstimateId`,
+ *     `estimateById` determine whether the "points" row is rendered.
+ *   - `useTranslation` (`@plane/i18n`) — localized labels: lead, members, work_items, points,
+ *     no_assignee, common.work_item.
+ *
+ * Side effects:
+ *   - None. This component is read-only: no API calls, no store mutations, no navigations.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/cycles/analytics-sidebar/root.tsx` (composed inside
+ *     `CycleDetailsSidebar`).
+ */
+
 import React from "react";
 import { isEmpty } from "lodash-es";
 import { observer } from "mobx-react";

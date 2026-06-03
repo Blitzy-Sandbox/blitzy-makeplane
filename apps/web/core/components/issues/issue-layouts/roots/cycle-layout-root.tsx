@@ -4,6 +4,45 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Route-aware layout orchestrator for the cycle-scoped issues page; resolves
+ * workspaceSlug/projectId/cycleId from the route, hydrates cycle-scoped filters
+ * via SWR, dispatches to one of the cycle layout variants (list / kanban /
+ * calendar / gantt / spreadsheet), and surfaces a TransferIssues banner + modal
+ * when the cycle is in "completed" status with transferable issues.
+ *
+ * Props: none — driven entirely by route params (workspaceSlug, projectId, cycleId via useParams()).
+ *
+ * MobX stores read:
+ *   - useIssues(EIssuesStoreType.CYCLE): issuesFilter for getIssueFilters / fetchFilters / updateFilterExpression.
+ *   - useCycle(): getCycleById for cycle status, progress_snapshot, and transferable issue counts.
+ *
+ * Local state:
+ *   - transferIssuesModal (boolean): controls TransferIssuesModal open/closed; toggled from the
+ *     in-page TransferIssues banner.
+ *
+ * Side effects:
+ *   - SWR key `CYCLE_ISSUES_${workspaceSlug}_${projectId}_${cycleId}` →
+ *     issuesFilter.fetchFilters(workspaceSlug, projectId, cycleId), with
+ *     `revalidateIfStale: false, revalidateOnFocus: false`.
+ *   - Provides IssuesStoreContext (EIssuesStoreType.CYCLE) to descendants so nested layouts
+ *     resolve the cycle-scoped issue store via React context.
+ *   - Forwards `issuesFilter.updateFilterExpression.bind(issuesFilter, workspaceSlug, projectId, cycleId)`
+ *     to ProjectLevelWorkItemFiltersHOC as its `updateFilters` callback.
+ *   - The transfer modal triggers downstream cycle-transfer API calls inside TransferIssuesModal
+ *     (a sibling component) — this root does not make those API calls itself.
+ *
+ * Cycle status semantics:
+ *   - cycleStatus defaults to "draft" when cycle metadata is not yet resolved.
+ *   - Banner + transfer UI render only when cycleStatus === "completed".
+ *   - canTransferIssues = isProgressSnapshotEmpty && (backlog + unstarted + started > 0): once a
+ *     progress snapshot is captured the cycle is treated as finalised and transfer is disabled.
+ *
+ * Architectural context:
+ *   - MobX exclusively (no Redux); cycle metadata + issue filters are consumed via React context.
+ *   - Service-class API calls flow through store actions (fetchFilters, updateFilterExpression);
+ *     useCycle() exposes already-loaded cycle metadata without issuing new network reads.
+ */
 import React, { useState } from "react";
 import { isEmpty } from "lodash-es";
 import { observer } from "mobx-react";
@@ -29,6 +68,7 @@ import { CycleKanBanLayout } from "../kanban/roots/cycle-root";
 import { CycleListLayout } from "../list/roots/cycle-root";
 import { CycleSpreadsheetLayout } from "../spreadsheet/roots/cycle-root";
 
+/** Dispatches to the cycle's list/kanban/calendar/gantt/spreadsheet layout based on activeLayout; forwards cycleId + isCompletedCycle to BaseGanttRoot so the gantt root can apply a completed-cycle read-only treatment. */
 function CycleIssueLayout(props: {
   activeLayout: EIssueLayoutTypes | undefined;
   cycleId: string;

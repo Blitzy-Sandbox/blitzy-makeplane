@@ -4,9 +4,19 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Module vocabulary — status color tokens, layout/order/filter options, and
+ * sort key — consumed by `apps/web/core/components/modules/**` and the module
+ * MobX stores.
+ */
+
 // types
 import type { TModuleLayoutOptions, TModuleOrderByOptions, TModuleStatus } from "@plane/types";
 
+/**
+ * Hex color tokens per module status (`TModuleStatus`-keyed so the compiler flags missing entries) used by pills, dot indicators, and gantt blocks.
+ * Consumers: status badges and dropdowns in `apps/web/core/components/modules/**` and the gantt block renderer.
+ */
 export const MODULE_STATUS_COLORS: {
   [key in TModuleStatus]: string;
 } = {
@@ -18,6 +28,10 @@ export const MODULE_STATUS_COLORS: {
   "in-progress": "#f39e1f",
 };
 
+/**
+ * Module status catalog pairing each `TModuleStatus` with its i18n label and Tailwind text/bg classes; `color` re-uses `MODULE_STATUS_COLORS` so pill and dot/badge stay consistent.
+ * Consumers: status pills, lists, and module forms in `apps/web/core/components/modules/**`.
+ */
 export const MODULE_STATUS: {
   i18n_label: string;
   value: TModuleStatus;
@@ -69,6 +83,10 @@ export const MODULE_STATUS: {
   },
 ];
 
+/**
+ * Module list view layouts (`list`, `board`, `gantt`) pairing each `TModuleLayoutOptions` discriminator with its switcher i18n title.
+ * Consumers: layout switcher in `apps/web/core/components/modules/**`.
+ */
 export const MODULE_VIEW_LAYOUTS: {
   key: TModuleLayoutOptions;
   i18n_title: string;
@@ -87,6 +105,10 @@ export const MODULE_VIEW_LAYOUTS: {
   },
 ];
 
+/**
+ * Module order-by options (name/progress/issues/due-date/created-at/manual) pairing each `TModuleOrderByOptions` with its sort-dropdown i18n label.
+ * Consumers: sort dropdown in `apps/web/core/components/modules/**` and the module store's order-by reducers.
+ */
 export const MODULE_ORDER_BY_OPTIONS: {
   key: TModuleOrderByOptions;
   i18n_label: string;

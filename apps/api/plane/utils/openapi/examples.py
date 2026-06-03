@@ -2,17 +2,55 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""
-Common OpenAPI examples for drf-spectacular.
+"""Reusable :class:`OpenApiExample` payloads and ``SAMPLE_*`` data for drf-spectacular.
 
-This module provides reusable example data for API responses and requests
-to make the generated documentation more helpful and realistic.
+This module is the **single source of truth** for example data referenced
+by ``@extend_schema`` (and its variants) across the schema-generated
+OpenAPI surface. Every example value uses the canonical placeholder UUID
+``550e8400-e29b-41d4-a716-446655440000`` and ISO-8601 timestamps so that
+rendered Swagger / ReDoc pages have stable, copy-pasteable payloads.
+
+The file is laid out in four conceptual divisions:
+
+  1. **Display examples** (top of file, before any banner) — generic entity
+     payloads used as both request and response illustration depending on
+     the consumer: ``FILE_UPLOAD_EXAMPLE``, ``WORKSPACE_EXAMPLE``,
+     ``PROJECT_EXAMPLE``, ``ISSUE_EXAMPLE``, ``USER_EXAMPLE``.
+  2. **Request examples** (under the ``REQUEST EXAMPLES`` banner) —
+     payloads referenced by ``@extend_schema(request=…)`` and by the
+     :func:`plane.utils.openapi.decorators` examples kwarg. Each example's
+     ``name`` matches the wire-level serializer class
+     (``"IssueCreateSerializer"``, ``"LabelCreateUpdateSerializer"``, …).
+  3. **Response examples** (under the ``RESPONSE EXAMPLES`` banner) —
+     payloads referenced by ``@extend_schema(responses=…)`` and by the
+     :class:`OpenApiResponse` constants in
+     :mod:`plane.utils.openapi.responses`.
+  4. **Sample data + dispatch** (bottom of file) — bare ``SAMPLE_*`` dicts
+     and the :data:`SCHEMA_EXAMPLES` mapping consumed by
+     :func:`get_sample_for_schema`, which serves dynamic example resolution
+     for paginated envelope schemas
+     (``PaginatedIssueResponse`` → ``SAMPLE_ISSUE``, etc.).
+
+Note the pre-existing categorical inconsistencies — ``STICKY_EXAMPLE`` has
+no preceding section header, and ``ESTIMATE_CREATE_EXAMPLE`` /
+``ESTIMATE_UPDATE_EXAMPLE`` / ``ESTIMATE_POINT_CREATE_EXAMPLE`` /
+``ESTIMATE_POINT_UPDATE_EXAMPLE`` are request examples physically located
+in the response-examples half of the file. These are intentionally
+preserved (no refactoring per project rules).
+
+Loaded transitively via ``apps/api/plane/utils/openapi/__init__.py`` and
+only effective when ``settings.ENABLE_DRF_SPECTACULAR`` is truthy (see the
+``if settings.ENABLE_DRF_SPECTACULAR:`` block in :mod:`plane.urls`).
 """
 
 from drf_spectacular.utils import OpenApiExample
 
 
-# File Upload Examples
+# ----------------------------------------------------------------------------
+# Display Examples — entity payloads usable as either request or response
+# illustrations depending on the calling endpoint.
+# ----------------------------------------------------------------------------
+# File Upload
 FILE_UPLOAD_EXAMPLE = OpenApiExample(
     name="File Upload Success",
     value={
@@ -92,10 +130,23 @@ USER_EXAMPLE = OpenApiExample(
 
 
 # ============================================================================
-# REQUEST EXAMPLES - Centralized examples for API requests
+# REQUEST EXAMPLES
+# ----------------------------------------------------------------------------
+# Payloads referenced by ``@extend_schema(request=…, examples=[…])`` and by
+# the request-side examples kwarg of the decorators in
+# ``plane.utils.openapi.decorators``. Each example's ``name`` argument
+# matches the serializer class on the receiving ViewSet — drf-spectacular
+# uses that name to associate the example with the request body schema in
+# the rendered Swagger / ReDoc page.
 # ============================================================================
 
-# Work Item / Issue Examples
+# ----------------------------------------------------------------------------
+# Work Item (Issue) Request Examples
+# ----------------------------------------------------------------------------
+# ``ISSUE_CREATE_EXAMPLE`` and ``ISSUE_UPDATE_EXAMPLE`` are referenced by
+# :func:`plane.utils.openapi.decorators.issue_docs` and the issue
+# ViewSet's ``@extend_schema`` calls. ``ISSUE_UPSERT_EXAMPLE`` is the
+# external-system variant keyed on (``external_id``, ``external_source``).
 ISSUE_CREATE_EXAMPLE = OpenApiExample(
     "IssueCreateSerializer",
     value={
@@ -204,7 +255,12 @@ ISSUE_COMMENT_UPDATE_EXAMPLE = OpenApiExample(
     description="Example request for updating an issue comment",
 )
 
-# Issue Attachment Examples
+# ----------------------------------------------------------------------------
+# Issue Attachment Request Examples
+# ----------------------------------------------------------------------------
+# ``ISSUE_ATTACHMENT_UPLOAD_EXAMPLE`` matches the presigned-POST initiate
+# request shape (name + mimetype + size). ``ATTACHMENT_UPLOAD_CONFIRM_EXAMPLE``
+# is the finalize step body sent after the client uploads to S3/MinIO.
 ISSUE_ATTACHMENT_UPLOAD_EXAMPLE = OpenApiExample(
     "IssueAttachmentUploadSerializer",
     value={
@@ -383,7 +439,13 @@ INTAKE_ISSUE_UPDATE_EXAMPLE = OpenApiExample(
 
 
 # ============================================================================
-# RESPONSE EXAMPLES - Centralized examples for API responses
+# RESPONSE EXAMPLES
+# ----------------------------------------------------------------------------
+# Payloads referenced by ``@extend_schema(responses=…, examples=[…])`` and
+# embedded in the :class:`OpenApiResponse` constants exposed from
+# ``plane.utils.openapi.responses`` (e.g., ``CYCLE_RESPONSE``,
+# ``MODULE_RESPONSE``). Field values mirror the read-shape of the
+# corresponding DRF serializer in ``apps/api/plane/app/serializers/``.
 # ============================================================================
 
 # Cycle Response Examples
@@ -407,7 +469,13 @@ CYCLE_EXAMPLE = OpenApiExample(
     },
 )
 
+# ----------------------------------------------------------------------------
 # Transfer Cycle Issue Response Examples
+# ----------------------------------------------------------------------------
+# Success and two error variants used by the cycle-transfer endpoint:
+# ``TRANSFER_CYCLE_ISSUE_SUCCESS_EXAMPLE`` (200), ``..._ERROR_EXAMPLE``
+# (400 — missing new_cycle_id), ``TRANSFER_CYCLE_COMPLETED_ERROR_EXAMPLE``
+# (400 — target cycle is completed).
 TRANSFER_CYCLE_ISSUE_SUCCESS_EXAMPLE = OpenApiExample(
     name="Transfer Cycle Issue Success",
     value={
@@ -548,7 +616,12 @@ ISSUE_ATTACHMENT_EXAMPLE = OpenApiExample(
     },
 )
 
+# ----------------------------------------------------------------------------
 # Issue Attachment Error Response Examples
+# ----------------------------------------------------------------------------
+# Returned when a client requests a download URL before the client-side
+# S3/MinIO upload step has been confirmed via
+# ``ATTACHMENT_UPLOAD_CONFIRM_EXAMPLE``.
 ISSUE_ATTACHMENT_NOT_UPLOADED_EXAMPLE = OpenApiExample(
     name="Issue Attachment Not Uploaded",
     value={
@@ -749,7 +822,16 @@ ESTIMATE_POINT_UPDATE_EXAMPLE = OpenApiExample(
 )
 
 
-# Sample data for different entity types
+# ============================================================================
+# Sample Data Dictionaries
+# ----------------------------------------------------------------------------
+# Bare ``dict`` payloads (no ``OpenApiExample`` wrapper) consumed by
+# :func:`get_sample_for_schema` and indexed by :data:`SCHEMA_EXAMPLES`
+# below. These power dynamic example resolution for paginated envelope
+# schemas (e.g., ``PaginatedIssueResponse`` → strip ``"Paginated"`` and
+# ``"Response"`` → look up ``"Issue"`` → return ``SAMPLE_ISSUE``).
+# ``SAMPLE_GENERIC`` is the fallback when no specific entity match exists.
+# ============================================================================
 SAMPLE_ISSUE = {
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "name": "Fix authentication bug in user login",
@@ -882,7 +964,13 @@ SAMPLE_ESTIMATE_POINT = {
     "created_at": "2024-01-01T10:30:00Z",
 }
 
-# Mapping of schema types to sample data
+# ----------------------------------------------------------------------------
+# Schema-name → sample-data lookup table.
+# ----------------------------------------------------------------------------
+# Note the dual entry ``"Issue": SAMPLE_ISSUE`` and ``"WorkItem": SAMPLE_ISSUE``
+# — both schema names map to the same payload because Plane is in the
+# middle of the issue→work-item terminology migration. New schema names
+# should be added here as new entities are documented.
 SCHEMA_EXAMPLES = {
     "Issue": SAMPLE_ISSUE,
     "WorkItem": SAMPLE_ISSUE,
@@ -903,14 +991,34 @@ SCHEMA_EXAMPLES = {
 
 
 def get_sample_for_schema(schema_name):
-    """
-    Get appropriate sample data for a schema type.
+    """Return the matching ``SAMPLE_*`` dict for a drf-spectacular schema name.
+
+    Two-pass resolution:
+
+      1. If ``schema_name`` starts with ``"Paginated"`` (e.g.,
+         ``"PaginatedIssueResponse"``), strip the ``"Paginated"`` prefix
+         AND the ``"Response"`` suffix to obtain the bare entity name
+         (``"Issue"``), then look it up in :data:`SCHEMA_EXAMPLES`.
+      2. Otherwise look up ``schema_name`` directly in :data:`SCHEMA_EXAMPLES`.
+
+    Falls back to :data:`SAMPLE_GENERIC` when neither lookup matches —
+    callers always get a non-None dict suitable for embedding in
+    :class:`OpenApiExample`.
+
+    Called from :func:`plane.utils.openapi.responses.create_paginated_response`
+    to inject realistic results into the rendered paginated-envelope
+    response schema in Swagger / ReDoc.
 
     Args:
-        schema_name (str): Name of the schema (e.g., "PaginatedIssueResponse")
+        schema_name: Schema identifier as drf-spectacular sees it. Common
+            patterns: bare entity name (``"Issue"``, ``"Cycle"``,
+            ``"Module"``, ``"State"``, ``"Label"``, …) or paginated wrapper
+            name (``"PaginatedIssueResponse"``, ``"PaginatedCycleResponse"``,
+            …).
 
     Returns:
-        dict: Sample data for the schema type
+        dict: Sample data dict matching the schema, or :data:`SAMPLE_GENERIC`
+        if no match.
     """
     # Extract base schema name from paginated responses
     if schema_name.startswith("Paginated"):

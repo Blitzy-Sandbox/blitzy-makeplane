@@ -4,16 +4,51 @@
  * See the LICENSE file for details.
  */
 
-// Types and utilities for member filtering
+/**
+ * Shared pure utilities for member filtering and sorting.
+ *
+ * This module is intentionally MobX-free: every export is a pure function (or
+ * a structural type) so the same comparator/filter logic is used by both
+ * project- and workspace-scoped member stores without duplication. It is
+ * imported by:
+ *   - apps/web/core/store/member/project/project-member-filters.store.ts
+ *       (uses sortProjectMembers and IMemberFilters)
+ *   - apps/web/core/store/member/project/base-project-member.store.ts
+ *       (uses sortProjectMembers via the project filter store)
+ *   - apps/web/core/store/member/workspace/workspace-member-filters.store.ts
+ *       (uses sortWorkspaceMembers and IMemberFilters)
+ *   - apps/web/core/store/member/workspace/workspace-member.store.ts
+ *       (uses sortWorkspaceMembers)
+ *
+ * Behavioral contracts captured here that callers depend on:
+ *   - All sort helpers are immutable: they return a NEW array (via `[...m].sort`)
+ *     so MobX observable arrays are never mutated in place.
+ *   - Invalid or missing `joining_date` sorts as `new Date(0)` (oldest) so
+ *     members without a joining date appear last in ascending order.
+ *   - Workspace suspended members (`is_active === false`) are excluded from
+ *     normal role filters and are only returned when the literal string
+ *     `"suspended"` is present in `filters.roles`.
+ */
 import type { EUserPermissions, TMemberOrderByOptions } from "@plane/constants";
 import type { IUserLite, TProjectMembership } from "@plane/types";
 
+/**
+ * Shared filter shape used by both project and workspace member filter stores.
+ * `order_by` is a member ordering token (e.g. `"display_name"`, `"-joining_date"`);
+ * `roles` is an array of role discriminants (and the literal `"suspended"` is a
+ * special workspace-only value handled by filterWorkspaceMembersByRole).
+ */
 export interface IMemberFilters {
   order_by?: TMemberOrderByOptions;
   roles?: string[];
 }
 
-// Helper function to parse order key and direction
+/**
+ * Parse a member-ordering token into a `{ field, direction }` descriptor.
+ * Defaults to `display_name` ascending when no token is provided; a leading
+ * `-` marks descending order (e.g. `-joining_date` → `{ field: "joining_date",
+ * direction: "desc" }`).
+ */
 export const parseOrderKey = (orderKey?: TMemberOrderByOptions): { field: string; direction: "asc" | "desc" } => {
   // Default to sorting by display_name in ascending order when no order key is provided
   if (!orderKey) {
@@ -31,7 +66,12 @@ export const parseOrderKey = (orderKey?: TMemberOrderByOptions): { field: string
   };
 };
 
-// Unified function to get sort key for any member type
+/**
+ * Extract a comparison key from a member's `IUserLite` profile for the given
+ * field. Supports `display_name`, `full_name`, `email`, `joining_date` (Date),
+ * and `role`. Missing/invalid joining dates return `new Date(0)` so they sort
+ * last under ascending order.
+ */
 export const getMemberSortKey = (memberDetails: IUserLite, field: string, memberRole?: string): string | Date => {
   switch (field) {
     case "display_name":
@@ -59,7 +99,11 @@ export const getMemberSortKey = (memberDetails: IUserLite, field: string, member
   }
 };
 
-// Filter functions
+/**
+ * Filter project memberships by role. Falls back to `original_role` when the
+ * current role is undefined. An empty `roleFilters` array returns the input
+ * unchanged.
+ */
 export const filterProjectMembersByRole = (
   members: TProjectMembership[],
   roleFilters: string[]
@@ -72,6 +116,12 @@ export const filterProjectMembersByRole = (
   });
 };
 
+/**
+ * Filter workspace members by role with special handling for suspended users:
+ * when `is_active === false` the member is treated as suspended and is included
+ * only if `"suspended"` is in `roleFilters`. Active members match against the
+ * remaining (non-suspended) filter entries.
+ */
 export const filterWorkspaceMembersByRole = <T extends { role: string | EUserPermissions; is_active?: boolean }>(
   members: T[],
   roleFilters: string[]
@@ -97,7 +147,13 @@ export const filterWorkspaceMembersByRole = <T extends { role: string | EUserPer
   });
 };
 
-// Unified sorting function
+/**
+ * Immutable, generic member sort. Returns the input untouched when `orderBy`
+ * is omitted; otherwise produces a new array sorted by the field extracted via
+ * `getMemberSortKey`. `joining_date` is compared numerically (invalid dates
+ * treated as `0`); all other fields use `localeCompare` for stable alphabetical
+ * order. Descending direction is applied by negating the comparison result.
+ */
 export const sortMembers = <T>(
   members: T[],
   memberDetailsMap: Record<string, IUserLite>,
@@ -146,7 +202,12 @@ export const sortMembers = <T>(
   });
 };
 
-// Specific implementations using the unified functions
+/**
+ * Convenience pipeline that applies `filterProjectMembersByRole` followed by
+ * `sortMembers` for project memberships. Role extraction uses
+ * `member.role ?? member.original_role ?? ""` so memberships carrying only an
+ * original role still sort correctly.
+ */
 export const sortProjectMembers = (
   members: TProjectMembership[],
   memberDetailsMap: Record<string, IUserLite>,
@@ -170,6 +231,11 @@ export const sortProjectMembers = (
   );
 };
 
+/**
+ * Convenience pipeline that applies `filterWorkspaceMembersByRole` (which
+ * honors the suspended-member semantic) followed by `sortMembers` for
+ * workspace memberships. Role extraction uses `String(member.role ?? "")`.
+ */
 export const sortWorkspaceMembers = <T extends { role: string | EUserPermissions; is_active?: boolean }>(
   members: T[],
   memberDetailsMap: Record<string, IUserLite>,

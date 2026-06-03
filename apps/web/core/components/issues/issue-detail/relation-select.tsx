@@ -4,6 +4,55 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Relation-category selector for a work item (blocked-by, blocks, duplicate, relates-to, etc.).
+ *
+ * Rendered purpose: a chips-style row inside the issue detail relations widget that shows every
+ * related issue for the given `relationKey`, supports per-chip remove, and opens an
+ * `ExistingIssuesListModal` for adding new relations. The chip color and placeholder text are
+ * sourced from `useTimeLineRelationOptions()`.
+ *
+ * Props (TIssueRelationSelect):
+ *   - className (string, optional): wrapper class overrides
+ *   - workspaceSlug (string, required): scopes the relation mutation
+ *   - projectId (string, required): scopes the relation mutation
+ *   - issueId (string, required): the work item whose relations are managed
+ *   - relationKey (TIssueRelationTypes, required): the relation category (one of BLOCKED_BY,
+ *     BLOCKING, DUPLICATE, RELATES_TO, ...) defined in `@/plane-web/types`
+ *   - disabled (boolean, optional, default=false): suppresses interaction when true (chips still render)
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — `createRelation`, `removeRelation`,
+ *     `relation.getRelationByIssueIdRelationType(issueId, relationKey)`,
+ *     `isRelationModalOpen`, `toggleRelationModal`
+ *   - `useIssues()` — `issueMap` for resolving the related issue snapshot
+ *   - `useProject()` — `getProjectById` for resolving each related issue's project identifier (used by
+ *     `generateWorkItemLink`)
+ *
+ * Side effects:
+ *   - Mutations: `createRelation(...)` (POST `/issues/<id>/issue-relation/`) and
+ *     `removeRelation(...)` (DELETE) routed through the issue-detail store.
+ *   - Toast emissions: error toast when the user submits an empty selection.
+ *   - Navigations: each chip's `<Link>` opens the related work item in a new tab; the link href is
+ *     built via `generateWorkItemLink` from `@plane/utils`.
+ *   - Closes the modal on successful submission via `toggleRelationModal(null, null)`.
+ *
+ * Derived state notes:
+ *   - `isRelationKeyModalActive` is true only when the modal is open AND its `(issueId, relationKey)`
+ *     pair matches this component — this prevents siblings of the same issue with different
+ *     relation categories from sharing modal state.
+ *   - Returns `null` early when the relation set is undefined (loading state), distinct from the
+ *     empty-array case (renders the placeholder).
+ *
+ * Imperative DOM/event notes:
+ *   - The remove affordance uses `e.preventDefault(); e.stopPropagation();` to suppress the parent
+ *     button's `toggleRelationModal(issueId, relationKey)` handler. Preserve this exactly.
+ *   - The chip's external link also calls `stopPropagation()` to keep the modal from opening on link click.
+ *
+ * Consumers: rendered by `./sidebar.tsx` (`IssueDetailsSidebar`) inside the relations
+ * block — once per relation category — on the issue-detail sidebar.
+ */
+
 import React from "react";
 import { observer } from "mobx-react";
 import Link from "next/link";

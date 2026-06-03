@@ -4,6 +4,21 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders a work-item name (title) change event in the activity timeline.
+ *
+ * Props:
+ *   - activityId (string, required): identifier of the activity record to render.
+ *   - ends ("top" | "bottom" | undefined, required): timeline-stack position marker.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — reads `activity.getActivityById(activityId)`. The new
+ *     name is taken directly from `activity.new_value`.
+ *
+ * Side effects: none. Read-only / presentational; no mutations, no navigations,
+ * no API calls.
+ */
+
 import { observer } from "mobx-react";
 import { Type } from "lucide-react";
 // hooks

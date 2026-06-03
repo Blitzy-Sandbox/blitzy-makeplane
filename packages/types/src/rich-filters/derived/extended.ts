@@ -4,22 +4,38 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Extension-tier operator-union placeholders reserved for future operator
+ * families; all aliases currently resolve to `never` so they contribute no
+ * members when unioned into the public types in `./index.ts`.
+ */
+
 import type { TFilterValue } from "../expression";
 
 // -------- DATE FILTER OPERATORS --------
 
 /**
- * Union type representing all extended operators that support date filter types.
+ * Reserved widening point for additional date-filter operators; widen this
+ * alias to introduce new operators without touching `./index.ts` consumers.
  */
 export type TExtendedSupportedDateFilterOperators<_V extends TFilterValue = TFilterValue> = never;
 
+/**
+ * Reserved display-tier widening point for additional date-filter operators;
+ * widen alongside `TExtendedSupportedDateFilterOperators`.
+ */
 export type TExtendedAllAvailableDateFilterOperatorsForDisplay<_V extends TFilterValue = TFilterValue> = never;
 
 // -------- SELECT FILTER OPERATORS --------
 
 /**
- * Union type representing all extended operators that support select filter types.
+ * Reserved widening point for additional select-filter operators; widen this
+ * alias to introduce new operators without touching `./index.ts` consumers.
  */
 export type TExtendedSupportedSelectFilterOperators<_V extends TFilterValue = TFilterValue> = never;
 
+/**
+ * Reserved display-tier widening point for additional select-filter operators;
+ * widen alongside `TExtendedSupportedSelectFilterOperators`.
+ */
 export type TExtendedAllAvailableSelectFilterOperatorsForDisplay<_V extends TFilterValue = TFilterValue> = never;

@@ -4,6 +4,98 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Estimate-point reactive model: a single per-point entity wrapper composed
+ * into the parent `Estimate` instance (from
+ * `@/plane-web/store/estimates/estimate`), which in turn lives inside
+ * `project-estimate.store.ts`'s `estimates` map. Each `EstimatePoint` owns
+ * its own observable field set, an `asJson` snapshot projection, an
+ * optimistic local-update helper, and an async `updateEstimatePoint` action
+ * that persists changes through `estimateService.updateEstimatePoint`.
+ *
+ * State slice (every data-model field is `observable.ref` and starts as
+ * `undefined` until the constructor hydrates it from `data`):
+ *   - id: string | undefined — server-assigned point uuid.
+ *   - key: number | undefined — display order / numeric position within the
+ *       owning estimate (1..N for points, ordinal for categories).
+ *   - value: string | undefined — the user-visible point value; semantics
+ *       depend on the parent estimate's `TEstimateSystemKeys` (numeric
+ *       points, category label, or duration in hh:mm).
+ *   - description: string | undefined — optional long-form description.
+ *   - workspace / project / estimate: string | undefined — id references
+ *       back up the workspace -> project -> estimate ownership chain.
+ *       `estimate` holds the parent estimate id (NOT a parent object
+ *       reference — see the composition contract below).
+ *   - created_at / updated_at: Date | undefined — server timestamps.
+ *   - created_by / updated_by: string | undefined — actor user ids.
+ *   - error: TErrorCodes | undefined — last action error (status + optional
+ *       message); currently set only by upstream callers, not by the
+ *       actions in this class.
+ *
+ * Computed (registered in `makeObservable`):
+ *   - asJson: IEstimatePointType — plain-object snapshot of all 11
+ *       data-model fields. Recomputes whenever any data-model observable
+ *       changes. Used by form initial values, copy/duplicate flows, and
+ *       external consumers that need a non-reactive object (e.g. payload
+ *       assembly).
+ *
+ * Helper action (intentionally NOT in the `makeObservable` block — it is a
+ * plain arrow-function field, not a tracked MobX action). This is safe
+ * because the mutation goes through `lodash-es/set` against the class
+ * instance whose fields are themselves `observable.ref`, so subscribers
+ * still fire on the underlying field writes:
+ *   - updateEstimatePointObject(estimatePoint): void — synchronously copies
+ *       the provided fields onto `this`. Used by parent flows that need
+ *       optimistic UI updates BEFORE the network round-trip (e.g. inline
+ *       editing).
+ *
+ * Actions (registered in `makeObservable`):
+ *   - updateEstimatePoint(workspaceSlug, projectId, payload):
+ *       Promise<IEstimatePointType | undefined> — calls
+ *       `estimateService.updateEstimatePoint(workspaceSlug, projectId,
+ *       this.projectEstimate.id, this.id, payload)`. On success, copies the
+ *       returned fields back into this instance inside `runInAction` using
+ *       per-key `set` calls (preserves observable identity so MobX
+ *       subscribers fire correctly). Bails out with `undefined` if the
+ *       parent estimate id, this point's id, or the payload is missing.
+ *       Re-throws on service error — the file-level
+ *       `eslint-disable no-useless-catch` directive at the top silences the
+ *       linter for the explicit try/catch that is retained as a hook for
+ *       future logging.
+ *
+ * Composition contract:
+ *   - Constructor signature is `(store, projectEstimate, data)`. The parent
+ *     estimate is the SECOND argument by deliberate choice: the parent
+ *     `Estimate` model is always known at construction time while `data`
+ *     may come from a fetch response. Future EE extensions must not swap
+ *     this ordering.
+ *   - The parent reference is captured by closure because the data payload
+ *     itself only carries `estimate: string` (the parent's id), not a
+ *     parent object pointer — without the constructor capture this class
+ *     would have no way to call `updateEstimatePoint` against the correct
+ *     estimate.
+ *   - `store: CoreRootStore` is captured for forward-compatibility with
+ *     cross-store reads (e.g. user/permission-aware overrides in EE
+ *     extensions); the core class does not currently read from it, but the
+ *     parameter must NOT be pruned.
+ *
+ * Consumers:
+ *   - apps/web/ce/store/estimates/estimate.ts — the parent `Estimate` class
+ *       constructs `EstimatePoint` instances and exposes them via
+ *       `estimate.estimatePoints` and `estimate.estimatePointById` (the
+ *       composition root for the per-point sub-models).
+ *   - apps/web/core/hooks/store/estimates/use-estimate-point.ts — exposes
+ *       points to React components via the path
+ *       `context.projectEstimate.estimates?.[estimateId]?.estimatePoints?.[estimatePointId]`.
+ *   - apps/web/core/components/estimates/points/update.tsx — per-point edit
+ *       UI consumes `useEstimatePoint` and invokes `updateEstimatePoint`.
+ *   - apps/web/core/components/estimates/estimate-list-item.tsx — reads
+ *       `estimatePointById(...).value` for display.
+ *   - apps/web/core/components/readonly/estimate.tsx — read-only estimate
+ *       value renderer reads `value` and interprets it per the parent
+ *       estimate's `TEstimateSystemKeys`.
+ */
+
 /* eslint-disable no-useless-catch */
 
 import { set } from "lodash-es";

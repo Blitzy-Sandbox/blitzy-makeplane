@@ -1,6 +1,15 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Module (feature grouping) serializers for the ``/api/v1/`` API surface.
+
+Used by :mod:`plane.api.views.module`. Write paths gate creation on the
+project's ``module_view`` feature flag, narrow ``members`` to active project
+members, reject duplicate module names within the same project, and bulk
+maintain ``ModuleMember`` join rows. Read serializers attach work-item
+counters (total / completed / cancelled / started / unstarted / backlog)
+annotated by the ViewSet queryset.
+"""
 
 # Third party imports
 from rest_framework import serializers
@@ -34,6 +43,13 @@ class ModuleCreateSerializer(BaseSerializer):
     )
 
     class Meta:
+        """DRF metadata for ``ModuleCreateSerializer``.
+
+        Exposes the writable fields needed for new-module creation; the
+        ``members`` join is handled separately via ``ModuleMember`` and
+        audit columns are kept read-only.
+        """
+
         model = Module
         fields = [
             "name",
@@ -58,6 +74,12 @@ class ModuleCreateSerializer(BaseSerializer):
         ]
 
     def validate(self, data):
+        """Validate project context, the module feature flag, the date range, and member project-membership.
+
+        Rejects projects without ``module_view`` enabled, enforces
+        ``start_date <= target_date``, and narrows ``members`` to active project
+        members for the host ``project_id``.
+        """
         project_id = self.context.get("project_id")
         if not project_id:
             raise serializers.ValidationError("Project ID is required")
@@ -81,6 +103,10 @@ class ModuleCreateSerializer(BaseSerializer):
         return data
 
     def create(self, validated_data):
+        """Create a ``Module`` and bulk-create its ``ModuleMember`` rows.
+
+        Rejects duplicate module names within the same project.
+        """
         members = validated_data.pop("members", None)
 
         project_id = self.context["project_id"]
@@ -131,6 +157,12 @@ class ModuleUpdateSerializer(ModuleCreateSerializer):
     """
 
     class Meta(ModuleCreateSerializer.Meta):
+        """DRF metadata for ``ModuleUpdateSerializer``.
+
+        Extends ``ModuleCreateSerializer.Meta`` by additionally exposing
+        ``members`` as a writable field for update flows.
+        """
+
         model = Module
         fields = ModuleCreateSerializer.Meta.fields + [
             "members",
@@ -138,6 +170,11 @@ class ModuleUpdateSerializer(ModuleCreateSerializer):
         read_only_fields = ModuleCreateSerializer.Meta.read_only_fields
 
     def update(self, instance, validated_data):
+        """Update a ``Module`` and replace its ``ModuleMember`` join rows.
+
+        Rejects name collisions within the project; the ``ModuleMember`` join
+        rows are replaced only when ``members`` is supplied.
+        """
         members = validated_data.pop("members", None)
         module_name = validated_data.get("name")
         if module_name:
@@ -187,6 +224,12 @@ class ModuleSerializer(BaseSerializer):
     backlog_issues = serializers.IntegerField(read_only=True)
 
     class Meta:
+        """DRF metadata for the full ``ModuleSerializer``.
+
+        Includes all ``Module`` model fields plus the read-only work-item
+        counter annotations; audit columns are kept read-only.
+        """
+
         model = Module
         fields = "__all__"
         read_only_fields = [
@@ -201,6 +244,7 @@ class ModuleSerializer(BaseSerializer):
         ]
 
     def to_representation(self, instance):
+        """Inject ``members`` as a list of UUID strings sourced from the ``Module.members`` many-to-many relation."""
         data = super().to_representation(instance)
         data["members"] = [str(member.id) for member in instance.members.all()]
         return data
@@ -217,6 +261,13 @@ class ModuleIssueSerializer(BaseSerializer):
     sub_issues_count = serializers.IntegerField(read_only=True)
 
     class Meta:
+        """DRF metadata for ``ModuleIssueSerializer``.
+
+        Serializes every ``ModuleIssue`` field; ``module`` and audit columns
+        remain read-only since the membership is established by the parent
+        ViewSet.
+        """
+
         model = ModuleIssue
         fields = "__all__"
         read_only_fields = [
@@ -239,6 +290,13 @@ class ModuleLinkSerializer(BaseSerializer):
     """
 
     class Meta:
+        """DRF metadata for ``ModuleLinkSerializer``.
+
+        Serializes every ``ModuleLink`` field; ``module`` and audit columns
+        remain read-only since the link is scoped to a specific module by
+        the parent ViewSet.
+        """
+
         model = ModuleLink
         fields = "__all__"
         read_only_fields = [
@@ -253,6 +311,11 @@ class ModuleLinkSerializer(BaseSerializer):
 
     # Validation if url already exists
     def create(self, validated_data):
+        """Create a ``ModuleLink`` rejecting duplicates within a module.
+
+        Duplicates are determined by the ``(url, module_id)`` pair to keep
+        link lists unique per module.
+        """
         if ModuleLink.objects.filter(url=validated_data.get("url"), module_id=validated_data.get("module_id")).exists():
             raise serializers.ValidationError({"error": "URL already exists for this Issue"})
         return ModuleLink.objects.create(**validated_data)
@@ -267,6 +330,12 @@ class ModuleLiteSerializer(BaseSerializer):
     """
 
     class Meta:
+        """DRF metadata for ``ModuleLiteSerializer``.
+
+        Exposes every ``Module`` field as a lightweight payload for list and
+        reference views (no work-item counters or member expansion).
+        """
+
         model = Module
         fields = "__all__"
 

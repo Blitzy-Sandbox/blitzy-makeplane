@@ -4,12 +4,38 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Chart styling primitives and color-scheme palettes consumed by analytics
+ * recharts visualizations in `apps/web/core/components/analytics/**` and the
+ * chart helpers in `apps/web/core/components/chart/`.
+ */
+
 import type { TChartColorScheme } from "@plane/types";
 import { ChartXAxisProperty } from "@plane/types";
 
+/**
+ * Shared Tailwind classes for axis/chart text labels — uppercase, muted color,
+ * fixed 13px size, slight letter-spacing — applied across recharts visualizations
+ * for visual consistency.
+ *
+ * Consumers: chart utilities in `apps/web/core/components/chart/` and analytics charts in `apps/web/core/components/analytics/**`.
+ */
 export const LABEL_CLASSNAME = "uppercase text-tertiary/60 text-13 tracking-wide";
+
+/**
+ * Same uppercase/muted token used specifically by axis labels — kept as a separate
+ * export so future axis-only tweaks don't disturb other label callsites.
+ *
+ * Consumers: chart axis components in `apps/web/core/components/analytics/**` and `apps/web/core/components/chart/`.
+ */
 export const AXIS_LABEL_CLASSNAME = "uppercase text-tertiary/60 text-13 tracking-wide";
 
+/**
+ * Time bucketing granularity for date-typed x-axes — selects how a date series
+ * is aggregated before being plotted.
+ *
+ * Consumers: chart filter pickers in `apps/web/core/components/analytics/work-items/`.
+ */
 export enum ChartXAxisDateGrouping {
   DAY = "DAY",
   WEEK = "WEEK",
@@ -17,11 +43,23 @@ export enum ChartXAxisDateGrouping {
   YEAR = "YEAR",
 }
 
+/**
+ * X-axis property values whose tick labels should be capitalized at render time
+ * (priority/state-group names are stored lowercase in the backend payload).
+ *
+ * Consumers: chart tick formatters in `apps/web/core/components/analytics/**` and `apps/web/core/components/chart/`.
+ */
 export const TO_CAPITALIZE_PROPERTIES: ChartXAxisProperty[] = [
   ChartXAxisProperty.PRIORITY,
   ChartXAxisProperty.STATE_GROUPS,
 ];
 
+/**
+ * X-axis properties that produce a date series and therefore need a
+ * `ChartXAxisDateGrouping` selector + date-aware tick formatter.
+ *
+ * Consumers: chart axis-config selectors in `apps/web/core/components/analytics/**`.
+ */
 export const CHART_X_AXIS_DATE_PROPERTIES: ChartXAxisProperty[] = [
   ChartXAxisProperty.START_DATE,
   ChartXAxisProperty.TARGET_DATE,
@@ -29,6 +67,11 @@ export const CHART_X_AXIS_DATE_PROPERTIES: ChartXAxisProperty[] = [
   ChartXAxisProperty.COMPLETED_AT,
 ];
 
+/**
+ * Chart widget visual presentation modes (BASIC / STACKED / GROUPED / MULTI_LINE /
+ * COMPARISON / PROGRESS) chosen in widget config and mapped to recharts compositions.
+ * Consumer: `apps/web/core/components/analytics/work-items/priority-chart.tsx`.
+ */
 export enum EChartModels {
   BASIC = "BASIC",
   STACKED = "STACKED",
@@ -38,6 +81,12 @@ export enum EChartModels {
   PROGRESS = "PROGRESS",
 }
 
+/**
+ * Curated chart color palettes (`modern`/`horizon`/`earthen`) — each `key` matches
+ * the `TChartColorScheme` discriminant on the widget config; `light`/`dark` arrays
+ * are tuned for theme contrast.
+ * Consumer: `apps/web/core/components/analytics/work-items/priority-chart.tsx`.
+ */
 export const CHART_COLOR_PALETTES: {
   key: TChartColorScheme;
   i18n_label: string;

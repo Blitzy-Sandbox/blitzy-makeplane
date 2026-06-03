@@ -4,6 +4,24 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders a parent work-item set or remove event in the activity timeline.
+ *
+ * Props:
+ *   - activityId (string, required): identifier of the activity record to render.
+ *   - ends ("top" | "bottom" | undefined, required): timeline-stack position marker.
+ *   - showIssue (boolean, optional, default `true`): when true, appends " for "
+ *     (set) or " from " (removed) followed by an `IssueLink`.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — reads `activity.getActivityById(activityId)`. The
+ *     parent name comes from `activity.new_value` on a set event and from
+ *     `activity.old_value` on a remove event.
+ *
+ * Side effects: none. Read-only / presentational; no mutations, no navigations,
+ * no API calls.
+ */
+
 import { observer } from "mobx-react";
 import { ParentPropertyIcon } from "@plane/propel/icons";
 // hooks

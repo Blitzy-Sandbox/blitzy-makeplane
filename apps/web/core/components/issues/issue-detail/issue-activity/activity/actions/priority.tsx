@@ -4,6 +4,24 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders a priority change event in the issue activity timeline.
+ *
+ * Props:
+ *   - activityId (string, required): identifier of the activity record to render.
+ *   - ends ("top" | "bottom" | undefined, required): timeline-stack position marker.
+ *   - showIssue (boolean, optional, default `true`): when true, appends " for "
+ *     followed by an `IssueLink`.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — reads `activity.getActivityById(activityId)`. The
+ *     new priority value is taken directly from `activity.new_value` (e.g.,
+ *     "urgent", "high", "medium", "low", "none").
+ *
+ * Side effects: none. Read-only / presentational; no mutations, no navigations,
+ * no API calls.
+ */
+
 import { observer } from "mobx-react";
 import { PriorityPropertyIcon } from "@plane/propel/icons";
 // hooks

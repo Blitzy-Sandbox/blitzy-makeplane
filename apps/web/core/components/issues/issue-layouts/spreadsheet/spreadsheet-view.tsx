@@ -4,6 +4,66 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Composition layer for the spreadsheet issue layout.
+ *
+ * Rendered purpose: prepares the shared refs (table container + dropdown portal), computes the list
+ * of spreadsheet columns to render based on per-project feature flags, mounts the multiple-select
+ * group that powers bulk operations, and assembles `<SpreadsheetTable>` plus the sticky quick-add
+ * footer and bulk-operations toolbar. Returns an empty fragment when there are zero issue ids so
+ * the empty-state surface upstream (`IssueLayoutHOC`) can show its skeleton.
+ *
+ * Props (Props):
+ *   - displayProperties (IIssueDisplayProperties, required): which columns are toggled on for the
+ *     active filter; gates per-column visibility downstream
+ *   - displayFilters (IIssueDisplayFilterOptions, required): the active sort / display filter state
+ *   - handleDisplayFilterUpdate ((data: Partial<IIssueDisplayFilterOptions>) => void, required):
+ *     parent callback to persist filter changes (writes through to the issues-filter store)
+ *   - issueIds (string[] | undefined, required): the flat list of issue ids to render; when empty
+ *     or undefined the layout short-circuits to an empty fragment
+ *   - quickActions (TRenderQuickActions, required): render-prop returning per-row quick-action menu
+ *   - updateIssue ((projectId, issueId, data) => Promise<void> | undefined, required): inline-edit
+ *     mutator passed down to each cell editor; `undefined` disables inline editing entirely
+ *   - openIssuesListModal (() => void | null, optional): unused by spreadsheet but preserved on the
+ *     shared layout-prop contract
+ *   - quickAddCallback ((projectId, data) => Promise<TIssue | undefined>, optional): callback to
+ *     create a new issue via the QuickAdd footer; when omitted the footer falls back to its default
+ *     `quickAddIssue` action from the active issues store
+ *   - canEditProperties ((projectId) => boolean, required): per-project edit gate; cascades into
+ *     row/cell components to disable interactive dropdowns
+ *   - canLoadMoreIssues (boolean, required): whether to render the intersection-observer footer
+ *     that triggers pagination
+ *   - loadMoreIssues (() => void, required): paginator handler invoked by the intersection observer
+ *   - enableQuickCreateIssue (boolean, optional): when true, render the quick-add footer
+ *   - disableIssueCreation (boolean, optional): when true, hide the quick-add footer (overrides
+ *     `enableQuickCreateIssue`)
+ *   - isWorkspaceLevel (boolean, optional, default=false): when true, render ALL spreadsheet
+ *     properties; when false, gate cycle/module columns by project feature flags
+ *   - isEpic (boolean, optional, default=false): when true, propagate epic semantics to the table
+ *     and disable bulk-operations (epics are not bulk-actionable in the spreadsheet)
+ *
+ * MobX stores read:
+ *   - `useProject()` exposes `currentProjectDetails` — checked for `estimate`, `cycle_view`, and
+ *     `module_view` feature flags to drive `isEstimateEnabled` and column visibility
+ *   - `useBulkOperationStatus()` (plane-web hook) exposes whether bulk operations are enabled for
+ *     the current workspace
+ *
+ * Side effects: none directly — all mutations are delegated through `updateIssue`, `quickAddCallback`,
+ * `loadMoreIssues`, and the bulk-operations toolbar. The `<MultipleSelectGroup>` registers DOM
+ * listeners for marquee selection while mounted.
+ *
+ * Derived state (the WHY for non-obvious computations):
+ *   - `spreadsheetColumnsList`: when workspace-level, surface every property; otherwise, filter out
+ *     `cycle` and `modules` columns whenever the project has cycles or modules disabled. This
+ *     prevents columns from rendering for properties the project does not support.
+ *   - `isEstimateEnabled`: derived from `currentProjectDetails?.estimate !== null` so estimate
+ *     editors can short-circuit cleanly when the project has no estimate scale configured.
+ *
+ * Consumers:
+ *   - `./base-spreadsheet-root.tsx` (most contexts)
+ *   - `./roots/workspace-root.tsx` (workspace / global view direct usage)
+ */
+
 import React, { useRef } from "react";
 import { observer } from "mobx-react";
 // plane constants
@@ -24,6 +84,7 @@ import type { TRenderQuickActions } from "../list/list-view-types";
 import { QuickAddIssueRoot, SpreadsheetAddIssueButton } from "../quick-add";
 import { SpreadsheetTable } from "./spreadsheet-table";
 
+/** Props for `SpreadsheetView`. */
 type Props = {
   displayProperties: IIssueDisplayProperties;
   displayFilters: IIssueDisplayFilterOptions;
@@ -42,6 +103,7 @@ type Props = {
   isEpic?: boolean;
 };
 
+/** Spreadsheet composition layer; see the module-level JSDoc for full semantics. */
 export const SpreadsheetView = observer(function SpreadsheetView(props: Props) {
   const {
     displayProperties,

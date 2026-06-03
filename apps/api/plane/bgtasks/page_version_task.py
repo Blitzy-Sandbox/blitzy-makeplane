@@ -2,6 +2,27 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Celery task that maintains ``PageVersion`` snapshots with coalescing + retention.
+
+Trigger: explicit ``track_page_version.delay(page_id, existing_instance, user_id)``
+from ``apps/api/plane/app/views/page/base.py`` after a page save (part of the
+apps/live callback chain).
+
+Coalescing window:
+    ``PAGE_VERSION_TASK_TIMEOUT = 600`` seconds (10 minutes). Within this
+    window for the SAME user, the most recent ``PageVersion`` row is
+    updated in place rather than creating a new row -- this prevents
+    accumulating dozens of versions during a single editing session.
+
+Retention cap:
+    20 versions per page. After the write the oldest excess version is
+    hard-deleted so the per-page row count never exceeds the cap.
+
+Async infrastructure: queued onto RabbitMQ and consumed by Celery workers
+(per the project architectural rule that Celery uses RabbitMQ as broker;
+Redis is reserved for caching / sessions and is not the task broker).
+"""
+
 # Python imports
 import json
 
@@ -20,6 +41,46 @@ PAGE_VERSION_TASK_TIMEOUT = 600
 
 @shared_task
 def track_page_version(page_id, existing_instance, user_id):
+    """Create or update a ``PageVersion`` snapshot, enforcing the 20-version cap.
+
+    Trigger:
+        Explicit ``track_page_version.delay(page_id, existing_instance,
+        user_id)`` from ``apps/api/plane/app/views/page/base.py`` after a
+        page save. Part of the apps/live callback chain. The Celery
+        message is routed via RabbitMQ and consumed by the worker.
+
+    Side effects:
+        - DB write (one of two paths):
+            * UPDATE path -- if the most recent ``PageVersion`` for this
+              page was created by ``user_id`` within
+              ``PAGE_VERSION_TASK_TIMEOUT`` seconds (600 s = 10 min),
+              that row is updated in place with the new content.
+            * CREATE path -- otherwise a fresh ``PageVersion`` row is
+              created.
+        - DB delete (cap enforcement): if the page has more than 20
+          versions after the write, the oldest excess version is
+          hard-deleted.
+        - Short-circuits silently when the ``Page`` no longer exists
+          (``Page.DoesNotExist``) or the incoming ``description_html``
+          matches the live page (no content change).
+        - No emails. No webhook fan-out. No cache invalidation.
+
+    Idempotency:
+        NON-idempotent. Repeated calls inside the same coalesce window
+        for the same user converge on the same final content but mutate
+        the version row (its ``updated_at`` is bumped each call). Calls
+        outside the coalesce window or by a different user produce a
+        new ``PageVersion`` row, so the side effect is path-dependent.
+
+    Args:
+        page_id: Primary key of the ``Page`` being versioned.
+        existing_instance: JSON-encoded snapshot of the page's previous
+            content (``description_html`` / ``description_json`` / etc.)
+            used to detect whether the description actually changed.
+        user_id: Primary key of the user whose edit triggered the
+            version; stored on the resulting ``PageVersion`` row as
+            ``owned_by_id`` and used to gate the coalesce window.
+    """
     try:
         # Get the page
         page = Page.objects.get(id=page_id)

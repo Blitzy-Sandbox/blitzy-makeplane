@@ -4,6 +4,62 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for sub-issue trees on the issue-detail page — per-parent sub-issue id lists,
+ * state-distribution buckets (used by the progress widget), upload helpers for visibility/loading state,
+ * and cross-project property prefetching. Owns the paired `WorkItemSubIssueFiltersStore` via the
+ * `filters` field.
+ *
+ * State slice:
+ * - subIssuesStateDistribution: TIssueSubIssuesStateDistributionMap — per-parent state-group buckets
+ *   ({ backlog: ids[], unstarted: ids[], started: ids[], completed: ids[], cancelled: ids[] }) — drives
+ *   the progress widget on the issue-detail page.
+ * - subIssues: TIssueSubIssuesIdMap — per-parent ordered lists of sub-issue ids.
+ * - subIssueHelpers: Record<parentIssueId, { issue_visibility, preview_loader, issue_loader }> — UI-state
+ *   buckets so each parent can independently toggle preview/visibility/loading per sub-issue id.
+ * - loader: TLoader — global loader flag set to "init-loader" during fetchSubIssues and cleared after.
+ * - filters: paired IWorkItemSubIssueFiltersStore (constructed inline) that owns the per-work-item
+ *   filter/display configuration.
+ *
+ * Actions:
+ * - setSubIssueHelpers(parentIssueId, key, value): toggles a single id in/out of one of the three
+ *   helper buckets — used by the UI to track which sub-issues are open/previewing/loading.
+ * - fetchSubIssues(workspaceSlug, projectId, parentIssueId): GET via IssueService.subIssues; seeds the
+ *   shared issue cache via `rootIssueStore.issues.addIssue`, populates state-distribution buckets, writes
+ *   the per-parent id list, denormalizes the new `sub_issues_count` onto the parent issue, and triggers
+ *   `fetchOtherProjectProperties` when any sub-issue belongs to a different project.
+ * - createSubIssues(workspaceSlug, projectId, parentIssueId, issueIds): POST via IssueService.addSubIssues;
+ *   appends ids to the parent's bucket and state-distribution buckets, prefetches other-project
+ *   properties when relevant, and updates the denormalized `sub_issues_count` directly on the parent.
+ * - updateSubIssue(workspaceSlug, projectId, parentIssueId, issueId, issueData, oldIssue?, fromModal?):
+ *   delegates the patch to `rootIssueStore.projectIssues.updateIssue` (unless invoked from a modal that
+ *   already saved), then reconciles parent-id changes and state-group transitions in the
+ *   state-distribution buckets so the progress widget stays accurate.
+ * - removeSubIssue(workspaceSlug, projectId, parentIssueId, issueId): detaches the sub-issue by setting
+ *   `parent_id: null` on the underlying issue, pulls it from both the id list and the state-distribution
+ *   bucket, and decrements the parent's `sub_issues_count`.
+ * - deleteSubIssue(workspaceSlug, projectId, parentIssueId, issueId): hard-deletes the underlying issue
+ *   via `rootIssueStore.projectIssues.removeIssue` and applies the same state-distribution cleanup.
+ * - fetchOtherProjectProperties(workspaceSlug, projectIds): when sub-issues span multiple projects this
+ *   warms states/members/labels/cycles/modules/estimates for each foreign project id so the sub-issue
+ *   widget can render those columns without per-row fetches.
+ *
+ * Computed helpers (computedFn):
+ * - subIssuesByIssueId(issueId): recomputes when this parent's sub-issue id list changes.
+ *
+ * Helper queries: stateDistributionByIssueId, subIssueHelpersByIssueId.
+ *
+ * Service: backed by IssueService constructed with the parent IssueDetail's `serviceType` so the same
+ * implementation serves both issues and epics (epics also use sub-issue trees).
+ *
+ * Consumers: sub-issue widgets under apps/web/core/components/issues/issue-detail/** and
+ * apps/web/core/components/issues/issue-detail-widgets/sub-work-items/**, accessed via
+ * apps/web/core/hooks/store/use-issue-detail.ts.
+ *
+ * Note on dual storage: the sub-issue count is denormalized onto the parent issue's `sub_issues_count` in
+ * `rootIssueStore.issues` so list/board widgets can render the count badge without consulting this store.
+ */
+
 import { pull, concat, uniq, set, update } from "lodash-es";
 import { action, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";

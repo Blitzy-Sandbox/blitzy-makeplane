@@ -4,6 +4,61 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Central body of the issue detail page (everything left of the sidebar).
+ *
+ * Rendered purpose: vertically stacks the parent breadcrumb, issue-type switcher, save-status
+ * indicator, duplicate-issue popover, editable title input, rich-text description editor with
+ * version history, issue-level reactions, the widget toolbar (sub-issues, links, attachments,
+ * relations), the responsive properties panel (mobile-only at `<768px`), and the activity feed.
+ *
+ * Props:
+ *   - workspaceSlug (string, required): scopes all child mutations
+ *   - projectId (string, required): scopes all child mutations
+ *   - issueId (string, required): the work item being viewed
+ *   - issueOperations (TIssueOperations, required): issue-update contract from `./root` — `update`
+ *     is invoked by the description editor's `onSubmit`
+ *   - isEditable (boolean, required): when false, title/description/issue-type are read-only and
+ *     description-version restore is disabled
+ *   - isArchived (boolean, required): archives override `isEditable` for editor-level disabling
+ *
+ * MobX stores read:
+ *   - `useUser()` — `data: currentUser` for the reactions panel gate
+ *   - `useMember()` — `getUserDetails(issue.created_by)` for the description-version entity info
+ *   - `useIssueDetail()` — `issue.getIssueById(issueId)`, `peekIssue` (the peek-overlay flag)
+ *   - `useProject()` — `getProjectById(projectId)` for the project workspace id used by duplicate detection
+ *
+ * Side effects:
+ *   - SWR-backed duplicate-issue lookup via `useDebouncedDuplicateIssues(...)` (1-second debounce
+ *     against the work item title/description; suppressed when in peek mode).
+ *   - Description persistence via `issueOperations.update(workspaceSlug, issue.project_id, issue.id,
+ *     { description_html, skip_activity? })` — when `isMigrationUpdate` is true, `skip_activity:
+ *     "true"` is appended so the activity feed is not polluted by silent HTML→ProseMirror migrations.
+ *   - Description version history is fetched via the module-level `workItemVersionService =
+ *     new WorkItemVersionService()` (`WorkItemVersionService.listDescriptionVersions` /
+ *     `.retrieveDescriptionVersion`).
+ *   - The reload-confirmation hook (`useReloadConfirmations`) surfaces a beforeunload prompt
+ *     whenever `isSubmitting === "submitting"`.
+ *   - No direct toast emissions in this file; child components handle their own user feedback.
+ *
+ * Imperative DOM / derived state notes:
+ *   - `editorRef` (typed as `EditorRefApi` from `@plane/editor`) is forwarded to `DescriptionInput`
+ *     and is invoked by `DescriptionVersionsRoot.handleRestore` to programmatically set the editor
+ *     value when a historical version is selected (`editorRef.current?.setEditorValue(html, true)`).
+ *   - The submission lifecycle effect transitions `"submitted" → "saved"` after a 2000ms timeout —
+ *     this is the visible delay between save completion and the "Saved" indicator disappearing.
+ *     Preserve the 2000ms constant.
+ *   - `isPeekModeActive = Boolean(peekIssue)` — when true, the `DeDupeIssuePopoverRoot` modals are
+ *     suppressed (`renderDeDupeActionModals={!isPeekModeActive}`) to prevent stacked modal layers,
+ *     and the same flag suppresses the issue-detail-widgets modals.
+ *   - `windowSize[0] < 768` mounts the inline `PeekOverviewProperties` so the metadata panel is
+ *     accessible on small screens where the sidebar is hidden.
+ *   - Returns `<></>` early when the issue or its `project_id` cannot be resolved.
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueDetailRoot`) as the central column of the
+ * work-item detail page route shell.
+ */
+
 import { useEffect, useRef, useState } from "react";
 import { observer } from "mobx-react";
 // plane imports

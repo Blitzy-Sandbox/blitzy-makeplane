@@ -4,6 +4,33 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders a single week row of {@link CalendarDayTile} cells, ordered by the
+ * user's preferred start-of-week and filtered by the weekend visibility filter.
+ *
+ * Props (Props type, L21):
+ *   - week (required) — one ICalendarWeek (month layout) or the active week
+ *     (week layout).
+ *   - issuesFilterStore (required) — supplies displayFilters.calendar.layout
+ *     ("month" | "week") and show_weekends.
+ *   - issues, groupedIssueIds, loadMoreIssues, getPaginationData,
+ *     getGroupIssueCount — issue data + pagination plumbing forwarded per cell.
+ *   - quickActions, quickAddCallback, addIssuesToView,
+ *     enableQuickIssueCreate, disableIssueCreation, readOnly, isEpic — cell
+ *     behavior knobs.
+ *   - handleDragAndDrop — drag-to-reschedule persistence callback.
+ *   - selectedDate, setSelectedDate — mobile day selection threading.
+ *   - canEditProperties — per-issue edit gate evaluated inside the cell.
+ *
+ * Stores read:
+ *   - useUserProfile().data.start_of_the_week — for getOrderedDays reordering.
+ *
+ * Side effects: NONE — pure render pass-through.
+ *
+ * Consumers:
+ *   - ./calendar.tsx (CalendarChart) for month and week layouts.
+ */
+
 import { observer } from "mobx-react";
 // plane imports
 import type { TGroupedIssues, TIssue, TIssueMap, TPaginationData, ICalendarDate, ICalendarWeek } from "@plane/types";
@@ -44,6 +71,7 @@ type Props = {
   isEpic?: boolean;
 };
 
+/** Renders one week of CalendarDayTile cells reordered by user start-of-week and filtered by show_weekends. */
 export const CalendarWeekDays = observer(function CalendarWeekDays(props: Props) {
   const {
     issuesFilterStore,

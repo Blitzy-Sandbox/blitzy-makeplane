@@ -4,6 +4,23 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * @plane/ui — legacy shared component library for Plane.
+ *
+ * Public API surface (33 sub-modules star-re-exported below):
+ *
+ * Buttons & input: button, form-fields, oauth, color-picker
+ * Containers:      card, content-wrapper, modals, row, header
+ * Navigation:      tabs, breadcrumbs, dropdown, dropdowns
+ * Data display:    avatar, badge, tag, progress, loader, tables, typography
+ * Overlays:        tooltip, popovers, link, control-link
+ * Interactive:     drag-handle, drop-indicator, sortable, scroll-area, collapsible, favorite-star
+ * Utility:         constants, utils, spinners
+ *
+ * Consumers: apps/web, apps/admin, apps/space (via "@plane/ui" workspace dependency).
+ * Treat every transitively exported symbol as part of the package's public contract.
+ */
+
 export * from "./avatar";
 export * from "./badge";
 export * from "./breadcrumbs";

@@ -2,6 +2,35 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Analytics and burndown chart payload builders.
+
+Two distinct chart-building entry points consume Django querysets and return
+plain-Python chart payloads ready for JSON serialization:
+
+  - :func:`build_graph_plot` -- generic analytics chart with x-axis, optional
+    segment, and a y-axis of either ``issue_count`` or ``estimate``. Used by
+    analytics endpoints. Date axes (``created_at``, ``start_date``,
+    ``target_date``, ``completed_at``) are bucketed by ``YYYY-M`` month;
+    priority axes use the canonical order ``low, medium, high, urgent, none``.
+  - :func:`burndown_plot` -- cycle/module burndown with per-day remaining-work
+    computation. When ``plot_type == "points"`` and the project has a
+    points-based estimate system the burndown sums ``estimate_point__value``;
+    otherwise it counts issues. Dates beyond ``timezone.now().date()`` are
+    emitted as ``None`` so the chart leaves the future undrawn.
+
+Allowed axes:
+  - :data:`VALID_ANALYTICS_FIELDS` -- state_id, state__group, labels__id,
+    assignees__id, estimate_point__value, issue_cycle__cycle_id,
+    issue_module__module_id, priority, start_date, target_date, created_at,
+    completed_at.
+  - :data:`VALID_YAXIS` -- ``["issue_count", "estimate"]``.
+
+Consumers: ``plane.app.views.analytic.*``, ``plane.app.views.cycle.base``,
+``plane.app.views.workspace.cycle``, and
+:func:`plane.utils.cycle_transfer_issues.transfer_cycle_issues` (uses
+:func:`burndown_plot` to snapshot a closing cycle's progress).
+"""
+
 # Python imports
 from datetime import timedelta
 from itertools import groupby
@@ -41,6 +70,7 @@ VALID_YAXIS = ["issue_count", "estimate"]
 
 
 def annotate_with_monthly_dimension(queryset, field_name, attribute):
+    """Annotate ``queryset`` with a ``YYYY-M`` string under ``attribute`` derived from ``field_name``."""
     # Get the year and the months
     year = ExtractYear(field_name)
     month = ExtractMonth(field_name)
@@ -51,6 +81,7 @@ def annotate_with_monthly_dimension(queryset, field_name, attribute):
 
 
 def extract_axis(queryset, x_axis):
+    """Return ``(queryset, axis_alias)`` for ``x_axis``, bucketing date axes by month."""
     if x_axis not in VALID_ANALYTICS_FIELDS:
         raise ValueError(f"Invalid x_axis value: {x_axis}")
     # Format the dimension when the axis is in date
@@ -62,6 +93,11 @@ def extract_axis(queryset, x_axis):
 
 
 def sort_data(data, temp_axis):
+    """Return ``data`` sorted in canonical order for ``temp_axis``.
+
+    When ``temp_axis == "priority"`` the order is ``low, medium, high, urgent, none``;
+    otherwise keys are sorted alphabetically with ``"none"`` last.
+    """
     # When the axis is in priority order by
     if temp_axis == "priority":
         order = ["low", "medium", "high", "urgent", "none"]
@@ -71,6 +107,16 @@ def sort_data(data, temp_axis):
 
 
 def build_graph_plot(queryset, x_axis, y_axis, segment=None):
+    """Build an analytics chart payload grouped by ``x_axis`` and optionally segmented.
+
+    For ``y_axis == "issue_count"`` returns counts; for ``y_axis == "estimate"``
+    returns ``Sum(estimate_point__value)``. Date axes are bucketed to the
+    ``YYYY-M`` month; priority axes are sorted ``low, medium, high, urgent, none``.
+
+    Raises:
+        ValueError: when ``x_axis``, ``y_axis``, or ``segment`` is not in the
+        allowed lists.
+    """
     if x_axis not in VALID_ANALYTICS_FIELDS:
         raise ValueError(f"Invalid x_axis value: {x_axis}")
     if y_axis not in VALID_YAXIS:
@@ -121,6 +167,28 @@ def build_graph_plot(queryset, x_axis, y_axis, segment=None):
 
 
 def burndown_plot(queryset, slug, project_id, plot_type, cycle_id=None, module_id=None):
+    """Compute a per-day remaining-work chart for a cycle or module.
+
+    Iterates each calendar day in the cycle/module date range and emits the
+    cumulative remaining count (or summed estimate points) for that day.
+    Future dates relative to ``timezone.now().date()`` are emitted as ``None``
+    so the chart shows actuals on the left and an undrawn future on the right.
+
+    Args:
+        queryset: A ``Cycle`` or ``Module`` instance carrying ``start_date``,
+            ``end_date`` / ``target_date``, and ``total_issues`` attributes.
+        slug: Workspace slug.
+        project_id: Project ID.
+        plot_type: ``"points"`` to burn by ``estimate_point__value`` (requires
+            the project to have a points-based estimate system) or anything
+            else to burn by issue count.
+        cycle_id: When the queryset is a cycle, the cycle's PK.
+        module_id: When the queryset is a module, the module's PK.
+
+    Returns:
+        dict: Mapping of ISO date string -> remaining work (int/float) or
+        ``None`` for future dates.
+    """
     # Total Issues in Cycle or Module
     total_issues = queryset.total_issues
     # check whether the estimate is a point or not

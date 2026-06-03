@@ -4,6 +4,31 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Applied project filter chips.
+ *
+ * Rendered purpose: renders one removable chip per currently-applied project ID in the issue layout's
+ * applied-filters bar. Each chip shows the project's logo (`Logo` from `@plane/propel/emoji-icon-picker`,
+ * which handles both emoji and icon `logo_props`) and the project name.
+ *
+ * Props (`Props`):
+ *   - `handleRemove` (`(val: string) => void`, required): invoked with the project ID that should be
+ *     removed from the active filter. The parent aggregator is responsible for invoking
+ *     `issuesFilter.updateFilters(workspaceSlug, projectId, EIssueFilterType.FILTERS, { project: <next> })`
+ *     — typically used in workspace-level views that aggregate across projects.
+ *   - `values` (`string[]`, required): currently-applied project IDs.
+ *   - `editable` (`boolean | undefined`, required): when truthy, renders the close button; when
+ *     falsy/undefined, the chip is read-only (used in read-only views such as archived issues or
+ *     shared spaces).
+ *
+ * MobX stores read:
+ *   - `useProject().projectMap` → direct ID-keyed lookup `projectMap[projectId]` resolving to
+ *     `IProject` for `name` + `logo_props`. Wrapped with `observer` so re-renders react to project-map
+ *     mutations (e.g., project rename, logo change).
+ *
+ * Side effects: none — render-only; the only outbound interaction is `handleRemove(projectId)` on click.
+ */
+
 import { observer } from "mobx-react";
 import { Logo } from "@plane/propel/emoji-icon-picker";
 import { CloseIcon } from "@plane/propel/icons";
@@ -26,6 +51,7 @@ export const AppliedProjectFilters = observer(function AppliedProjectFilters(pro
       {values.map((projectId) => {
         const projectDetails = projectMap?.[projectId] ?? null;
 
+        // Skip rendering when the project has not loaded yet OR has been deleted / access-revoked — prevents stale chip UI.
         if (!projectDetails) return null;
 
         return (

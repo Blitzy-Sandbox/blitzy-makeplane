@@ -2,6 +2,34 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Celery task that seeds a workspace with Faker-generated demo data.
+
+Trigger:
+    Invoked **synchronously** from the
+    ``apps/api/plane/db/management/commands/create_dummy_data.py`` Django
+    management command. The CLI runs the task in-process via a direct
+    function call (no ``.delay()`` / ``.apply_async()``), so the broker
+    and a Celery worker are NOT required to be running for seeding. The
+    ``@shared_task`` decoration is retained so the function remains
+    callable via ``.delay(...)`` for future async invocation, but the
+    shipped seeding flow bypasses Celery entirely.
+
+Generated entities per project:
+    - 5 states (Backlog, Todo, In Progress, Done, Cancelled).
+    - Labels, cycles, modules, issues, pages, page labels, intake
+      issues, issue assignees, issue labels, cycle-issue and
+      module-issue join rows.
+    - Project members (count derived from the supplied ``members``
+      iterable of user emails).
+
+Async infrastructure:
+    If a caller did invoke via ``.delay()``, the task would be queued
+    onto **RabbitMQ** and consumed by Celery workers (per the project
+    architectural rule -- Celery via RabbitMQ; Redis is caching and
+    session only). The synchronous CLI invocation bypasses the broker
+    entirely.
+"""
+
 # Python imports
 import uuid
 import random
@@ -42,6 +70,7 @@ from plane.db.models.intake import SourceType
 
 
 def create_project(workspace, user_id):
+    """Create a ``Project`` row and grant the seeding user the admin (role=20) ``ProjectMember`` record."""
     fake = Faker()
     name = fake.name()
     unique_id = str(uuid.uuid4())[:5]
@@ -61,6 +90,7 @@ def create_project(workspace, user_id):
 
 
 def create_project_members(workspace, project, members):
+    """Add existing users (matched by the supplied email iterable) as admin ``ProjectMember`` rows on the project."""
     members = User.objects.filter(email__in=members)
 
     _ = ProjectMember.objects.bulk_create(
@@ -80,6 +110,7 @@ def create_project_members(workspace, project, members):
 
 
 def create_states(workspace, project, user_id):
+    """Create the 5 canonical states (Backlog/Todo/In Progress/Done/Cancelled) for the given project."""
     states = [
         {
             "name": "Backlog",
@@ -124,6 +155,7 @@ def create_states(workspace, project, user_id):
 
 
 def create_labels(workspace, project, user_id):
+    """Create 50 ``Label`` rows for the project with Faker-generated color names and hex colors."""
     fake = Faker()
     Faker.seed(0)
 
@@ -144,6 +176,7 @@ def create_labels(workspace, project, user_id):
 
 
 def create_cycles(workspace, project, user_id, cycle_count):
+    """Create ``cycle_count`` ``Cycle`` rows with non-overlapping random start/end dates."""
     fake = Faker()
     Faker.seed(0)
 
@@ -189,6 +222,7 @@ def create_cycles(workspace, project, user_id, cycle_count):
 
 
 def create_modules(workspace, project, user_id, module_count):
+    """Create ``module_count`` ``Module`` rows with Faker names and random start/target dates."""
     fake = Faker()
     Faker.seed(0)
 
@@ -219,6 +253,7 @@ def create_modules(workspace, project, user_id, module_count):
 
 
 def create_pages(workspace, project, user_id, pages_count):
+    """Create ``pages_count`` ``Page`` rows (Faker HTML) and link them to the project via ``ProjectPage``."""
     fake = Faker()
     Faker.seed(0)
 
@@ -247,6 +282,7 @@ def create_pages(workspace, project, user_id, pages_count):
 
 
 def create_page_labels(workspace, project, user_id, pages_count):
+    """Attach random subsets of project labels to half of the project's pages via ``PageLabel`` bulk insert."""
     # labels
     labels = Label.objects.filter(project=project).values_list("id", flat=True)
     pages = random.sample(
@@ -265,6 +301,7 @@ def create_page_labels(workspace, project, user_id, pages_count):
 
 
 def create_issues(workspace, project, user_id, issue_count):
+    """Create ``issue_count`` ``Issue`` rows with matching ``IssueSequence`` and ``IssueActivity`` rows."""
     fake = Faker()
     Faker.seed(0)
 
@@ -356,6 +393,7 @@ def create_issues(workspace, project, user_id, issue_count):
 
 
 def create_intake_issues(workspace, project, user_id, intake_issue_count):
+    """Create ``intake_issue_count`` issues and attach them to the project's default ``Intake`` queue."""
     issues = create_issues(workspace, project, user_id, intake_issue_count)
     intake, create = Intake.objects.get_or_create(name="Intake", project=project, is_default=True)
     IntakeIssue.objects.bulk_create(
@@ -376,6 +414,7 @@ def create_intake_issues(workspace, project, user_id, intake_issue_count):
 
 
 def create_issue_parent(workspace, project, user_id, issue_count):
+    """Assign random parent issues to roughly half of the project's issues to build a demo sub-issue hierarchy."""
     parent_count = issue_count / 4
 
     parent_issues = Issue.objects.filter(project=project).values_list("id", flat=True)[: int(parent_count)]
@@ -389,6 +428,7 @@ def create_issue_parent(workspace, project, user_id, issue_count):
 
 
 def create_issue_assignees(workspace, project, user_id, issue_count):
+    """Attach random subsets of project members as assignees to half of the project's issues."""
     # assignees
     assignees = ProjectMember.objects.filter(project=project).values_list("member_id", flat=True)
     issues = random.sample(
@@ -414,6 +454,7 @@ def create_issue_assignees(workspace, project, user_id, issue_count):
 
 
 def create_issue_labels(workspace, project, user_id, issue_count):
+    """Attach random subsets of up to 5 project labels to every project issue via ``IssueLabel`` bulk insert."""
     # labels
     labels = Label.objects.filter(project=project).values_list("id", flat=True)
     # issues = random.sample(
@@ -437,6 +478,7 @@ def create_issue_labels(workspace, project, user_id, issue_count):
 
 
 def create_cycle_issues(workspace, project, user_id, issue_count):
+    """Add half of the project's issues to a randomly chosen project cycle each via ``CycleIssue`` bulk insert."""
     # assignees
     cycles = Cycle.objects.filter(project=project).values_list("id", flat=True)
     issues = random.sample(
@@ -455,6 +497,7 @@ def create_cycle_issues(workspace, project, user_id, issue_count):
 
 
 def create_module_issues(workspace, project, user_id, issue_count):
+    """Attach random subsets of up to 5 project modules to every project issue via ``ModuleIssue`` bulk insert."""
     # assignees
     modules = Module.objects.filter(project=project).values_list("id", flat=True)
     # issues = random.sample(
@@ -495,6 +538,56 @@ def create_dummy_data(
     pages_count,
     intake_issue_count,
 ):
+    """Seed a workspace with Faker-generated demo data.
+
+    Generates ``Project`` / ``State`` / ``Label`` / ``Cycle`` / ``Module``
+    / ``Issue`` / ``Page`` / ``Intake`` rows and the relevant join tables
+    in bulk for development and QA scenarios.
+
+    Trigger:
+        Invoked **synchronously** from
+        ``apps/api/plane/db/management/commands/create_dummy_data.py``
+        (Django management command). The ``@shared_task`` decoration is
+        preserved so the function remains callable via ``.delay(...)``
+        for future async invocation, but the shipped CLI flow runs it
+        in-process and does NOT require RabbitMQ or a Celery worker.
+
+    Side effects:
+        - **DB writes (many)**: ``Project``, ``ProjectMember``, ``State``
+          (5 per project: Backlog, Todo, In Progress, Done, Cancelled),
+          ``Label``, ``Cycle``, ``Module``, ``Issue``, ``IssueSequence``,
+          ``IssueActivity``, ``Page``, ``ProjectPage``, ``PageLabel``,
+          ``Intake``, ``IntakeIssue``, ``IssueAssignee``, ``IssueLabel``,
+          ``CycleIssue`` and ``ModuleIssue`` rows are created in bulk.
+        - **External**: the Faker library generates names, descriptions,
+          dates and sentences locally. No outbound HTTP, S3 or webhook
+          calls are made.
+        - **No** emails are sent (the ``email`` argument is used as the
+          demo workspace owner identity for ``created_by`` /
+          ``updated_by``, not as an SMTP destination).
+        - **No** webhook fan-out. **No** cache invalidation.
+
+    Idempotency:
+        NON-idempotent. Repeated invocations create **additional** demo
+        rows on top of the existing set (Faker generates fresh content
+        each call). The caller is responsible for one-shot seeding per
+        workspace.
+
+    Args:
+        slug: Workspace slug to seed into; an existing ``Workspace`` row
+            with this slug is required.
+        email: Email of an existing ``User`` used as ``created_by`` /
+            ``updated_by`` for all generated rows and as the seeding
+            project's admin.
+        members: Iterable of existing user emails to add as
+            ``ProjectMember`` rows on the generated project (in addition
+            to the seeding user).
+        issue_count: Number of issues to create on the project.
+        cycle_count: Number of cycles to create on the project.
+        module_count: Number of modules to create on the project.
+        pages_count: Number of pages to create on the project.
+        intake_issue_count: Number of intake-queue issues to create.
+    """
     workspace = Workspace.objects.get(slug=slug)
 
     user = User.objects.get(email=email)

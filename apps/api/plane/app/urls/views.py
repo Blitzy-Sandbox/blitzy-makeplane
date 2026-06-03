@@ -2,6 +2,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for saved-view (workspace and project) endpoints.
+
+Maps the saved-view ViewSets from ``plane.app.views`` (project view
+CRUD, workspace view CRUD, workspace view-issues, view favorites) to
+URL paths scoped under ``workspaces/<slug>/`` and
+``workspaces/<slug>/projects/<project_id>/views/``.
+
+The filename ``views.py`` is the intentional URL-routing module for
+the saved-view domain; it is unrelated to the sibling
+``plane.app.views`` package and is not renamed.
+"""
+
 from django.urls import path
 
 

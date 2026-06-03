@@ -4,6 +4,47 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Inline editable title field for a work item with debounced autosave.
+ *
+ * Rendered purpose: a `TextArea`-based title editor that grows with content, validates non-empty
+ * titles, shows a character counter (n/255), and persists changes through the supplied
+ * `issueOperations.update` async action. When disabled, renders a static read-only title block.
+ *
+ * Props (IssueTitleInputProps):
+ *   - disabled (boolean, optional): when true, renders the static read-only title text instead of an editor
+ *   - value (string | undefined | null, required): the current persisted title from upstream state
+ *   - workspaceSlug (string, required): used in the persistence call to `issueOperations.update`
+ *   - isSubmitting (TNameDescriptionLoader, required): "submitting" | "submitted" | "saved" indicator from the parent
+ *   - setIsSubmitting ((value: TNameDescriptionLoader) => void, required): callback to mutate the indicator
+ *   - issueOperations (TIssueOperations, required): the issue-update contract (sourced from `./issue-detail`)
+ *   - projectId (string, required): used in the persistence call
+ *   - issueId (string, required): used in the persistence call
+ *   - className (string, optional): textarea-level class overrides
+ *   - containerClassName (string, optional): wrapper-level class overrides
+ *
+ * MobX stores read: none directly — persistence is delegated to the supplied `issueOperations` contract
+ * (a thin adapter over the issue MobX store + `IssueService`).
+ *
+ * Side effects:
+ *   - Calls `issueOperations.update(workspaceSlug, projectId, issueId, { name })` whenever the debounced
+ *     title differs from the upstream value (1500ms debounce via `useDebounce`).
+ *   - Persists trailing edits on unmount when `hasUnsavedChanges` is true and trimmed length > 0.
+ *   - Reports submission lifecycle through `setIsSubmitting("submitting"|"saved")`.
+ *   - No toasts, no navigations, no direct service calls.
+ *
+ * Imperative / derived state notes:
+ *   - `hasUnsavedChanges` (ref) gates the unmount-time save so a clean prop update does not trigger one.
+ *   - `currentTitleRef` mirrors `title` for the unmount cleanup closure (captures the latest value).
+ *   - Blur handler reads `document.querySelector("#title-input")` to trim trailing whitespace and re-fire a save
+ *     ONLY when the trim changed and we are not mid-submission.
+ *   - The dependency array on the debounce effect is `[debouncedValue]` only — an in-file comment notes
+ *     this is to avoid duplicate API calls; keep the in-file comment verbatim.
+ *
+ * Consumers: rendered by issue-detail surfaces — `apps/web/core/components/issues/issue-detail/main-content.tsx`,
+ * peek-overview body, and modal create/edit issue flows.
+ */
+
 import { useState, useEffect, useCallback, useRef } from "react";
 import { observer } from "mobx-react";
 import { useTranslation } from "@plane/i18n";

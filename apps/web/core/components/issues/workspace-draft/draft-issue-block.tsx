@@ -4,6 +4,53 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders a single draft issue row in the workspace draft issues list with
+ * identifier prefix, type marker, name tooltip, inline editable properties,
+ * and a context/ellipsis quick-actions menu (edit, duplicate, move-to-project,
+ * delete). Workspace-scoped: the underlying record is `TWorkspaceDraftIssue`,
+ * not `TIssue`, so the row lives outside the project issue lifecycle until
+ * promoted via the move flow.
+ *
+ * Props:
+ *   - `workspaceSlug` (string, required): active workspace slug; threaded into
+ *     every mutation call to `updateIssue` / `deleteIssue`.
+ *   - `issueId` (string, required): primary key of the draft issue to render;
+ *     used to look up the issue via the workspace draft store.
+ *
+ * MobX stores read (via React context):
+ *   - `useWorkspaceDraftIssues()` — reads `getIssueById`, `updateIssue`,
+ *     `deleteIssue` actions.
+ *   - `useAppTheme()` — reads `sidebarCollapsed` (controls responsive
+ *     `md:`/`lg:` breakpoints for the row layout).
+ *   - `useProject()` — reads `getProjectIdentifierById` to render the project
+ *     identifier prefix (e.g., "PLANE").
+ *
+ * Side effects:
+ *   - `updateIssue(workspaceSlug, issueId, data)` fires from the CRUD modal
+ *     edit path and from inline property mutations delegated by
+ *     `DraftIssueProperties` (state, priority, label, dates, assignees,
+ *     modules, cycles, estimates).
+ *   - `deleteIssue(workspaceSlug, issueId)` fires from the delete confirmation
+ *     modal `onSubmit`.
+ *   - All API persistence is performed by the workspace draft store
+ *     (`apps/web/core/store/issue/workspace-draft/`) via `WorkspaceDraftService`
+ *     (`apps/web/core/services/issue/workspace_draft.service.ts`); this
+ *     component does not call the network directly.
+ *   - No router navigations: double-clicking the row body opens the edit
+ *     modal in place rather than navigating to a detail route.
+ *
+ * Composes the sibling delete/properties/quick-action components plus the
+ * shared `CreateUpdateIssueModal` (and `IdentifierText`, `IssueTypeIdentifier`,
+ * `Row`, `Tooltip`, icons from `@plane/propel/icons` for chrome). Wrapped with
+ * `observer` so MobX mutations on the underlying issue snapshot trigger
+ * re-renders.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/issues/workspace-draft/root.tsx` (renders the
+ *     paginated draft list).
+ */
+
 import React, { useRef, useState } from "react";
 import { omit } from "lodash-es";
 import { observer } from "mobx-react";

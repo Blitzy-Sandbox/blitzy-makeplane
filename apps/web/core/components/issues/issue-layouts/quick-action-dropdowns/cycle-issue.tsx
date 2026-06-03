@@ -4,6 +4,50 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Quick-action dropdown menu for rows in the cycle-scoped issues layout, exposing
+ * edit (with the active `cycleId` pre-applied to the work item), make-a-copy,
+ * open-in-new-tab, copy-link, remove-from-cycle, archive, and delete actions.
+ *
+ * @remarks
+ * Props (from `IQuickActionProps` in `../list/list-view-types`):
+ *   - `issue: TIssue` (required) — work item this menu acts on.
+ *   - `handleDelete: () => Promise<void>` (required) — caller-provided delete handler.
+ *   - `handleUpdate?: (data: TIssue) => Promise<void>` (optional) — caller-provided update handler.
+ *   - `handleRemoveFromView?: () => Promise<void>` (optional) — invoked by the "Remove from cycle" menu item
+ *     (the factory in `helper.tsx` maps this action to the `XCircle` icon).
+ *   - `handleArchive?: () => Promise<void>` (optional) — caller-provided archive handler.
+ *   - `customActionButton?: React.ReactElement` (optional) — custom trigger element for the menu.
+ *   - `portalElement?: HTMLDivElement | null` (optional) — portal mount target for the popup.
+ *   - `readOnly?: boolean` (optional, default `false`) — disables editing/deleting actions when `true`.
+ *   - `placements?: TPlacement` (optional, default `"bottom-start"`) — menu placement relative to the trigger.
+ *   - `parentRef: React.RefObject<HTMLElement>` (required) — anchor element for the context-menu listener.
+ *
+ * MobX stores read (via React context hooks — MobX is the exclusive frontend state layer per AAP §0.2.2):
+ *   - `useIssues(EIssuesStoreType.CYCLE)` → `issuesFilter` — reads the current display filter layout label,
+ *     surfaced through `activeLayout` so menu builders can branch on layout context.
+ *   - `useUserPermissions()` → `allowPermissions` — gates `isEditingAllowed` on ADMIN/MEMBER at the PROJECT level.
+ *   - `useProjectState()` → `getStateById` — checks `ARCHIVABLE_STATE_GROUPS` membership to gate archive.
+ *   - `useProject()` → `getProjectIdentifierById` — resolves the project key for the work-item link.
+ *   - `useParams()` from `next/navigation` — reads `workspaceSlug` and `cycleId` from the URL (see AAP §0.2.6 C3
+ *     for note on the underlying router framework).
+ *
+ * Side effects:
+ *   - Opens `ArchiveIssueModal`, `DeleteIssueModal`, `CreateUpdateIssueModal`, and
+ *     `DuplicateWorkItemModal` via local `useState` flags.
+ *   - The edit action injects `cycle_id: cycleId ?? null` into the edit payload via
+ *     `useCycleIssueMenuItems`' custom edit action so the edited issue retains its cycle
+ *     association on the round-trip through the edit modal (distinct from `module-issue.tsx`
+ *     which uses a `module_ids` array; cycle membership is a scalar one-to-one relation).
+ *   - "Remove from cycle" delegates to the caller's `handleRemoveFromView`.
+ *   - `duplicateIssuePayload` is built by spreading the issue with a `(copy)` suffix on `name`
+ *     and stripping `id` via `lodash-es#omit` so the duplicate is treated as a new work item.
+ *   - Passes `storeType: EIssuesStoreType.CYCLE` to the menu factory to scope mutations to the
+ *     cycle-issues store slice.
+ *   - No direct API calls — all mutations flow through caller-provided handlers and modals
+ *     (service-layer pattern per AAP §0.2.2).
+ */
+
 import { useState } from "react";
 import { omit } from "lodash-es";
 import { observer } from "mobx-react";

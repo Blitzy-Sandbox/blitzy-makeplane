@@ -4,6 +4,105 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Workspace-scope notifications collection store — composes `Notification` entity wrappers
+ * into the reactive list backing the workspace inbox, unread badge, and per-card UI.
+ *
+ * Registered on the root store as `workspaceNotification: IWorkspaceNotificationStore`
+ * (see `apps/web/core/store/root.store.ts`).
+ *
+ * State slice:
+ *   - `paginatedCount: number = 300` — constant page size used by every cursor query.
+ *   - `loader: TNotificationLoader` — `ENotificationLoader` value or `undefined`. Drives
+ *     `INIT_LOADER`, `PAGINATION_LOADER`, `MARK_ALL_AS_READY` UI states (observable.ref).
+ *   - `unreadNotificationsCount: TUnreadNotificationsCount` — `{ total_unread_notifications_count,
+ *     mention_unread_notifications_count }`. Per-tab counter; mutated by
+ *     `setUnreadNotificationsCount` and zeroed by `markAllNotificationsAsRead`.
+ *   - `notifications: Record<string, INotification>` — `notification_id -> Notification`
+ *     instance map. Populated by `mutateNotifications` from fetched results.
+ *   - `currentNotificationTab: TNotificationTab` — `ENotificationTab.ALL` by default; flips
+ *     to `MENTIONS` to filter to `is_mentioned_notification` items only (observable.ref).
+ *   - `currentSelectedNotificationId: string | undefined` — currently focused notification
+ *     in the card list (drives the right-rail preview if any).
+ *   - `paginationInfo: Omit<TNotificationPaginatedInfo, "results"> | undefined` — server-
+ *     supplied cursor state (`next_cursor`, etc.) consumed by `generateNotificationQueryParams`.
+ *   - `filters: TNotificationFilter` — `{ type: { assigned, created, subscribed }, snoozed,
+ *     archived, read }`. The `type.*` sub-flags are joined into a CSV `type=` query param;
+ *     `snoozed` / `archived` mutate the `notificationIdsByWorkspaceId` filter result; `read`
+ *     is intentionally squashed to `false | undefined` inside
+ *     `generateNotificationQueryParams` so the server can return read+unread together for
+ *     the all-read-and-unread UX (see the inline NOTE near the `read` clause).
+ *
+ * Computed (`computedFn` from `mobx-utils`):
+ *   - `notificationIdsByWorkspaceId(workspaceId)` — returns the ordered list of notification
+ *     ids belonging to `workspaceId`, sorted by `created_at` descending (via `convertToEpoch`),
+ *     filtered by the active tab (MENTIONS vs. ALL) and the archived/snoozed flags. Recomputes
+ *     when `notifications`, `currentNotificationTab`, or `filters` change, or when the input
+ *     `workspaceId` differs from the last memoized key.
+ *   - `notificationLiteByNotificationId(notificationId)` — returns a compact
+ *     `TNotificationLite` projection `{ workspace_slug, project_id, notification_id, issue_id,
+ *     is_inbox_issue }` for the routing layer. Recomputes when the underlying notification or
+ *     `store.router.workspaceSlug` changes.
+ *
+ * Helper functions:
+ *   - `generateNotificationQueryParams(paramType)` — pure derivation from `filters`,
+ *     `paginatedCount`, `paginationInfo`, and `currentNotificationTab`. Returns the
+ *     `TNotificationPaginatedInfoQueryParams` payload for the API. `paramType=INIT|CURRENT`
+ *     resets the cursor to `paginatedCount:0:0`; `paramType=NEXT` uses `paginationInfo.next_cursor`.
+ *
+ * Helper actions (synchronous, `@action`):
+ *   - `mutateNotifications(notifications)` — for each `TNotification`, either calls
+ *     `existing.mutateNotification(payload)` if the id is already present, or constructs a
+ *     new `Notification(this.store, payload)` instance keyed by id.
+ *   - `updateFilters(key, value)` / `updateBulkFilters(filters)` — set the filter slice,
+ *     then clear `notifications` and re-fetch with `INIT_LOADER` + `INIT` cursor when a
+ *     workspace slug is available from `store.router`. This is why these are actions
+ *     (mutation + side effect, not pure setters).
+ *
+ * Actions (`@action`, async unless noted):
+ *   - `setCurrentNotificationTab(tab)` (sync) — same pattern as `updateFilters`: set tab,
+ *     clear notifications, re-fetch from the cursor head.
+ *   - `setCurrentSelectedNotificationId(notificationId)` (sync) — single-field setter.
+ *   - `setUnreadNotificationsCount(type, newCount=1)` (sync) — increments or decrements the
+ *     correct counter based on `currentNotificationTab` (ALL → `total_unread_notifications_count`,
+ *     MENTIONS → `mention_unread_notifications_count`). Clamps to `>= 0` via `Math.max(0, …)`.
+ *   - `getUnreadNotificationsCount(workspaceSlug)` (async) — `GET` via
+ *     `workspaceNotificationService.fetchUnreadNotificationsCount`; sets
+ *     `unreadNotificationsCount` inside `runInAction`. Re-throws on failure.
+ *   - `getNotifications(workspaceSlug, loader=INIT_LOADER, queryParamType=INIT)` (async) —
+ *     sets `loader`, calls `getUnreadNotificationsCount` first, then
+ *     `workspaceNotificationService.fetchNotifications(workspaceSlug, queryParams)`; merges
+ *     `results` via `mutateNotifications` and stores `paginationInfo` from the response.
+ *     Always clears `loader` in `finally`. Re-throws on failure.
+ *   - `markAllNotificationsAsRead(workspaceSlug)` (async) — sets `loader =
+ *     ENotificationLoader.MARK_ALL_AS_READY`, calls
+ *     `workspaceNotificationService.markAllNotificationsAsRead(workspaceSlug, params)`,
+ *     zeros the active tab's unread counter, and bulk-mutates every notification's `read_at`
+ *     to `new Date().toUTCString()` inside `runInAction`. Re-throws on failure.
+ *
+ * Consumers (read this store via `useWorkspaceNotifications` from
+ * `@/hooks/store/notifications`):
+ *   - `apps/web/core/components/workspace-notifications/root.tsx` — top-level inbox container.
+ *   - `apps/web/core/components/workspace-notifications/notification-app-sidebar-option.tsx` —
+ *     sidebar bell + unread badge; reads `unreadNotificationsCount` and calls
+ *     `getUnreadNotificationsCount`.
+ *   - `apps/web/core/components/workspace-notifications/sidebar/root.tsx`,
+ *     `sidebar/header/options/root.tsx`, `sidebar/header/options/menu-option/root.tsx`,
+ *     `sidebar/filters/applied-filter.tsx`, `sidebar/filters/menu/menu-option-item.tsx` —
+ *     sidebar shell, filter menu, applied-filter chips.
+ *   - `apps/web/core/components/workspace-notifications/sidebar/notification-card/item.tsx`
+ *     and its `options/{read, archive, snooze}.tsx` — per-card selection, read/archive/snooze
+ *     buttons (the card mostly proxies to the `Notification` entity actions, but reads
+ *     `currentSelectedNotificationId` and calls `setCurrentSelectedNotificationId` here).
+ *   - `apps/web/core/hooks/store/notifications/use-notification.ts` — id-to-instance lookup
+ *     into `this.notifications`.
+ *
+ * Async infrastructure: All persistence flows through `workspaceNotificationService` (REST
+ * against `apps/api`). This store is purely client-side; server-side Celery routing to
+ * RabbitMQ for downstream notification fan-out is owned by the Django views called by the
+ * service layer (architectural context per AAP §0.2.2).
+ */
+
 import { orderBy, isEmpty, update, set } from "lodash-es";
 import { action, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";

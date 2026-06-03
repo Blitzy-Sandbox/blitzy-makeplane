@@ -4,32 +4,52 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Core filter field-type registry and typed configuration aliases for the
+ * `@plane/types/rich-filters/field-types` subfolder.
+ *
+ * `CORE_FILTER_FIELD_TYPE` declares the runtime discriminant tokens (`"date"`, `"date_range"`,
+ * `"single_select"`, `"multi_select"`); each concrete `T*FilterFieldConfig<V>` alias is the
+ * typed payload shape paired with one of those tokens in the operator-config and
+ * filter-config layers.
+ */
+
 import type { TFilterValue } from "../expression";
 import type { TSupportedOperators } from "../operators";
 import type { TBaseFilterFieldConfig, IFilterOption } from "./shared";
 
 /**
- * Core filter types
+ * Runtime registry of core field-type discriminant tokens. Each value pairs with a
+ * `T*FilterFieldConfig<V>` alias defined below; `as const` ensures the value literals
+ * stay synchronized with the `TFilterFieldType` union derived in `./index.ts`.
  */
 export const CORE_FILTER_FIELD_TYPE = {
+  /** Single-date filter — payload is `TDateFilterFieldConfig<V>` with one `Date` value. */
   DATE: "date",
+  /** Two-date interval filter — payload is `TDateRangeFilterFieldConfig<V>` with `[start, end]`. */
   DATE_RANGE: "date_range",
+  /** Enumerated single-choice filter — payload is `TSingleSelectFilterFieldConfig<V>`. */
   SINGLE_SELECT: "single_select",
+  /** Enumerated multi-choice filter — payload is `TMultiSelectFilterFieldConfig<V>`. */
   MULTI_SELECT: "multi_select",
 } as const;
 
 // -------- DATE FILTER CONFIGURATIONS --------
 
+/**
+ * Shared date config primitive — optional `min`/`max` `Date` bounds that constrain the
+ * date picker's selectable range. (Not generic; date bounds are always `Date`.)
+ */
 type TBaseDateFilterFieldConfig = TBaseFilterFieldConfig & {
   min?: Date;
   max?: Date;
 };
 
 /**
- * Date filter configuration - for temporal filtering.
- * - defaultValue: Initial date/time value
- * - min: Minimum allowed date
- * - max: Maximum allowed date
+ * Single-date field config. Fields with non-obvious semantics: `defaultValue` is the
+ * prefilled date when the filter is added (no behavior change if undefined).
+ *
+ * @template V - Filter value type bound by `TFilterValue`.
  */
 export type TDateFilterFieldConfig<V extends TFilterValue> = TBaseDateFilterFieldConfig & {
   type: typeof CORE_FILTER_FIELD_TYPE.DATE;
@@ -37,10 +57,10 @@ export type TDateFilterFieldConfig<V extends TFilterValue> = TBaseDateFilterFiel
 };
 
 /**
- * Date range filter configuration - for temporal filtering.
- * - defaultValue: Initial date/time range values
- * - min: Minimum allowed date
- * - max: Maximum allowed date
+ * Date-range field config. Fields with non-obvious semantics: `defaultValue` is a
+ * `[start, end]` array; array order matters.
+ *
+ * @template V - Filter value type bound by `TFilterValue`.
  */
 export type TDateRangeFilterFieldConfig<V extends TFilterValue> = TBaseDateFilterFieldConfig & {
   type: typeof CORE_FILTER_FIELD_TYPE.DATE_RANGE;
@@ -50,9 +70,11 @@ export type TDateRangeFilterFieldConfig<V extends TFilterValue> = TBaseDateFilte
 // -------- SELECT FILTER CONFIGURATIONS --------
 
 /**
- * Single-select filter configuration - dropdown with one selectable option.
- * - defaultValue: Initial selected value
- * - getOptions: Options as static array or async function
+ * Single-select field config. Fields with non-obvious semantics: `getOptions` may be
+ * sync (returns array) or async (returns Promise); the UI shows a loader during the
+ * async case.
+ *
+ * @template V - Filter value type bound by `TFilterValue`.
  */
 export type TSingleSelectFilterFieldConfig<V extends TFilterValue> = TBaseFilterFieldConfig & {
   type: typeof CORE_FILTER_FIELD_TYPE.SINGLE_SELECT;
@@ -61,10 +83,11 @@ export type TSingleSelectFilterFieldConfig<V extends TFilterValue> = TBaseFilter
 };
 
 /**
- * Multi-select filter configuration - allows selecting multiple options.
- * - defaultValue: Initial selected values array
- * - getOptions: Options as static array or async function
- * - singleValueOperator: Operator to show when single value is selected
+ * Multi-select field config. Fields with non-obvious semantics: `singleValueOperator`
+ * (when set) emits a single condition node carrying an array value instead of multiple
+ * condition nodes; affects expression-tree topology.
+ *
+ * @template V - Filter value type bound by `TFilterValue`.
  */
 export type TMultiSelectFilterFieldConfig<V extends TFilterValue> = TBaseFilterFieldConfig & {
   type: typeof CORE_FILTER_FIELD_TYPE.MULTI_SELECT;
@@ -76,7 +99,10 @@ export type TMultiSelectFilterFieldConfig<V extends TFilterValue> = TBaseFilterF
 // -------- UNION TYPES --------
 
 /**
- * All core filter configurations
+ * Discriminated union of all core field configs; the consumer discriminates on the
+ * paired `CORE_FILTER_FIELD_TYPE` token.
+ *
+ * @template V - Filter value type bound by `TFilterValue`; defaults to `TFilterValue`.
  */
 export type TCoreFilterFieldConfigs<V extends TFilterValue = TFilterValue> =
   | TDateFilterFieldConfig<V>

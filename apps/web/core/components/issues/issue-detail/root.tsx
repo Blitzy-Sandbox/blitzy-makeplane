@@ -4,6 +4,54 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Top-level orchestrator for the issue detail page.
+ *
+ * Rendered purpose: resolves the active work item from the issue-detail store, checks the current
+ * user's project role, builds the stable `issueOperations` contract used by every nested editor,
+ * and renders either an `EmptyState` (when the issue cannot be found) or the two-column layout
+ * (`IssueMainContent` + `IssueDetailsSidebar`) plus the persistent `IssuePeekOverview` portal.
+ *
+ * Props (TIssueDetailRoot):
+ *   - workspaceSlug (string, required): scopes all child mutations and the empty-state redirect
+ *   - projectId (string, required): scopes mutations and gates project-level permissions
+ *   - issueId (string, required): the work item being viewed
+ *   - is_archived (boolean, optional, default=false): when true, the `remove` operation routes
+ *     through `EIssuesStoreType.ARCHIVED.removeIssue` instead of the active store and the sidebar
+ *     is forced read-only
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — `issue.getIssueById`, `fetchIssue`, `updateIssue`, `removeIssue`,
+ *     `archiveIssue`, `addCycleToIssue`, `addIssueToCycle`, `removeIssueFromCycle`,
+ *     `changeModulesInIssue`, `removeIssueFromModule`
+ *   - `useIssues(EIssuesStoreType.ARCHIVED)` — `issues.removeIssue` (archived-removal path)
+ *   - `useUserPermissions()` — `allowPermissions([ADMIN, MEMBER], PROJECT, slug, projectId)` for the
+ *     `isEditable` gate
+ *   - `useAppTheme()` — `issueDetailSidebarCollapsed` (drives the sidebar slide-out via inline
+ *     `style={ right: -window.innerWidth }`)
+ *
+ * Side effects:
+ *   - Mutations: the `issueOperations` contract wraps every store action with try/catch +
+ *     localized toast emission via `setToast` / `setPromiseToast`. Failures fall back to
+ *     `console.error`/`console.log` and a user-facing error toast — silent success on success path.
+ *   - Navigations: when the active issue is missing, the `EmptyState`'s primary button uses
+ *     `router.push(`/${workspaceSlug}/projects/${projectId}/issues`)`.
+ *   - The `IssuePeekOverview` is always mounted (independent of issue presence) so the peek modal
+ *     remains available even from the empty state.
+ *
+ * Imperative DOM / derived state notes:
+ *   - `issueOperations` is memoized via `useMemo` against the full set of store actions plus
+ *     `is_archived` and `t` so the contract reference is stable across renders (preserve the
+ *     dependency array exactly to avoid child re-renders).
+ *   - The sidebar slide-out is implemented by setting `right: -window.innerWidth` so it animates
+ *     off-screen rather than unmounting — preserve this `style` expression.
+ *   - `isEditable` is recomputed each render from `allowPermissions(...)`.
+ *
+ * Consumers: imported by the work-item detail route shell (e.g. project / cycle /
+ * module work-item detail pages) and any other surface that needs the full
+ * issue-detail UI mounted with permission gating and the persistent peek-overlay.
+ */
+
 import { useMemo } from "react";
 import { observer } from "mobx-react";
 // plane imports
@@ -27,6 +75,15 @@ import { IssuePeekOverview } from "../peek-overview";
 import { IssueMainContent } from "./main-content";
 import { IssueDetailsSidebar } from "./sidebar";
 
+/**
+ * Stable issue-mutation contract passed to every editor under issue-detail.
+ *
+ * Each method is an async, toast-wrapping wrapper around the corresponding issue-detail store
+ * action. The optional methods (`archive`, `restore`, `addCycleToIssue`, `addIssueToCycle`,
+ * `removeIssueFromCycle`, `removeIssueFromModule`, `changeModulesInIssue`) are present only when
+ * the relevant project feature is enabled or when the issue is in an active (non-archived) state.
+ * Consumer files import this type and treat optional methods with `?.` optional chaining.
+ */
 export type TIssueOperations = {
   fetch: (workspaceSlug: string, projectId: string, issueId: string, loader?: boolean) => Promise<void>;
   update: (workspaceSlug: string, projectId: string, issueId: string, data: Partial<TIssue>) => Promise<void>;
@@ -51,6 +108,10 @@ export type TIssueOperations = {
   ) => Promise<void>;
 };
 
+/**
+ * Public prop shape of `IssueDetailRoot` — used by route shells under `apps/web/app/...` that mount
+ * the issue detail page.
+ */
 export type TIssueDetailRoot = {
   workspaceSlug: string;
   projectId: string;

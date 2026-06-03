@@ -2,6 +2,27 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Workspace invitation endpoints (admin CRUD, public join, invitee inbox).
+
+Three classes split the invitation flow by role:
+
+* ``WorkspaceInvitationsViewset`` -- admin-facing CRUD: bulk-create
+  ``WorkspaceMemberInvite`` rows, sign per-invitation JWT tokens, and
+  enqueue ``workspace_invitation`` Celery tasks (RabbitMQ) to send
+  emails.
+* ``WorkspaceJoinEndpoint`` -- public endpoint (``AllowAny``) the
+  invitee hits with a token to accept or reject; on accept the user
+  is activated as a workspace member and the invite is consumed.
+* ``UserWorkspaceInvitationsViewSet`` -- the invitee inbox listing
+  every pending invitation for the caller's email, and a bulk-accept
+  action.
+
+Tokens are signed JWTs over ``{"email", "timestamp"}`` with the Django
+``SECRET_KEY`` and ``HS256``. Email delivery and activity tracking are
+both dispatched via Celery (RabbitMQ) -- Redis is used only as a
+cache/session backend per architectural context.
+"""
+
 # Python imports
 from datetime import datetime
 
@@ -35,7 +56,74 @@ from .. import BaseViewSet
 
 
 class WorkspaceInvitationsViewset(BaseViewSet):
-    """Endpoint for creating, listing and  deleting workspaces"""
+    """Admin-side workspace invitation CRUD with bulk email dispatch.
+
+    HTTP methods + URL patterns:
+        GET    /api/workspaces/<str:slug>/invitations/
+        POST   /api/workspaces/<str:slug>/invitations/
+        GET    /api/workspaces/<str:slug>/invitations/<uuid:pk>/
+        PATCH  /api/workspaces/<str:slug>/invitations/<uuid:pk>/
+        DELETE /api/workspaces/<str:slug>/invitations/<uuid:pk>/
+
+    Request body (POST):
+        emails (list[{"email": str, "role": int}], required): one entry
+            per invitee. ``role`` defaults to 5 (guest). Each invitee role
+            must be less than or equal to the inviter's role -- admins
+            cannot invite other admins above their own level.
+
+    Response shape:
+        create: ``{"message": "Emails sent successfully"}`` (HTTP 200) on
+            success.
+        list / retrieve / partial_update: ``WorkSpaceMemberInviteSerializer``
+            rows.
+        destroy: HTTP 204.
+
+    Permissions:
+        ``permission_classes = [WorkSpaceAdminPermission]`` (declared on
+        the class attribute; see
+        ``apps/api/plane/app/views/workspace/invite.py``) -- only
+        workspace admins or members (role 20 or 15) may create / delete
+        invitations.
+
+    Side effects (``create``):
+        * Validates each invitee email via ``django.core.validators.validate_email``.
+        * Issues a signed JWT per invitation
+          (``jwt.encode({"email", "timestamp"}, SECRET_KEY, algorithm="HS256")``).
+        * Bulk-inserts ``WorkspaceMemberInvite`` rows with
+          ``ignore_conflicts=True``.
+        * For each invitation, dispatches:
+            * ``workspace_invitation.delay(email, workspace_id, token,
+              current_site, inviter_email)`` -- Celery via RabbitMQ -- to
+              send the invitation email.
+            * ``track_event.delay(user_id, event_name=USER_INVITED_TO_WORKSPACE,
+              slug, event_properties=...)`` -- analytics ping.
+
+    Error paths (``create`` returns HTTP 400):
+        * ``emails`` array missing or empty.
+        * Any invitee role exceeds the requester's role.
+        * Any invitee is already an active workspace member (the response
+          lists those members under ``workspace_users``).
+        * Any invitee email fails ``validate_email``.
+
+    Queryset:
+        Filtered by ``workspace__slug`` with eager-loading of
+        ``workspace``, ``workspace__owner``, and ``created_by``.
+
+    Cross-references:
+        * Serializer: ``WorkSpaceMemberInviteSerializer`` in
+          ``apps/api/plane/app/serializers/workspace.py``.
+        * Models: ``WorkspaceMemberInvite``, ``WorkspaceMember``,
+          ``Workspace`` in
+          ``apps/api/plane/db/models/workspace.py``.
+        * Permissions: ``WorkSpaceAdminPermission`` in
+          ``apps/api/plane/app/permissions/workspace.py``.
+        * Celery tasks:
+          ``apps/api/plane/bgtasks/workspace_invitation_task.py``,
+          ``apps/api/plane/bgtasks/event_tracking_task.py`` (both
+          queued via RabbitMQ).
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
+    """
 
     serializer_class = WorkSpaceMemberInviteSerializer
     model = WorkspaceMemberInvite
@@ -43,6 +131,7 @@ class WorkspaceInvitationsViewset(BaseViewSet):
     permission_classes = [WorkSpaceAdminPermission]
 
     def get_queryset(self):
+        """Return invitations for the workspace with eager-loaded relations."""
         return self.filter_queryset(
             super()
             .get_queryset()
@@ -51,6 +140,15 @@ class WorkspaceInvitationsViewset(BaseViewSet):
         )
 
     def create(self, request, slug):
+        """Bulk-create workspace invitations and dispatch emails via Celery.
+
+        Validates each invitee email, signs a JWT for each invitation,
+        bulk-inserts ``WorkspaceMemberInvite`` rows with
+        ``ignore_conflicts=True``, then enqueues ``workspace_invitation`` (the
+        email task) and ``track_event`` (analytics) via Celery for each
+        invitee. See the class docstring for the request schema and error
+        paths.
+        """
         emails = request.data.get("emails", [])
         # Check if email is provided
         if not emails:
@@ -142,14 +240,76 @@ class WorkspaceInvitationsViewset(BaseViewSet):
         return Response({"message": "Emails sent successfully"}, status=status.HTTP_200_OK)
 
     def destroy(self, request, slug, pk):
+        """Hard-delete a pending workspace invitation by id."""
         workspace_member_invite = WorkspaceMemberInvite.objects.get(pk=pk, workspace__slug=slug)
         workspace_member_invite.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class WorkspaceJoinEndpoint(BaseAPIView):
+    """Token-protected public endpoint to accept or reject a workspace invitation.
+
+    HTTP methods + URL pattern:
+        GET  /api/workspaces/<str:slug>/invitations/<uuid:pk>/join/
+        POST /api/workspaces/<str:slug>/invitations/<uuid:pk>/join/
+
+    Request body (POST):
+        token (str, required): the JWT issued at invitation creation time.
+        accepted (bool, optional, default ``False``): whether the invitee
+            accepts.
+
+    Response shape:
+        GET: ``WorkSpaceMemberInviteSerializer``.
+        POST (accepted):
+            ``{"message": "Workspace Invitation Accepted"}`` (HTTP 200).
+        POST (rejected):
+            ``{"message": "Workspace Invitation was not accepted"}`` (HTTP
+            200).
+        POST (already responded):
+            HTTP 400 with
+            ``{"error": "You have already responded to the invitation request"}``.
+
+    Permissions:
+        ``permission_classes = [AllowAny]`` (declared on the class
+        attribute; see ``apps/api/plane/app/views/workspace/invite.py``)
+        -- invitee may not yet have an account; this is the entry point
+        of the join flow.
+
+    Cache invalidation (POST, decorator chain):
+        * ``/api/workspaces/``
+        * ``/api/users/me/workspaces/`` (multi)
+        * ``/api/workspaces/:slug/members/`` (per-URL, multi)
+        * ``/api/users/me/settings/`` (multi)
+
+    Side effects on accept (only when the invitee already has a ``User``):
+        * Activates an existing ``WorkspaceMember`` row (or creates one)
+          with the invited ``role``.
+        * Sets ``user.last_workspace_id`` to the joined workspace.
+        * Emits ``track_event.delay(USER_JOINED_WORKSPACE, ...)`` (Celery
+          via RabbitMQ).
+        * Deletes the ``WorkspaceMemberInvite`` row.
+
+    If the invitee has not yet registered, the invite is marked accepted
+    but ``WorkspaceMember`` creation is deferred until the user signs up
+    (another flow handles that backfill).
+
+    Cross-references:
+        * Serializer: ``WorkSpaceMemberInviteSerializer`` in
+          ``apps/api/plane/app/serializers/workspace.py``.
+        * Models: ``WorkspaceMemberInvite``, ``WorkspaceMember``,
+          ``Workspace`` in
+          ``apps/api/plane/db/models/workspace.py``;
+          ``User`` in ``apps/api/plane/db/models/user.py``.
+        * Celery task:
+          ``apps/api/plane/bgtasks/event_tracking_task.py`` (queued via
+          RabbitMQ).
+        * Cache helper: ``invalidate_cache`` in
+          ``apps/api/plane/utils/cache.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
+    """
+
     permission_classes = [AllowAny]
-    """Invitation response endpoint the user can respond to the invitation"""
 
     @invalidate_cache(path="/api/workspaces/", user=False)
     @invalidate_cache(path="/api/users/me/workspaces/", multiple=True)
@@ -161,6 +321,15 @@ class WorkspaceJoinEndpoint(BaseAPIView):
     )
     @invalidate_cache(path="/api/users/me/settings/", multiple=True)
     def post(self, request, slug, pk):
+        """Accept or reject a workspace invitation via the issued JWT token.
+
+        Reads the bearer token from ``request.data["token"]`` and rejects with
+        HTTP 403 if it does not match the persisted ``token``. On accept the
+        caller is activated/created as a ``WorkspaceMember`` with the invited
+        role and a ``USER_JOINED_WORKSPACE`` analytics event is fired. On
+        reject the invitation is marked responded without joining. Already-
+        responded invitations return HTTP 400.
+        """
         workspace_invite = WorkspaceMemberInvite.objects.get(pk=pk, workspace__slug=slug)
 
         token = request.data.get("token", "")
@@ -236,16 +405,70 @@ class WorkspaceJoinEndpoint(BaseAPIView):
         )
 
     def get(self, request, slug, pk):
+        """Return the serialized invitation row for token preview."""
         workspace_invitation = WorkspaceMemberInvite.objects.get(workspace__slug=slug, pk=pk)
         serializer = WorkSpaceMemberInviteSerializer(workspace_invitation)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class UserWorkspaceInvitationsViewSet(BaseViewSet):
+    """Invitee-facing inbox of pending workspace invitations.
+
+    HTTP methods + URL pattern:
+        GET  /api/users/me/workspaces/invitations/
+        POST /api/users/me/workspaces/invitations/
+
+    Request body (POST):
+        invitations (list[uuid], required): ids of invitations to accept
+            in bulk.
+
+    Response shape:
+        list: ``WorkSpaceMemberInviteSerializer`` rows whose ``email``
+            matches the caller's email.
+        create: HTTP 204 on success.
+
+    Permissions:
+        Inherits default ``BaseViewSet`` permissions (authenticated user);
+        the queryset is scoped by ``email=request.user.email`` so it
+        cannot leak other users' invitations.
+
+    Cache invalidation (``create``):
+        * ``/api/workspaces/``
+        * ``/api/users/me/workspaces/`` (multi)
+        Per-invitation also invalidates
+        ``/api/workspaces/<slug>/members/`` directly.
+
+    Side effects on bulk accept:
+        * For each accepted invitation, updates the matching
+          ``WorkspaceMember`` row to ``is_active=True`` with the invited
+          role (reactivates inactive members).
+        * Emits ``track_event.delay(USER_JOINED_WORKSPACE, ...)`` per
+          invitation (Celery via RabbitMQ).
+        * Bulk-creates ``WorkspaceMember`` rows for any invitations not
+          already matching an existing membership
+          (``ignore_conflicts=True``).
+        * Deletes every joined invitation.
+
+    Cross-references:
+        * Serializer: ``WorkSpaceMemberInviteSerializer`` in
+          ``apps/api/plane/app/serializers/workspace.py``.
+        * Models: ``WorkspaceMemberInvite``, ``WorkspaceMember``,
+          ``Workspace`` in
+          ``apps/api/plane/db/models/workspace.py``.
+        * Celery task:
+          ``apps/api/plane/bgtasks/event_tracking_task.py`` (queued via
+          RabbitMQ).
+        * Cache helper: ``invalidate_cache`` in
+          ``apps/api/plane/utils/cache.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
+    """
+
     serializer_class = WorkSpaceMemberInviteSerializer
     model = WorkspaceMemberInvite
 
     def get_queryset(self):
+        """Return invitations addressed to the caller's email with workspace joined."""
         return self.filter_queryset(
             super().get_queryset().filter(email=self.request.user.email).select_related("workspace")
         )
@@ -253,6 +476,13 @@ class UserWorkspaceInvitationsViewSet(BaseViewSet):
     @invalidate_cache(path="/api/workspaces/", user=False)
     @invalidate_cache(path="/api/users/me/workspaces/", multiple=True)
     def create(self, request):
+        """Bulk-accept the supplied invitation ids for the caller.
+
+        For each invitation, reactivates the existing
+        ``WorkspaceMember`` row (or bulk-creates one) and emits a
+        ``USER_JOINED_WORKSPACE`` analytics event via Celery (RabbitMQ);
+        then deletes every joined invitation. Returns HTTP 204.
+        """
         invitations = request.data.get("invitations", [])
         workspace_invitations = WorkspaceMemberInvite.objects.filter(
             pk__in=invitations, email=request.user.email

@@ -2,6 +2,30 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Module archive / unarchive HTTP endpoint and archived-module read API.
+
+Defines :class:`ModuleArchiveUnarchiveEndpoint`, the DRF ``APIView``
+subclass mounted at four URL patterns:
+
+* ``GET    /api/workspaces/<slug>/projects/<project_id>/archived-modules/``
+* ``GET    /api/workspaces/<slug>/projects/<project_id>/archived-modules/<pk>/``
+* ``POST   /api/workspaces/<slug>/projects/<project_id>/modules/<module_id>/archive/``
+* ``DELETE /api/workspaces/<slug>/projects/<project_id>/modules/<module_id>/archive/``
+
+Archive semantics: only modules whose ``status`` is ``"completed"`` or
+``"cancelled"`` can be archived; archiving stamps ``archived_at =
+timezone.now()`` and cascades a hard delete on any matching
+:class:`UserFavorite` rows so the module disappears from users' favorites
+lists. Unarchiving simply nulls ``archived_at`` without restoring
+favorites.
+
+The detail-mode ``GET`` enriches the module record with per-state issue
+counts, per-state estimate-point sums, assignee/label distributions, and
+a burndown chart (computed via
+:func:`plane.utils.analytics_plot.burndown_plot` when both ``start_date``
+and ``target_date`` are set).
+"""
+
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
 from django.db.models import (
@@ -40,9 +64,158 @@ from .. import BaseAPIView
 
 
 class ModuleArchiveUnarchiveEndpoint(BaseAPIView):
+    """Archive / unarchive a module and read archived-module records.
+
+    Resource managed:
+        Archived :class:`plane.db.models.Module` records (modules whose
+        ``archived_at`` field is non-null) and the archive-state
+        transitions that produce them. Modules are project-scoped
+        cross-cycle issue groupings with a ``status`` enum, a lead user,
+        a member list, and optional ``start_date`` / ``target_date``.
+
+    HTTP methods + URL patterns:
+        GET    /api/workspaces/<slug>/projects/<uuid:project_id>/archived-modules/
+        GET    /api/workspaces/<slug>/projects/<uuid:project_id>/archived-modules/<uuid:pk>/
+        POST   /api/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/archive/
+        DELETE /api/workspaces/<slug>/projects/<uuid:project_id>/modules/<uuid:module_id>/archive/
+
+        The same view class is mounted at both ``archived-modules/...``
+        (for read access, URL kwarg ``pk``) and ``modules/<id>/archive/``
+        (for archive mutation, URL kwarg ``module_id``). The class
+        dispatches to ``get`` / ``post`` / ``delete`` based on HTTP
+        method.
+
+    Request body (POST):
+        Empty -- the archive operation requires no fields. The module to
+        archive is identified entirely by the URL's ``module_id`` kwarg.
+
+    Request body (DELETE):
+        Empty -- unarchive is identified entirely by the URL's
+        ``module_id`` kwarg.
+
+    Response shape (GET list):
+        Array of dictionaries with the keys: ``id``, ``workspace_id``,
+        ``project_id``, ``name``, ``description``, ``description_text``,
+        ``description_html``, ``start_date``, ``target_date``,
+        ``status``, ``lead_id``, ``member_ids``, ``view_props``,
+        ``sort_order``, ``external_source``, ``external_id``,
+        ``total_issues``, ``is_favorite``, ``cancelled_issues``,
+        ``completed_issues``, ``started_issues``, ``unstarted_issues``,
+        ``backlog_issues``, ``created_at``, ``updated_at``,
+        ``archived_at``. ``created_at`` and ``updated_at`` are converted
+        to the requesting user's timezone via
+        :func:`plane.utils.timezone_converter.user_timezone_converter`.
+        Ordered by ``-is_favorite, -created_at``.
+
+    Response shape (GET detail):
+        :class:`plane.app.serializers.ModuleDetailSerializer` output --
+        all list-mode keys plus ``sub_issues``, six estimate-point sums
+        (``backlog_estimate_points``, ``unstarted_estimate_points``,
+        ``started_estimate_points``, ``cancelled_estimate_points``,
+        ``completed_estimate_points``, ``total_estimate_points``), the
+        preloaded ``link_module`` relation, plus two computed nested
+        keys:
+
+        * ``estimate_distribution`` -- present (and populated) only when
+          the project has an estimate of ``type="points"``. Contains
+          ``{"assignees": [...], "labels": [...], "completion_chart": {...}}``.
+          The completion chart is filled only when both ``start_date``
+          and ``target_date`` are set on the module.
+        * ``distribution`` -- always populated. Same shape as
+          ``estimate_distribution`` but counts ISSUES rather than
+          estimate points.
+
+    Response shape (POST):
+        ``{"archived_at": "<iso-datetime>"}`` with HTTP 200.
+
+    Response shape (DELETE):
+        Empty body with HTTP 204.
+
+    Permissions:
+        ``permission_classes = [ProjectEntityPermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/module/archive.py`). Defined in
+        :class:`plane.app.permissions.project.ProjectEntityPermission`.
+
+        ProjectEntityPermission requires the requesting user to be an
+        active project member; for unsafe methods (POST / DELETE) the
+        user must additionally have ROLE.ADMIN or ROLE.MEMBER (GUEST is
+        rejected). See :class:`plane.app.permissions.project.ProjectEntityPermission`.
+
+    Archive guard:
+        ``post`` rejects with HTTP 400 ``{"error": "Only completed or
+        cancelled modules can be archived"}`` if ``module.status`` is
+        not in ``["completed", "cancelled"]``. Unlike
+        :class:`plane.app.views.cycle.archive.CycleArchiveUnarchiveEndpoint`
+        which uses a date-based completion check, module archive uses
+        the explicit ``status`` enum -- modules with a ``"completed"``
+        or ``"cancelled"`` status (regardless of date bounds) may be
+        archived. There is no symmetric guard on ``delete``: any
+        archived module (or even a non-archived module, which becomes a
+        no-op save) can be unarchived.
+
+    Side effects:
+        * ``post``: stamps ``archived_at = timezone.now()`` and
+          hard-deletes every :class:`UserFavorite` row pointing at this
+          module (so the module disappears from every user's favorites
+          list).
+        * ``delete``: nulls ``archived_at`` (does NOT restore UserFavorite
+          rows deleted on archive).
+
+    Queryset filter logic (``get_queryset``):
+        Restricts to archived modules (``archived_at__isnull=False``)
+        in the URL's workspace (``workspace__slug``) and project
+        (``project_id``). Annotations:
+
+        * ``is_favorite`` -- Exists subquery against UserFavorite
+          (per-user favorite flag).
+        * Six per-state issue counts (``total_issues``,
+          ``completed_issues``, ``cancelled_issues``, ``started_issues``,
+          ``unstarted_issues``, ``backlog_issues``) via Count subqueries
+          on ``Issue.issue_objects`` joined through ``issue_module``
+          filtered by ``state__group``. The ``issue_module__deleted_at__isnull=True``
+          filter excludes soft-deleted ``ModuleIssue`` rows.
+        * Six per-state estimate-point sums via Subquery against
+          ``Issue.issue_objects`` filtered by
+          ``estimate_point__estimate__type="points"`` (T-shirt sizes
+          and other estimate types are excluded).
+        * ``member_ids`` -- ArrayAgg of distinct member UUIDs across
+          the module's ``ModuleMember`` rows (filter excludes null IDs).
+        * ``select_related("workspace", "project", "lead")`` plus
+          ``prefetch_related`` on ``members`` and ``link_module``
+          minimize downstream N+1 queries.
+
+        Ordered by ``-is_favorite, -created_at``.
+
+    Architectural notes:
+        * Module aggregations are heavy -- read replica routing helps
+          when ``use_read_replica = True`` is configured on the viewset
+          (currently inherited as ``False`` from ``BaseAPIView``).
+        * No Celery tasks are queued from this endpoint -- archive /
+          unarchive are synchronous DB writes only (unlike the main
+          :class:`ModuleViewSet` which queues ``model_activity.delay`` and
+          ``issue_activity.delay`` Celery tasks via RabbitMQ).
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectEntityPermission``.
+        - Serializers: ``plane.app.serializers.ModuleDetailSerializer``,
+          ``plane.app.serializers.ModuleSerializer``.
+        - Models: ``plane.db.models.Module``, ``plane.db.models.ModuleIssue``,
+          ``plane.db.models.ModuleMember``, ``plane.db.models.UserFavorite``,
+          ``plane.db.models.Issue``.
+        - URL registration: ``apps/api/plane/app/urls/module.py``.
+    """
+
     permission_classes = [ProjectEntityPermission]
 
     def get_queryset(self):
+        """Return the archived-module queryset for the current workspace/project.
+
+        Annotated with per-state issue counts, estimate-point sums,
+        favorite flag, and member IDs. Restricted to modules where
+        ``archived_at`` is non-null, ordered by ``-is_favorite,
+        -created_at``.
+        """
         favorite_subquery = UserFavorite.objects.filter(
             user=self.request.user,
             entity_type="module",
@@ -256,6 +429,12 @@ class ModuleArchiveUnarchiveEndpoint(BaseAPIView):
         )
 
     def get(self, request, slug, project_id, pk=None):
+        """List archived modules or retrieve a single archived module by ``pk``.
+
+        Detail mode (``pk`` provided) adds the full estimate/issue
+        assignee/label distributions plus a burndown ``completion_chart``
+        (when both ``start_date`` and ``target_date`` are set).
+        """
         if pk is None:
             queryset = self.get_queryset()
             modules = queryset.values(  # Required fields
@@ -542,6 +721,13 @@ class ModuleArchiveUnarchiveEndpoint(BaseAPIView):
             return Response(data, status=status.HTTP_200_OK)
 
     def post(self, request, slug, project_id, module_id):
+        """Archive a completed or cancelled module by stamping ``archived_at``.
+
+        Rejects with HTTP 400 when ``module.status`` is not in
+        ``["completed", "cancelled"]``; on success, hard-deletes every
+        matching :class:`UserFavorite` row so the module disappears from
+        every user's favorites list.
+        """
         module = Module.objects.get(pk=module_id, project_id=project_id, workspace__slug=slug)
         if module.status not in ["completed", "cancelled"]:
             return Response(
@@ -559,6 +745,12 @@ class ModuleArchiveUnarchiveEndpoint(BaseAPIView):
         return Response({"archived_at": str(module.archived_at)}, status=status.HTTP_200_OK)
 
     def delete(self, request, slug, project_id, module_id):
+        """Unarchive a module by nulling its ``archived_at`` field.
+
+        Does not restore :class:`UserFavorite` rows deleted when the
+        module was archived; users who previously favorited the module
+        must re-favorite it after unarchive.
+        """
         module = Module.objects.get(pk=module_id, project_id=project_id, workspace__slug=slug)
         module.archived_at = None
         module.save()

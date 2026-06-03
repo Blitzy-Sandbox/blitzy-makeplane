@@ -4,6 +4,61 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * `RelationsCollapsibleContent` renders the body of the relations widget on the
+ * issue-detail page — it groups the active issue's relations by `TIssueRelationTypes`
+ * value (`"blocking" | "blocked_by" | "duplicate" | "relates_to"`), renders each
+ * non-empty group inside a per-type `Collapsible`, and coordinates the
+ * update / delete / remove-relation modal flows.
+ *
+ * Props:
+ *   - `workspaceSlug` (string, required): workspace slug used by relation /
+ *     issue service calls.
+ *   - `issueId` (string, required): the parent issue whose relations are rendered.
+ *   - `disabled` (boolean, required at the type level; defaulted to `false` at
+ *     the parameter destructure): disables CRUD action affordances on child rows.
+ *   - `issueServiceType` (`TIssueServiceType`, optional, default
+ *     `EIssueServiceType.ISSUES`): discriminant selecting the issues-vs-epics
+ *     slice of `useIssueDetail`.
+ *
+ * Exported type:
+ *   - `TRelationObject` — shape of a single relation-type descriptor
+ *     (`{ key, i18n_label, className, icon, placeholder }`) consumed across the
+ *     relations widget surface.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail(issueServiceType)` — destructures
+ *     `relation.getRelationsByIssueId`, `relation.removeRelation`,
+ *     `toggleDeleteIssueModal`, and `toggleCreateIssueModal`.
+ *   - `useTimeLineRelationOptions()` (from `@/plane-web/components/relations`) —
+ *     extension-point registry of available relation types keyed by
+ *     `TIssueRelationTypes`. Used both to filter groups and to source per-type
+ *     `icon` / `i18n_label` / `className`.
+ *   - `useRelationOperations()` and `useRelationOperations(EIssueServiceType.EPICS)`
+ *     — memoized CRUD wrappers from the sibling `helper.tsx`.
+ *
+ * Side effects:
+ *   - Maintains a local `useState`-backed CRUD state machine (`issueCrudState`)
+ *     that drives the conditional modals.
+ *   - Confirming `DeleteIssueModal` first calls
+ *     `removeRelation(workspaceSlug, projectId, issueId, relationKey, relationIssueId, true)`
+ *     when a relation row triggered the flow, then dispatches
+ *     `epicOperations.remove` or `issueOperations.remove` based on `is_epic`. This
+ *     two-step sequence (detach-then-delete) is intentional.
+ *   - Submitting `CreateUpdateEpicModal` / `CreateUpdateIssueModal` invokes
+ *     `epicOperations.update` / `issueOperations.update` (which proxy to
+ *     `updateIssue` on the store and emit success / failure toasts via
+ *     `helper.tsx`). Selection between the two modals is driven by the
+ *     `is_epic` discriminant on the staged issue.
+ *
+ * Wrapped in `observer` so it reactively re-renders when `getRelationsByIssueId`
+ * data changes.
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueDetailWidgetCollapsibles`) inside the
+ * issue-detail widget shell mounted by `issue-detail/main-content.tsx` and the
+ * peek-overview body.
+ */
+
 import { useState } from "react";
 import { observer } from "mobx-react";
 // plane imports

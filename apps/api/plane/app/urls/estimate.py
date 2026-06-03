@@ -2,6 +2,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for estimate-domain endpoints.
+
+Maps the estimate-point endpoints from ``plane.app.views`` to project
+estimate CRUD, bulk estimate-point, and individual estimate-point
+routes scoped under ``workspaces/<slug>/projects/<project_id>/``.
+"""
+
 from django.urls import path
 
 

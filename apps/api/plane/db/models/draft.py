@@ -2,6 +2,17 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Database models for unpublished issue drafts and their many-to-many joins.
+
+:class:`DraftIssue` carries the same field shape as :class:`Issue` (parent,
+state, type, assignees, labels, rich-text body, priority, dates) but lives in
+its own ``draft_issues`` table so unpublished work does not appear in
+project issue listings. :class:`DraftIssueAssignee`,
+:class:`DraftIssueLabel`, :class:`DraftIssueModule`, and
+:class:`DraftIssueCycle` are the m2m-join tables that mirror the live
+:class:`Issue` joins.
+"""
+
 # Django imports
 from django.conf import settings
 from django.db import models
@@ -14,6 +25,14 @@ from .workspace import WorkspaceBaseModel
 
 
 class DraftIssue(WorkspaceBaseModel):
+    """Unpublished issue draft mirroring the :class:`Issue` field shape.
+
+    Drafts live in their own table so workspace dashboards and project issue
+    listings ignore them until the user explicitly publishes. ``parent`` can
+    optionally point at an already-published :class:`Issue` to mark this draft
+    as a sub-issue candidate.
+    """
+
     PRIORITY_CHOICES = (
         ("urgent", "Urgent"),
         ("high", "High"),
@@ -43,10 +62,12 @@ class DraftIssue(WorkspaceBaseModel):
         blank=True,
     )
     name = models.CharField(max_length=255, verbose_name="Issue Name", blank=True, null=True)
+    # Shape: ProseMirror JSON document tree (TipTap-compatible) for editor hydration.
     description_json = models.JSONField(blank=True, default=dict)
     description_html = models.TextField(blank=True, default="<p></p>")
     description_stripped = models.TextField(blank=True, null=True)
     description_binary = models.BinaryField(null=True)
+    # Valid: PRIORITY_CHOICES — "urgent" | "high" | "medium" | "low" | "none".
     priority = models.CharField(
         max_length=30,
         choices=PRIORITY_CHOICES,
@@ -76,12 +97,24 @@ class DraftIssue(WorkspaceBaseModel):
     )
 
     class Meta:
+        """Database table metadata for ``DraftIssue``."""
+
         verbose_name = "DraftIssue"
         verbose_name_plural = "DraftIssues"
         db_table = "draft_issues"
         ordering = ("-created_at",)
 
     def save(self, *args, **kwargs):
+        """Normalize draft state, ``completed_at``, stripped body, and ``sort_order`` on save.
+
+        - If ``state`` is unset, picks the project's default non-triage state
+          (falling back to any non-triage state if no default exists).
+        - If the state's group is "completed", sets ``completed_at`` to now;
+          otherwise clears ``completed_at``.
+        - Always recomputes ``description_stripped`` from ``description_html``.
+        - On insert, allocates ``sort_order = max(existing) + 10000`` scoped to
+          the same project + state.
+        """
         if self.state is None:
             try:
                 from plane.db.models import State
@@ -132,11 +165,13 @@ class DraftIssue(WorkspaceBaseModel):
             super(DraftIssue, self).save(*args, **kwargs)
 
     def __str__(self):
-        """Return name of the draft issue"""
+        """Return name of the draft issue."""
         return f"{self.name} <{self.project.name}>"
 
 
 class DraftIssueAssignee(WorkspaceBaseModel):
+    """Many-to-many join binding a user as an assignee to a :class:`DraftIssue`."""
+
     draft_issue = models.ForeignKey(DraftIssue, on_delete=models.CASCADE, related_name="draft_issue_assignee")
     assignee = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -145,6 +180,8 @@ class DraftIssueAssignee(WorkspaceBaseModel):
     )
 
     class Meta:
+        """Database table metadata for ``DraftIssueAssignee``."""
+
         unique_together = ["draft_issue", "assignee", "deleted_at"]
         constraints = [
             models.UniqueConstraint(
@@ -159,28 +196,38 @@ class DraftIssueAssignee(WorkspaceBaseModel):
         ordering = ("-created_at",)
 
     def __str__(self):
+        """Return the draft-issue name + assignee email for admin/debug rendering."""
         return f"{self.draft_issue.name} {self.assignee.email}"
 
 
 class DraftIssueLabel(WorkspaceBaseModel):
+    """Many-to-many join binding a :class:`Label` to a :class:`DraftIssue`."""
+
     draft_issue = models.ForeignKey("db.DraftIssue", on_delete=models.CASCADE, related_name="draft_label_issue")
     label = models.ForeignKey("db.Label", on_delete=models.CASCADE, related_name="draft_label_issue")
 
     class Meta:
+        """Database table metadata for ``DraftIssueLabel``."""
+
         verbose_name = "Draft Issue Label"
         verbose_name_plural = "Draft Issue Labels"
         db_table = "draft_issue_labels"
         ordering = ("-created_at",)
 
     def __str__(self):
+        """Return the draft-issue name + label name for admin/debug rendering."""
         return f"{self.draft_issue.name} {self.label.name}"
 
 
 class DraftIssueModule(WorkspaceBaseModel):
+    """Many-to-many join binding a :class:`Module` to a :class:`DraftIssue`."""
+
     module = models.ForeignKey("db.Module", on_delete=models.CASCADE, related_name="draft_issue_module")
     draft_issue = models.ForeignKey("db.DraftIssue", on_delete=models.CASCADE, related_name="draft_issue_module")
 
     class Meta:
+        """Database table metadata for ``DraftIssueModule``."""
+
         unique_together = ["draft_issue", "module", "deleted_at"]
         constraints = [
             models.UniqueConstraint(
@@ -195,18 +242,19 @@ class DraftIssueModule(WorkspaceBaseModel):
         ordering = ("-created_at",)
 
     def __str__(self):
+        """Return the module name + draft-issue name for admin/debug rendering."""
         return f"{self.module.name} {self.draft_issue.name}"
 
 
 class DraftIssueCycle(WorkspaceBaseModel):
-    """
-    Draft Issue Cycles
-    """
+    """Many-to-many join binding a :class:`Cycle` to a :class:`DraftIssue`."""
 
     draft_issue = models.ForeignKey("db.DraftIssue", on_delete=models.CASCADE, related_name="draft_issue_cycle")
     cycle = models.ForeignKey("db.Cycle", on_delete=models.CASCADE, related_name="draft_issue_cycle")
 
     class Meta:
+        """Database table metadata for ``DraftIssueCycle``."""
+
         unique_together = ["draft_issue", "cycle", "deleted_at"]
         constraints = [
             models.UniqueConstraint(
@@ -221,4 +269,5 @@ class DraftIssueCycle(WorkspaceBaseModel):
         ordering = ("-created_at",)
 
     def __str__(self):
+        """Return the parent cycle's stringification for admin/debug rendering."""
         return f"{self.cycle}"

@@ -4,6 +4,50 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX-observed burndown / productivity card for the active cycle screen — renders the
+ * cycle's completion chart against either the work-item or estimate-points distribution,
+ * letting the user switch between the two via an EstimateTypeDropdown whose choice is
+ * persisted on the cycle store. Falls back to a themed empty state when the cycle has no
+ * issues and to a Loader skeleton while the distribution data is still being fetched.
+ *
+ * Props (ActiveCycleProductivityProps):
+ *   - workspaceSlug (string, required): workspace slug — used as the prefix for the Link
+ *     wrapping the chart, which navigates to the cycle detail route.
+ *   - projectId (string, required): project ID — used for the chart Link target and as
+ *     additional context forwarded to the EstimateTypeDropdown.
+ *   - cycle (ICycle | null, required): the active cycle whose distribution and
+ *     estimate_distribution drive chart rendering; when null or when the resolved
+ *     completion chart data is missing, the component renders a Loader skeleton.
+ *
+ * MobX stores read:
+ *   - useCycle (cycle store): destructures `getEstimateTypeByCycleId` to resolve the
+ *     currently selected estimate type (default "issues") and `setEstimateType` to
+ *     persist the user's switch.
+ *
+ * Side effects:
+ *   - Mutations (via store actions): setEstimateType(cycle.id, value) when the user
+ *     toggles between issues and points in the EstimateTypeDropdown. Guarded by an
+ *     early-return when workspaceSlug, projectId, cycle, or cycle.id is missing.
+ *   - Navigations: two next/link `<Link>` wrappers route to
+ *     `/${workspaceSlug}/projects/${projectId}/cycles/${cycle.id}` — clicking the
+ *     section title or the chart area opens the cycle detail page.
+ *   - No direct API calls — the underlying distribution data is fetched upstream by
+ *     `useCyclesDetails` via SWR; this component only reads from the resolved cycle.
+ *   - Theme: useTheme().resolvedTheme selects the light/dark empty-state webp.
+ *
+ * Conditional rendering:
+ *   - estimateType === "points" uses `cycle.estimate_distribution` and renders the
+ *     ProgressChart against `cycle.total_estimate_points`; the pending-points strip is
+ *     computed from `backlog_estimate_points + unstarted_estimate_points + started_estimate_points`.
+ *   - estimateType === "issues" (default fallback) uses `cycle.distribution` and renders
+ *     against `cycle.total_issues`; the pending-work-items strip is computed from
+ *     `backlog_issues + unstarted_issues + started_issues`.
+ *
+ * Consumers: the active cycle detail experience under apps/web/app/[workspaceSlug]/projects/
+ * [projectId]/cycles/(detail)/[cycleId]/active-cycle.
+ */
+
 import { Fragment } from "react";
 import { observer } from "mobx-react";
 import Link from "next/link";

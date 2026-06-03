@@ -4,6 +4,31 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Issue filter orchestration helpers — the abstract base for every branch filter store.
+ *
+ * Exposes the local-storage shape (`ILocalStoreIssueFilters`), the base filter store
+ * contract (`IBaseIssueFilterStore`), the helper contract (`IIssueFilterHelperStore`), and
+ * the stateless service class `IssueFilterHelperStore` that every branch filter store extends:
+ * `CycleIssuesFilter`, `ModuleIssuesFilter`, `ProjectIssuesFilter`, `ProjectViewIssuesFilter`,
+ * `WorkspaceIssuesFilter`, `ProfileIssuesFilter`, `ArchivedIssuesFilter`, `WorkspaceDraftIssuesFilter`,
+ * plus plane-web tier extensions (`TeamIssuesFilter`, `TeamViewIssuesFilter`,
+ * `TeamProjectWorkItemsFilter`, `ProjectEpicsFilter`).
+ *
+ * Responsibilities of the base class:
+ *   - normalize filter objects with stable defaults (`computedIssueFilters`, `computedFilters`)
+ *   - convert `richFilters`, `displayFilters`, and `displayProperties` into API-ready request params (`computedFilteredParams`)
+ *   - map group-by / sub-group-by display values into server enum keys via `EIssueGroupByToServerOptions`
+ *   - conditionally request `issue_relation` / `issue_related` expansions for Gantt layouts when `ENABLE_ISSUE_DEPENDENCIES` is on
+ *   - derive preset filters for static profile views (`assigned`, `created`, `subscribed`, `all-issues`) via `getFilterConditionBasedOnViews`
+ *   - decide whether a display-filter change requires a server refetch (`getShouldReFetchIssues`) or a full list clear (`getShouldClearIssues`)
+ *   - assemble pagination params including cursor, page size, and calendar before/after date bounds (`getPaginationParams`)
+ *   - persist/restore view-specific filter state through the `issue_local_filters` `localStorage` key via `handleIssuesLocalFilters`
+ *
+ * Consumers: every concrete filter store under `apps/web/core/store/issue/{cycle,module,project,
+ * project-views,workspace,workspace-draft,profile,archived}/filter.store.ts`, plus the plane-web
+ * tier filter stores.
+ */
 import { isEmpty } from "lodash-es";
 // plane constants
 import type { EIssueFilterType } from "@plane/constants";
@@ -32,6 +57,14 @@ import { getComputedDisplayFilters, getComputedDisplayProperties } from "@plane/
 import { storage } from "@/lib/local-storage";
 import { getEnabledDisplayFilters } from "@/plane-web/store/issue/helpers/filter-utils";
 
+/**
+ * Persisted shape of a single per-view filter snapshot kept in the `issue_local_filters`
+ * `localStorage` key.
+ *
+ * The `viewId` field is overloaded — depending on the originating `key` (`EIssuesStoreType`)
+ * it holds a `projectId`, `moduleId`, `cycleId`, or `projectViewId`. The tuple
+ * `(key, workspaceSlug, viewId, userId)` uniquely identifies a stored filter entry.
+ */
 interface ILocalStoreIssueFilters {
   key: EIssuesStoreType;
   workspaceSlug: string;
@@ -40,6 +73,13 @@ interface ILocalStoreIssueFilters {
   filters: IIssueFilters;
 }
 
+/**
+ * Base contract that every concrete filter store implements.
+ *
+ * Exposes the observable map of per-view filter state (`filters` keyed by view id) and the
+ * computed selectors `appliedFilters` (server-ready query params for the active view) and
+ * `issueFilters` (the typed `IIssueFilters` object for the active view).
+ */
 export interface IBaseIssueFilterStore {
   // observables
   filters: Record<string, IIssueFilters>;
@@ -48,6 +88,13 @@ export interface IBaseIssueFilterStore {
   issueFilters: IIssueFilters | undefined;
 }
 
+/**
+ * Helper contract exposing the pure transformations the abstract base filter store provides.
+ *
+ * Each method is stateless — implementations normalize, convert, or derive filter / display
+ * values without mutating any observable state. Branch filter stores call these helpers when
+ * preparing API requests or seeding default state.
+ */
 export interface IIssueFilterHelperStore {
   computedIssueFilters(filters: IIssueFilters): IIssueFilters;
   computedFilteredParams(
@@ -67,6 +114,15 @@ export interface IIssueFilterHelperStore {
   computedDisplayProperties(filters: IIssueDisplayProperties): IIssueDisplayProperties;
 }
 
+/**
+ * Stateless service that powers every concrete issue filter store.
+ *
+ * Branch filter stores (cycle, module, project, project-view, workspace, profile, archived,
+ * workspace-draft, plus plane-web extensions) extend this class to inherit consistent filter
+ * normalization, server-param mapping, layout-aware param assembly, `localStorage` persistence,
+ * and refetch / clear decision logic. The class does not own any observable state itself —
+ * it is a pure helper bag designed to be subclassed by stores that do hold observable filter state.
+ */
 export class IssueFilterHelperStore implements IIssueFilterHelperStore {
   constructor() {}
 
@@ -196,6 +252,14 @@ export class IssueFilterHelperStore implements IIssueFilterHelperStore {
   computedDisplayProperties = (displayProperties: IIssueDisplayProperties): IIssueDisplayProperties =>
     getComputedDisplayProperties(displayProperties);
 
+  /**
+   * `localStorage` gateway for view-specific filter persistence under the `issue_local_filters` key.
+   *
+   * `fetchFiltersFromStorage` reads the raw JSON array. `get` returns the filter slice for the
+   * tuple `(currentView, workspaceSlug, viewId, userId)`. `set` upserts the entry by replacing
+   * only the named `filterType` slice (`filters`, `displayFilters`, `displayProperties`, or
+   * `kanbanFilters`) so unrelated slices on the same view are preserved across calls.
+   */
   handleIssuesLocalFilters = {
     fetchFiltersFromStorage: () => {
       const _filters = storage.get("issue_local_filters");

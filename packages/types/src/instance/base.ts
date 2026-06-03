@@ -4,6 +4,13 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Singleton instance identity + runtime config contracts mirroring
+ * `apps/api/plane/license/` models; consumed by `apps/admin/` (read/write)
+ * and `apps/web` (read-only display of `is_smtp_configured`/`has_llm_configured`/
+ * `enable_signup` etc.).
+ */
+
 import type { IUserLite } from "../users";
 import type {
   TInstanceAIConfigurationKeys,
@@ -15,11 +22,27 @@ import type {
 } from "./";
 import type { TExtendedLoginMediums } from "./auth-ee";
 
+/**
+ * Composite payload returned from the instance bootstrap endpoint pairing the
+ * persistent `IInstance` record with the runtime `IInstanceConfig` snapshot.
+ *
+ * Consumers: instance setup wizard in `apps/admin/`, `apps/web` boot
+ * (decides which auth UI / sign-up flow to render).
+ *
+ * @property instance — canonical instance entity (license, version, identity).
+ * @property config — runtime configuration flags (feature toggles, base URLs).
+ */
 export interface IInstanceInfo {
   instance: IInstance;
   config: IInstanceConfig;
 }
 
+/**
+ * Canonical instance entity mirroring `apps/api/plane/license/` models;
+ * `instance_id` (server-assigned at registration) is distinct from `id`
+ * (DB PK), `license_key` is present only on activated paid deployments, and
+ * `workspaces_exist=false` redirects sign-in to workspace creation.
+ */
 export interface IInstance {
   id: string;
   created_at: string;
@@ -44,6 +67,13 @@ export interface IInstance {
   workspaces_exist: boolean;
 }
 
+/**
+ * Runtime feature-flag + provider-enablement + base-URL snapshot surfaced to
+ * the frontend at boot; `has_*_configured` booleans are derived from the
+ * presence of the matching server-side configuration rows, and the magic-link
+ * and email/password toggles may both be false only when at least one OAuth
+ * provider is enabled.
+ */
 export interface IInstanceConfig {
   enable_signup: boolean;
   is_workspace_creation_disabled: boolean;
@@ -68,6 +98,11 @@ export interface IInstanceConfig {
   instance_changelog_url?: string;
 }
 
+/**
+ * Instance-admin membership row driving admin permissions in `apps/admin/`
+ * and `apps/api/plane/license/` guards; `user_detail` is a denormalized
+ * `IUserLite` embedded to avoid a second round-trip when rendering lists.
+ */
 export interface IInstanceAdmin {
   created_at: string;
   created_by: string;
@@ -80,6 +115,11 @@ export interface IInstanceAdmin {
   user_detail: IUserLite;
 }
 
+/**
+ * Union of every configuration key persisted on an instance, composed from
+ * the per-domain unions (AI, email, image, auth, workspace); drives
+ * `apps/admin/` settings screens and the API license configuration store.
+ */
 export type TInstanceConfigurationKeys =
   | TInstanceAIConfigurationKeys
   | TInstanceEmailConfigurationKeys
@@ -87,6 +127,11 @@ export type TInstanceConfigurationKeys =
   | TInstanceAuthenticationKeys
   | TInstanceWorkspaceConfigurationKeys;
 
+/**
+ * Single persisted instance-configuration row keyed by `TInstanceConfigurationKeys`;
+ * `value` is always a string (consumers coerce to bool/number) and the audit
+ * `created_by`/`updated_by` are `null` when written by migrations or setup.
+ */
 export interface IInstanceConfiguration {
   id: string;
   created_at: string;
@@ -97,8 +142,18 @@ export interface IInstanceConfiguration {
   updated_by: string | null;
 }
 
+/**
+ * Flattened key→value map collapsed from `IInstanceConfiguration` rows for
+ * admin form binding; boolean keys are typically `"1"`/`"0"` and numeric keys
+ * are decimal strings (consumers coerce on read).
+ */
 export type IFormattedInstanceConfiguration = {
   [key in TInstanceConfigurationKeys]: string;
 };
 
+/**
+ * Union of every login medium recognized on the instance — core mediums
+ * (`TCoreLoginMediums`) extended by `TExtendedLoginMediums` (`never` in CE,
+ * widened by the EE overlay).
+ */
 export type TLoginMediums = TCoreLoginMediums | TExtendedLoginMediums;

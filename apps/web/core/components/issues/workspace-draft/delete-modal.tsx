@@ -4,6 +4,44 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Confirmation dialog for deleting a workspace draft issue.
+ *
+ * Resolves the target issue from either the provided `data` prop or by
+ * looking up `dataId` in `issueMap`, enforces creator-or-project-admin
+ * authorization client-side, and delegates the actual delete to the
+ * parent-supplied `onSubmit` callback (typically
+ * `deleteIssue(workspaceSlug, issueId)` on the workspace draft store).
+ *
+ * Props:
+ *   - isOpen (boolean, required): modal visibility.
+ *   - handleClose (() => void, required): close handler.
+ *   - dataId? (string | null | undefined): issue id used to look up the
+ *     issue via `issueMap` when `data` is not pre-resolved.
+ *   - data? (TWorkspaceDraftIssue): pre-resolved issue snapshot; takes
+ *     precedence over `dataId`.
+ *   - onSubmit? (() => Promise<void>): actual delete operation; the parent
+ *     performs persistence (no network call is made from this component).
+ *
+ * MobX stores read (via React context):
+ *   - useIssues — issueMap (only used when falling back from `dataId`).
+ *   - useUserPermissions — allowPermissions (project-admin gate).
+ *   - useUser — currentUser (drives the `isIssueCreator` check).
+ *   - useTranslation — translator for localized title, body, and toasts.
+ *
+ * Side effects:
+ *   - Unauthorized actors (neither creator nor project admin) get a
+ *     permission-error toast and the modal closes without invoking
+ *     `onSubmit` — this prevents unnecessary 4xx requests.
+ *   - On submit success emits `workspace_draft_issues.toasts.deleted.success`.
+ *   - On submit error inspects `errors?.error` for the server-side
+ *     permission-error signature and selects the appropriate toast message
+ *     (permissionError vs. issueDeleteError).
+ *   - Modal is always closed in `finally` to avoid sticky open state.
+ *
+ * Renders via `AlertModalCore` from `@plane/ui` — no custom layout.
+ */
+
 import { useEffect, useState } from "react";
 // types
 import { PROJECT_ERROR_MESSAGES, EUserPermissions, EUserPermissionsLevel } from "@plane/constants";

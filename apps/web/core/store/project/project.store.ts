@@ -4,6 +4,146 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Project store — main MobX domain store for workspace project entities.
+ *
+ * Owns the in-memory project map for the active workspace, derived selectors
+ * (filtered/joined/favorite/archived/total IDs), CRUD + archive lifecycle
+ * actions, favorites toggles, analytics counts, and the project overview
+ * collapsible UI section state. Reads filter/search state from the sibling
+ * project filter store to compute filteredProjectIds.
+ *
+ * State slice (each registered as observable in the `makeObservable` block):
+ *   - isUpdatingProject: boolean — true while updateProject is in flight.
+ *   - loader: TLoader (observable.ref) — "init-loader" | "mutation" | "loaded".
+ *   - fetchStatus: TFetchStatus (observable.ref) — "partial" | "complete"
+ *     | undefined; tracks whether the last fetch loaded partial or full
+ *     project data.
+ *   - projectMap: Record<string, TProject> — primary entity map keyed by
+ *     projectId.
+ *   - projectAnalyticsCountMap: Record<string, TProjectAnalyticsCount> —
+ *     per-project analytics counts keyed by projectId.
+ *   - openCollapsibleSection: ProjectOverviewCollapsible[] (observable.ref) —
+ *     active collapsibles on the project overview ("links", "attachments",
+ *     "milestones"); defaults to ["milestones"].
+ *   - lastCollapsibleAction: ProjectOverviewCollapsible | null
+ *     (observable.ref) — most recently toggled section.
+ *
+ * Computed getters (each registered as `computed` in `makeObservable`):
+ *   - isInitializingProjects — true while loader === "init-loader".
+ *   - filteredProjectIds — joins projectMap with projectFilter store
+ *     (displayFilters, filters, searchQuery) and applies @plane/utils
+ *     `shouldFilterProject` + `orderProjects`. Recomputes when projectMap,
+ *     projectFilter.displayFilters, projectFilter.filters,
+ *     projectFilter.searchQuery, or workspaceRoot.currentWorkspace change.
+ *   - workspaceProjectIds — non-archived project IDs for the current
+ *     workspace; recomputes on projectMap or workspaceRoot.currentWorkspace.
+ *   - archivedProjectIds — archived project IDs (sorted by archived_at) for
+ *     the current workspace.
+ *   - totalProjectIds — concatenation of workspaceProjectIds + archived.
+ *   - joinedProjectIds — workspace projects where the current user has a
+ *     member_role and the project is not archived (sorted by sort_order).
+ *   - favoriteProjectIds — joinedProjectIds where is_favorite === true.
+ *   - currentProjectDetails — projectMap entry for rootStore.router.projectId.
+ *   - currentProjectNextSequenceId — `next_work_item_sequence` of the current
+ *     project; used by list-layout components to size identifier columns.
+ *
+ * Computed functions (memoized via `mobx-utils#computedFn`):
+ *   - getProjectById(projectId) — synchronous TProject lookup.
+ *   - getProjectByIdentifier(projectIdentifier) — finds a project by its
+ *     short identifier string (e.g., "PLANE").
+ *   - getPartialProjectById(projectId) — same as getProjectById but typed as
+ *     TPartialProject for partial-fetch contexts.
+ *   - getProjectIdentifierById(projectId) — returns the project's identifier
+ *     string (or undefined).
+ *   - getProjectAnalyticsCountById(projectId) — looks up
+ *     projectAnalyticsCountMap.
+ *
+ * Actions:
+ *   Fetch:
+ *     - fetchPartialProjects(workspaceSlug) — GETs lightweight project list
+ *       via ProjectService.getProjectsLite; merges into projectMap; sets
+ *       loader/fetchStatus.
+ *     - fetchProjects(workspaceSlug) — GETs full project list via
+ *       ProjectService.getProjects; toggles loader between "mutation" (when
+ *       already populated) and "init-loader"; sets fetchStatus="complete".
+ *     - fetchProjectDetails(workspaceSlug, projectId) — GETs single project
+ *       via ProjectService.getProject; merges into projectMap[projectId].
+ *     - fetchProjectAnalyticsCount(workspaceSlug, params?) — GETs analytics
+ *       counts; populates projectAnalyticsCountMap.
+ *   Favorites:
+ *     - addProjectToFavorites(workspaceSlug, projectId) — optimistically sets
+ *       projectMap[projectId].is_favorite=true; calls
+ *       rootStore.favorite.addFavorite; rolls back on failure.
+ *     - removeProjectFromFavorites(workspaceSlug, projectId) — optimistic
+ *       removal via rootStore.favorite.removeFavoriteEntity with rollback.
+ *   View / sort:
+ *     - updateProjectView(workspaceSlug, projectId, viewProps) — updates
+ *       projectMap[projectId].sort_order optimistically; persists via
+ *       ProjectService.updateProjectUserProperties; rolls back on error.
+ *   CRUD:
+ *     - createProject(workspaceSlug, data) — POSTs via ProjectService;
+ *       invokes processProjectAfterCreation to insert into projectMap and
+ *       write member_role into rootStore.user.permission.workspaceProjectsPermissions.
+ *     - updateProject(workspaceSlug, projectId, data) — optimistic merge into
+ *       projectMap; PATCHes via ProjectService; rolls back to cloned snapshot
+ *       on failure; toggles isUpdatingProject.
+ *     - deleteProject(workspaceSlug, projectId) — DELETEs via ProjectService;
+ *       removes from projectMap; calls rootStore.favorite.removeFavoriteFromStore
+ *       when present; removes the workspace permission entry.
+ *   Archive:
+ *     - archiveProject(workspaceSlug, projectId) — POSTs via
+ *       ProjectArchiveService.archiveProject; stamps archived_at; removes
+ *       from favorites store.
+ *     - restoreProject(workspaceSlug, projectId) — restores via
+ *       ProjectArchiveService.restoreProject; clears archived_at.
+ *   Collapsible UI:
+ *     - setOpenCollapsibleSection(section[]) — replaces the open list.
+ *     - setLastCollapsibleAction(section) — appends to open list.
+ *     - toggleOpenCollapsibleSection(section) — flips presence in open list.
+ *   Helper:
+ *     - processProjectAfterCreation(workspaceSlug, data) — inserts the new
+ *       project into projectMap and writes member_role into
+ *       rootStore.user.permission.workspaceProjectsPermissions[workspaceSlug][projectId].
+ *
+ * Cross-store reads:
+ *   - rootStore.workspaceRoot.currentWorkspace — drives workspace scoping on
+ *     every list-style getter.
+ *   - rootStore.router.workspaceSlug / projectId — drives currentProject*
+ *     getters.
+ *   - rootStore.projectRoot.projectFilter.{displayFilters, filters, searchQuery}
+ *     — consumed by filteredProjectIds.
+ *
+ * Cross-store writes:
+ *   - rootStore.favorite.{addFavorite, removeFavoriteEntity,
+ *     removeFavoriteFromStore} — favorites sync.
+ *   - rootStore.user.permission.workspaceProjectsPermissions[slug][id] —
+ *     created on processProjectAfterCreation, deleted on deleteProject.
+ *
+ * Service dependencies (instantiated in the constructor):
+ *   - ProjectService — primary CRUD + sort_order persistence.
+ *   - ProjectArchiveService — archive/restore endpoints.
+ *   - IssueService, IssueLabelService — held for use by orchestration flows
+ *     (currently retained for backward compatibility / forthcoming features).
+ *   - ProjectStateService — held for state-service interactions.
+ *
+ * Consumers:
+ *   - Workspace and project sidebar navigation under
+ *     apps/web/core/components/workspace/** and apps/web/app/(all)/[workspaceSlug]/projects/**.
+ *   - Project list / dashboard cards under
+ *     apps/web/core/components/project/**.
+ *   - Issue layouts that scope by project under
+ *     apps/web/core/components/issues/issue-layouts/filters/header/filters/project.tsx,
+ *     apps/web/core/components/issues/issue-layouts/filters/applied-filters/project.tsx,
+ *     apps/web/core/components/issues/issue-layouts/{list,kanban}/block.tsx,
+ *     apps/web/core/components/issues/issue-layouts/spreadsheet/issue-row.tsx,
+ *     and peek/modal flows reading currentProjectDetails.
+ *   - Project overview / detail pages reading openCollapsibleSection,
+ *     currentProjectDetails, currentProjectNextSequenceId.
+ *   - Sibling stores that derive from project data (e.g., cycle / module
+ *     filter stores) reach this store via rootStore.projectRoot.project.
+ */
+
 import { sortBy, cloneDeep, update, set } from "lodash-es";
 import { observable, action, computed, makeObservable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";

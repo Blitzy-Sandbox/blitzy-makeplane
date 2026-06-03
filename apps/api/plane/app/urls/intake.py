@@ -2,6 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for intake-domain endpoints.
+
+Maps the intake container and intake-issue ViewSets from
+``plane.app.views`` (CRUD plus work-item description versioning)
+to URL paths scoped under
+``workspaces/<slug>/projects/<project_id>/intakes/``.
+"""
+
 from django.urls import path
 
 

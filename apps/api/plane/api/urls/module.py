@@ -2,6 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routes for the external ``/api/v1/`` module (work-item grouping) surface.
+
+Binds project-scoped module CRUD, module-issue association, and
+archive/unarchive endpoints to the view classes in ``plane.api.views`` (5
+``Module*APIEndpoint`` classes); all routes inherit ``X-Api-Key``
+authentication and ``ApiKeyRateThrottle`` throttling from ``BaseAPIView``.
+"""
+
 from django.urls import path
 
 from plane.api.views import (

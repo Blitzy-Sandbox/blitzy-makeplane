@@ -2,6 +2,17 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Project endpoints for the external ``/api/v1/`` API.
+
+Exposes CRUD over ``Project`` rows plus archive/unarchive and per-project
+rollup summaries (members, states, labels, cycles, modules, issues,
+intakes, pages). Creating a project also bootstraps the default
+``State`` rows and assigns the creator as ``ProjectMember`` admin.
+
+Authentication is via the ``X-Api-Key`` header (see
+``plane.api.middleware.api_authentication.APIKeyAuthentication``).
+"""
+
 # Python imports
 import json
 
@@ -72,7 +83,68 @@ from plane.utils.openapi import (
 
 
 class ProjectListCreateAPIEndpoint(BaseAPIView):
-    """Project List and Create Endpoint"""
+    """List or create projects within a workspace.
+
+    HTTP methods + URL pattern:
+        GET   /api/v1/workspaces/<slug>/projects/
+        POST  /api/v1/workspaces/<slug>/projects/
+
+    Request body (POST) -- see ``ProjectCreateSerializer``:
+        name            (str, required)  - Project name.
+        identifier      (str, required)  - Short identifier (e.g.
+            ``ENG``); used as the prefix for work-item sequence IDs;
+            IMMUTABLE once set.
+        description     (str, optional)
+        network         (int, optional, default 2) - Visibility:
+            ``0=Secret``, ``2=Public`` within the workspace.
+        emoji           (str, optional)
+        icon_prop       (object, optional) - Icon descriptor JSON.
+        cover_image     (str, optional)   - URL/path.
+        module_view     (bool, optional, default True)
+        cycle_view      (bool, optional, default True)
+        issue_views_view (bool, optional, default True)
+        page_view       (bool, optional, default True)
+        intake_view     (bool, optional, default False)
+        external_id     (str, optional)   - External identifier.
+        external_source (str, optional)   - External system identifier.
+
+    Response shape:
+        - GET: paginated array of projects via
+          ``ProjectSerializer`` with the annotations ``is_member``,
+          ``total_members``, ``total_cycles``, ``total_modules``,
+          ``member_role``, and ``is_deployed`` (see ``get_queryset``).
+        - POST: created project via ``ProjectSerializer``.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectBasePermission``:
+            - GET: any workspace member.
+            - POST: workspace ``ADMIN`` or ``MEMBER`` only.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Constraints on POST:
+        - Returns ``409 Conflict`` on duplicate ``(external_id,
+          external_source)`` pair with the existing project's ``id``.
+        - ``identifier`` must be unique within the workspace.
+
+    Side effects on POST (executed inside a DB transaction):
+        - Writes ``Project`` row.
+        - Writes ``ProjectMember`` row for the creator with role
+          ``ADMIN`` (20).
+        - Bulk-inserts the default ``State`` rows (backlog, unstarted,
+          started, completed, cancelled).
+        - On commit (``transaction.on_commit(robust=True)``) dispatches
+          ``_dispatch_model_activity`` which enqueues the
+          ``model_activity`` task via Celery+RabbitMQ for the project
+          audit feed.
+        - Triggers webhook fan-out via ``webhook_activity``/
+          ``webhook_task`` if the workspace has active webhook
+          subscriptions for ``project`` events.
+    """
 
     serializer_class = ProjectSerializer
     model = Project
@@ -81,6 +153,24 @@ class ProjectListCreateAPIEndpoint(BaseAPIView):
     use_read_replica = True
 
     def get_queryset(self):
+        """Return projects in the workspace with rollup annotations.
+
+        Annotations attached to each row:
+
+        - ``is_member`` - ``Exists(ProjectMember)`` for the requesting
+          user.
+        - ``total_members`` - count of active project members.
+        - ``total_cycles`` - count of non-archived cycles.
+        - ``total_modules`` - count of non-archived modules.
+        - ``member_role`` - the requesting user's project role.
+        - ``is_deployed`` - whether the project has a public
+          ``DeployBoard``.
+
+        Archived projects (``archived_at IS NOT NULL``) are excluded.
+        Joins are pre-fetched via ``select_related`` and
+        ``prefetch_related``; ``distinct()`` is required because the
+        join across ``ProjectMember`` would otherwise duplicate rows.
+        """
         return (
             Project.objects.filter(workspace__slug=self.kwargs.get("slug"))
             .filter(
@@ -162,7 +252,7 @@ class ProjectListCreateAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug):
-        """List projects
+        """List projects in a workspace.
 
         Retrieve all projects in a workspace or get details of a specific project.
         Returns projects ordered by user's custom sort order with member information.
@@ -213,10 +303,14 @@ class ProjectListCreateAPIEndpoint(BaseAPIView):
         },
     )
     def post(self, request, slug):
-        """Create project
+        """Create a project and bootstrap its initial membership and states.
 
-        Create a new project in the workspace with default states and member assignments.
-        Automatically adds the creator as admin and sets up default workflow states.
+        Wraps the operation in a DB transaction: creates ``Project`` row,
+        the creator's ``ProjectMember`` admin row, and the default
+        ``State`` rows. On commit, dispatches ``model_activity`` via
+        Celery+RabbitMQ and fires project webhooks if subscriptions are
+        active. Returns ``409 Conflict`` on duplicate ``(external_id,
+        external_source)``.
         """
         try:
             workspace = Workspace.objects.get(slug=slug)
@@ -331,7 +425,42 @@ class ProjectListCreateAPIEndpoint(BaseAPIView):
 
 
 class ProjectDetailAPIEndpoint(BaseAPIView):
-    """Project Endpoints to  update, retrieve and delete endpoint"""
+    """Retrieve, partially update, or delete a single project.
+
+    HTTP methods + URL pattern:
+        GET     /api/v1/workspaces/<slug>/projects/<uuid:pk>/
+        PATCH   /api/v1/workspaces/<slug>/projects/<uuid:pk>/
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:pk>/
+
+    Request body (PATCH) -- partial ``ProjectUpdateSerializer`` payload:
+        Any subset of the writable ``Project`` fields except ``identifier``,
+        which is IMMUTABLE once set -- including it in the payload returns
+        ``400 Bad Request``. Archived projects (``archived_at IS NOT NULL``)
+        cannot be updated and return ``400 Bad Request``.
+
+    Response shape:
+        - GET: project serialized via ``ProjectSerializer`` (same
+          annotations as the list endpoint).
+        - PATCH: updated project via ``ProjectSerializer``.
+        - DELETE: HTTP 204 with empty body.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectBasePermission`` -- mutations require project ``ADMIN`` or
+        (workspace ``ADMIN`` AND project membership).
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Side effects on PATCH / DELETE:
+        - PATCH: writes to ``Project``; dispatches ``model_activity`` via
+          Celery+RabbitMQ; fires project webhooks if active.
+        - DELETE: hard-deletes the project; cascades through all project
+          entities (issues, cycles, modules, pages, etc.); fires project
+          webhooks.
+    """
 
     serializer_class = ProjectSerializer
     model = Project
@@ -341,6 +470,7 @@ class ProjectDetailAPIEndpoint(BaseAPIView):
     use_read_replica = True
 
     def get_queryset(self):
+        """Return the single project, applying the same annotations as the list endpoint."""
         return (
             Project.objects.filter(workspace__slug=self.kwargs.get("slug"))
             .filter(
@@ -417,10 +547,7 @@ class ProjectDetailAPIEndpoint(BaseAPIView):
         },
     )
     def get(self, request, slug, pk):
-        """Retrieve project
-
-        Retrieve details of a specific project.
-        """
+        """Retrieve the project with rollup annotations."""
         project = self.get_queryset().get(workspace__slug=slug, pk=pk)
         serializer = ProjectSerializer(project, fields=self.fields, expand=self.expand)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -447,11 +574,7 @@ class ProjectDetailAPIEndpoint(BaseAPIView):
         },
     )
     def patch(self, request, slug, pk):
-        """Update project
-
-        Partially update an existing project's properties like name, description, or settings.
-        Tracks changes in model activity logs for audit purposes.
-        """
+        """Apply a partial update to the project; ``identifier`` is immutable."""
         try:
             workspace = Workspace.objects.get(slug=slug)
             project = Project.objects.get(pk=pk)
@@ -524,11 +647,7 @@ class ProjectDetailAPIEndpoint(BaseAPIView):
         },
     )
     def delete(self, request, slug, pk):
-        """Delete project
-
-        Permanently remove a project and all its associated data from the workspace.
-        Only admins can delete projects and the action cannot be undone.
-        """
+        """Hard-delete the project; cascades to all project entities and fires webhooks."""
         project = Project.objects.get(pk=pk, workspace__slug=slug)
         # Delete the user favorite cycle
         UserFavorite.objects.filter(entity_type="project", entity_identifier=pk, project_id=pk).delete()
@@ -550,7 +669,37 @@ class ProjectDetailAPIEndpoint(BaseAPIView):
 
 
 class ProjectArchiveUnarchiveAPIEndpoint(BaseAPIView):
-    """Project Archive and Unarchive Endpoint"""
+    """Archive or unarchive a project.
+
+    HTTP methods + URL pattern:
+        POST    /api/v1/workspaces/<slug>/projects/<uuid:project_id>/archive/
+        DELETE  /api/v1/workspaces/<slug>/projects/<uuid:project_id>/archive/
+
+    Request body:
+        None.
+
+    Response shape:
+        - POST: HTTP 204 with empty body.
+        - DELETE: HTTP 204 with empty body.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``ProjectBasePermission`` -- only project ``ADMIN`` or workspace
+        ``ADMIN`` + project member can archive/unarchive.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Semantics:
+        - POST sets ``Project.archived_at = timezone.now()``. Archived
+          projects are excluded from the default list queryset and from
+          most child-entity scopes (cycles, modules) by their respective
+          endpoint filters. Also drops the user's project favorites.
+        - DELETE sets ``Project.archived_at = None`` to restore the
+          project.
+    """
 
     permission_classes = [ProjectBasePermission]
 
@@ -567,11 +716,7 @@ class ProjectArchiveUnarchiveAPIEndpoint(BaseAPIView):
         },
     )
     def post(self, request, slug, project_id):
-        """Archive project
-
-        Move a project to archived status, hiding it from active project lists.
-        Archived projects remain accessible but are excluded from regular workflows.
-        """
+        """Archive the project by setting ``archived_at`` to the current timestamp."""
         project = Project.objects.get(pk=project_id, workspace__slug=slug)
         project.archived_at = timezone.now()
         project.save()
@@ -591,11 +736,7 @@ class ProjectArchiveUnarchiveAPIEndpoint(BaseAPIView):
         },
     )
     def delete(self, request, slug, project_id):
-        """Unarchive project
-
-        Restore an archived project to active status, making it available in regular workflows.
-        The project will reappear in active project lists and become fully functional.
-        """
+        """Unarchive the project by clearing ``archived_at``."""
         project = Project.objects.get(pk=project_id, workspace__slug=slug)
         project.archived_at = None
         project.save()
@@ -615,14 +756,70 @@ ALLOWED_PROJECT_SUMMARY_FIELDS = [
 
 
 class ProjectSummaryAPIEndpoint(BaseAPIView):
+    """Return rollup counts for a project.
+
+    Provides a fast single-round-trip summary intended for project
+    dashboards and CLI consumers that need entity counts without
+    paginating each list endpoint.
+
+    HTTP methods + URL pattern:
+        GET   /api/v1/workspaces/<slug>/projects/<uuid:project_id>/summary/
+
+    Query parameters:
+        fields  (str, optional) - Comma-separated subset of the supported
+            facets to include. When omitted, all facets are returned.
+            Valid values: ``members``, ``states``, ``labels``, ``cycles``,
+            ``modules``, ``issues``, ``intakes``, ``pages``.
+
+    Response shape:
+        JSON object with project identity plus a nested ``counts``
+        dictionary keyed by the requested fields, e.g.::
+
+            {
+              "id": "<uuid>",
+              "name": "Project Name",
+              "identifier": "ENG",
+              "counts": {
+                "members": 12,
+                "states": 5,
+                "labels": 8,
+                "cycles": 3,
+                "modules": 2,
+                "issues": 154,
+                "intakes": 4,
+                "pages": 21
+              }
+            }
+
+        Fields absent from the ``fields`` query are omitted from the
+        ``counts`` dictionary. Returns ``404 Not Found`` if the project
+        does not exist in the workspace.
+
+    Authentication:
+        ``X-Api-Key`` header validated by ``APIKeyAuthentication`` (inherited
+        from ``BaseAPIView``).
+    Permissions:
+        ``WorkSpaceAdminPermission`` -- only workspace ``ADMIN`` members
+        may read the summary.
+    Throttle:
+        ``ApiKeyRateThrottle`` (60/minute) or ``ServiceTokenRateThrottle``
+        (300/minute) when the API token has ``is_service=True``.
+
+    Performance:
+        ``use_read_replica = True`` -- served by the read replica.
+        Counts are computed in a single ORM round-trip via
+        ``Count(...)`` annotations inside the ``_get_all_summary_counts``
+        helper. ``issues`` count excludes triage-state issues.
+
+    Side effects:
+        Read-only -- no DB writes, no Celery enqueues.
+    """
+
     permission_classes = [WorkSpaceAdminPermission]
     use_read_replica = True
 
     def get(self, request, slug, project_id):
-        """Get project summary
-
-        Get the summary of a project
-        """
+        """Return the requested subset of project rollup counts."""
         project = Project.objects.filter(pk=project_id, workspace__slug=slug).first()
         if not project:
             return Response({"error": "Project not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -645,7 +842,6 @@ class ProjectSummaryAPIEndpoint(BaseAPIView):
     # Getting all summary counts in one ORM query; only runs subqueries for requested fields.
     def _get_all_summary_counts(self, project_id, requested_fields):
         """Return requested summary counts in one ORM query; only runs subqueries for requested fields."""
-
         # Using a different annotation name for 'pages' to avoid conflict with Project.pages (M2M from Page)
         def _annotation_name(field):
             return "pages_count" if field == "pages" else field

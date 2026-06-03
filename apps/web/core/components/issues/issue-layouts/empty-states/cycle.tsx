@@ -4,6 +4,30 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Empty-state surface for the cycle work items layout. Renders one of three variants:
+ *   (1) Completed cycle empty — when the cycle has a `progress_snapshot` or status === "completed".
+ *   (2) Filtered empty — when `cycleWorkItemFilter.hasActiveFilters` is true (offers a Clear filters action).
+ *   (3) Default cycle empty — primary CTA opens create-issue modal (CYCLE store);
+ *       secondary CTA opens an existing-issues modal to attach already-existing issues to the cycle.
+ *
+ * Hooks read:
+ *   - useCycle().getCycleById                                  (cycle progress_snapshot + status)
+ *   - useIssues(EIssuesStoreType.CYCLE).issues.addIssueToCycle (async API: attach issues)
+ *   - useCommandPalette().toggleCreateIssueModal               (open create-issue modal)
+ *   - useUserPermissions().allowPermissions                    (CTA permission gate)
+ *   - useWorkItemFilterInstance(CYCLE, cycleId)                (hasActiveFilters, clearFilters)
+ *   - useTranslation() / useParams()                           (copy + route binding)
+ *
+ * Side effects:
+ *   - issues.addIssueToCycle(workspaceSlug, projectId, cycleId, issueIds) → success/error toast via setToast.
+ *   - toggleCreateIssueModal(true, EIssuesStoreType.CYCLE) → opens global create-issue modal scoped to cycle store.
+ *   - cycleWorkItemFilter.clearFilters() → store-level filter reset.
+ *   - setCycleIssuesListModal(true) → opens the local ExistingIssuesListModal.
+ *
+ * Consumed by: `./index.tsx` (IssueLayoutEmptyState) when storeType === EIssuesStoreType.CYCLE.
+ */
+
 import { useState } from "react";
 import { isEmpty } from "lodash-es";
 import { observer } from "mobx-react";
@@ -23,6 +47,23 @@ import { useIssues } from "@/hooks/store/use-issues";
 import { useUserPermissions } from "@/hooks/store/user";
 import { useWorkItemFilterInstance } from "@/hooks/store/work-item-filters/use-work-item-filter-instance";
 
+/**
+ * Renders the cycle work items empty state.
+ *
+ * Props: none — route params (`workspaceSlug`, `projectId`, `cycleId`) are read via `useParams`.
+ *
+ * Local state: `cycleIssuesListModal: boolean` controls the ExistingIssuesListModal visibility.
+ *
+ * Variant selection (why this component branches three ways):
+ *   - Completed cycle (`progress_snapshot` non-empty OR `status === "completed"`) → no-action empty
+ *     (the cycle is sealed; CTAs would attach work items to a closed timebox). The OR exists because
+ *     `progress_snapshot` is the backend-finalized completion signal while the lowercased `status`
+ *     string is a transitional fallback before the snapshot lands.
+ *   - Active filters → Clear filters action (the empty surface is filter-driven, not state-driven).
+ *   - Else → Add work item (create) + Add existing (attach) actions.
+ *
+ * Permission: requires PROJECT-level ADMIN or MEMBER (`EUserProjectRoles`) to enable CTA buttons.
+ */
 export const CycleEmptyState = observer(function CycleEmptyState() {
   // router
   const { workspaceSlug: routerWorkspaceSlug, projectId: routerProjectId, cycleId: routerCycleId } = useParams();

@@ -4,6 +4,117 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX filter store for workspace-scoped (cross-project) issue views — owns the
+ * per-view filter, display-filter, display-property, and kanban-filter state used
+ * by the workspace "all issues" surface and global (saved) views, and composes that
+ * state into the query parameters consumed by `WorkspaceIssues.fetchIssues` and
+ * `fetchNextIssues`.
+ *
+ * Inheritance:
+ *   Extends `IssueFilterHelperStore` (../helpers/issue-filter-helper.store), inheriting
+ *   `computedIssueFilters`, `computedDisplayFilters`, `computedDisplayProperties`,
+ *   `computedFilteredParams`, `getFilterConditionBasedOnViews`, `getPaginationParams`,
+ *   and the `handleIssuesLocalFilters` LocalStorage adapter (keyed by `EIssuesStoreType`).
+ *   Unlike the sibling `WorkspaceIssues` issue-collection class, this filter store is
+ *   imported directly from `./workspace` by `apps/web/core/store/issue/root.store.ts`
+ *   and has no plane-web override seam in the CE tier.
+ *
+ * State slice (observables):
+ *   - `filters: { [viewId: string]: IIssueFilters }` — per-view bucket keyed by the
+ *     active workspace view id (resolved through `rootIssueStore.globalViewId`, which
+ *     mirrors `router.globalViewId`). Each bucket holds `richFilters`
+ *     (`TWorkItemFilterExpression`), `displayFilters`, `displayProperties`, and
+ *     `kanbanFilters`.
+ *   - `rootIssueStore` — back-reference used to read `globalViewId` / `currentUserId`
+ *     and to trigger the sibling `workspaceIssues.fetchIssuesWithExistingPagination`
+ *     after every filter mutation.
+ *   - `issueFilterService = new WorkspaceService()` — backend client; despite the
+ *     field name, the underlying wire calls go through
+ *     `WorkspaceService.getViewDetails(workspaceSlug, viewId)` for saved-view
+ *     hydration (no separate `IssueFiltersService` exists for this surface).
+ *
+ * Computed (`@computed` registered via `makeObservable`):
+ *   - `issueFilters` — derives the normalized `IIssueFilters` slice for the active
+ *     `globalViewId`; recomputes when `globalViewId` or its bucket in `filters` changes.
+ *   - `appliedFilters` — derives the layout-keyed query-param map for the active
+ *     `globalViewId`; uses the spreadsheet / `"my_issues"` layout key when calling
+ *     `handleIssueQueryParamsByLayout`, so the param allowlist reflects the workspace
+ *     cross-project layout rather than any per-project layout selection.
+ *
+ * Parameterized computed (`computedFn` from `mobx-utils`):
+ *   - `getFilterParams(options, viewId, cursor, groupId, subGroupId)` — cached per
+ *     argument tuple. Composes the applied filter map for `viewId`, augments it with
+ *     static-view conditions when `viewId` is in `STATIC_VIEW_TYPES`
+ *     (`all-issues` / `assigned` / `created` / `subscribed` via inherited
+ *     `getFilterConditionBasedOnViews(currentUserId, viewId)`), and folds in
+ *     pagination params (cursor, page size, calendar bounds) via inherited
+ *     `getPaginationParams`. Consumed by `WorkspaceIssues.fetchIssues` /
+ *     `fetchNextIssues` to build the query string for `WorkspaceService.getViewIssues`.
+ *
+ * Actions (`@action` registered via `makeObservable`):
+ *   - `fetchFilters(workspaceSlug, viewId)` — hydrates `filters[viewId]`. Reads
+ *     display filters / properties / kanban filters from local cache via
+ *     `handleIssuesLocalFilters.get(EIssuesStoreType.GLOBAL, ...)`, then, for
+ *     non-static views, overrides display state and loads `richFilters` from
+ *     `WorkspaceService.getViewDetails`. Normalizes
+ *     `displayFilters.order_by === "sort_order"` to `"-created_at"` because manual
+ *     drag-sort order is local-only and the persisted query uses recency for stable
+ *     cursor pagination.
+ *   - `updateFilterExpression(workspaceSlug, viewId, filters)` — replaces
+ *     `filters[viewId].richFilters` and triggers
+ *     `workspaceIssues.fetchIssuesWithExistingPagination(..., "mutation")` so the
+ *     list refetches with the new expression. (The pre-existing JSDoc on the method
+ *     itself flags it as a fallback entry point for the work-item filter store.)
+ *   - `updateFilters(workspaceSlug, projectId, type, filters, viewId)` — branches
+ *     by `EIssueFilterType`. Enforces kanban invariants — clears `sub_group_by`
+ *     when grouping is removed or when it equals `group_by`, and defaults `group_by`
+ *     to `"state"` when kanban layout is selected with `null` grouping. Persists
+ *     display filters and display properties under `EIssuesStoreType.GLOBAL` ONLY
+ *     for the static-view allowlist (`all-issues` / `assigned` / `created` /
+ *     `subscribed`); user-saved global views round-trip through the server only.
+ *     Kanban-filter collapse state is persisted whenever `currentUserId` is present
+ *     (per-user local cache). On error, rehydrates via
+ *     `fetchFilters(workspaceSlug, viewId)` and re-throws.
+ *
+ * Helper accessors (plain class fields, not observables/actions):
+ *   - `getIssueFilters(viewId)` and `getAppliedFilters(viewId)` — same derivations
+ *     as the computed getters but parameterized by an arbitrary view id, used by
+ *     consumers needing lookups outside the currently active `globalViewId`.
+ *
+ * Local-storage scope:
+ *   All local persistence goes through `EIssuesStoreType.GLOBAL` keyed by
+ *   `(workspaceSlug, undefined, viewId)` where the `undefined` slot is the
+ *   `projectId` placeholder used by sibling per-project stores — the workspace-equivalent
+ *   of the per-project local cache used by sibling project / cycle / module filter
+ *   stores. Persistence is intentionally restricted to the four static views above;
+ *   rich-filter expressions for user-saved views are canonical on the server and
+ *   are never written to LocalStorage.
+ *
+ * Plane-web companion:
+ *   The companion `WorkspaceIssues` issue-collection class is wired in the root
+ *   store via the plane-web indirection
+ *   `@/plane-web/store/issue/workspace/issue.store` — a CE-tier passthrough to
+ *   `./issue.store` that exists as an enterprise-edition override seam. THIS filter
+ *   store has no plane-web indirection and is imported directly from `./workspace`.
+ *
+ * Consumers:
+ *   - `apps/web/core/store/issue/root.store.ts` — instantiated as
+ *     `workspaceIssuesFilter` and passed into `new WorkspaceIssues(...)`.
+ *   - Sibling `WorkspaceIssues` (`./issue.store`) — calls `getFilterParams` for
+ *     every page fetch.
+ *   - Workspace global-view layout roots:
+ *       `apps/web/core/components/issues/issue-layouts/roots/all-issue-layout-root.tsx`
+ *       `apps/web/core/components/issues/issue-layouts/spreadsheet/roots/workspace-root.tsx`
+ *   - Quick-action dropdown:
+ *       `apps/web/core/components/issues/issue-layouts/quick-action-dropdowns/all-issue.tsx`
+ *   - Workspace view modals:
+ *       `apps/web/core/components/workspace/views/form.tsx`,
+ *       `apps/web/core/components/workspace/views/modal.tsx`
+ *   - Workspace filter UI surfaces under `issue-layouts/filters` and related layout
+ *     helpers.
+ */
+
 import { isEmpty, set } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";

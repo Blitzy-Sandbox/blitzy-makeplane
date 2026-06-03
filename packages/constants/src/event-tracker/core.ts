@@ -4,30 +4,57 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Registry of analytics tracking identifier strings — `*_TRACKER_ELEMENTS` are
+ * attached as `data-ph-element` attributes (verified in `apps/web/core/components/**`)
+ * and `*_TRACKER_EVENTS` are event-name string registries whose values match the
+ * backend constants in `apps/api/plane/utils/analytics_events.py` (emitted by the
+ * `track_event` Celery task in `apps/api/plane/bgtasks/event_tracking_task.py` via
+ * Celery on RabbitMQ to PostHog server-side).
+ *
+ * Stability contract: every string value is part of the public analytics schema and
+ * renames break PostHog dashboards/funnels that reference the prior label.
+ *
+ * // INTENT UNCLEAR: no client-side import of `*_TRACKER_EVENTS` was found in
+ * tracked source, so the front-end emission path (capture call site) cannot be
+ * confirmed; only `data-ph-element` (autocapture) usage is verified.
+ */
+
 import type { EProductSubscriptionEnum } from "@plane/types";
 
 /**
- * ===========================================================================
- * Event Groups
- * ===========================================================================
+ * Shared/standalone tracker identifiers that don't belong to a single feature group.
+ */
+
+/**
+ * Workspace-level analytics group key (PostHog group-analytics feature).
+ * // INTENT UNCLEAR: no client-side `posthog.group()` call site found in tracked source.
  */
 export const GROUP_WORKSPACE_TRACKER_EVENT = "workspace_metrics";
+/**
+ * Event-name string registered for GitHub-redirect interactions.
+ * // INTENT UNCLEAR: no client-side capture call site found.
+ */
 export const GITHUB_REDIRECTED_TRACKER_EVENT = "github_redirected";
+/**
+ * `data-ph-element` identifier for the application header GitHub icon — labels
+ * PostHog autocapture clicks with a stable semantic name.
+ */
 export const HEADER_GITHUB_ICON = "header_github_icon";
 
 /**
- * ===========================================================================
- * Command palette tracker
- * ===========================================================================
+ * `data-ph-element` identifiers for the global ⌘K / Ctrl-K command palette.
+ * Consumer: `apps/web/ce/components/command-palette/**`.
  */
 export const COMMAND_PALETTE_TRACKER_ELEMENTS = {
   COMMAND_PALETTE_SHORTCUT_KEY: "command_palette_shortcut_key",
 };
 
 /**
- * ===========================================================================
- * Workspace Events and Elements
- * ===========================================================================
+ * Workspace CRUD instrumentation — `_EVENTS` carry string-name registry values that
+ * match backend `WORKSPACE_CREATED`/`WORKSPACE_DELETED` constants; `_ELEMENTS` are
+ * attached as `data-ph-element` on onboarding/header/update/delete buttons.
+ * Consumers: `apps/web/core/components/{workspace,onboarding}/**`.
  */
 export const WORKSPACE_TRACKER_EVENTS = {
   create: "workspace_created",
@@ -43,9 +70,11 @@ export const WORKSPACE_TRACKER_ELEMENTS = {
 };
 
 /**
- * ===========================================================================
- * Project Events and Elements
- * ===========================================================================
+ * Project CRUD and feature-toggle instrumentation — `_EVENTS` carry string-name
+ * values; `_ELEMENTS` are attached as `data-ph-element` on every project-creation
+ * entry point (extended sidebar, sidebar, command palette, empty state, header,
+ * first-project onboarding, Jira import) and the feature-toggle control.
+ * Consumers: `apps/web/core/components/{project,workspace/sidebar}/**`.
  */
 export const PROJECT_TRACKER_EVENTS = {
   create: "project_created",
@@ -70,9 +99,10 @@ export const PROJECT_TRACKER_ELEMENTS = {
 };
 
 /**
- * ===========================================================================
- * Cycle Events and Elements
- * ===========================================================================
+ * Cycle CRUD plus favorite/archive lifecycle instrumentation — `_EVENTS` carry
+ * string-name values; `_ELEMENTS` (`as const` for literal-narrowable union types)
+ * are attached as `data-ph-element` on cycle list/detail surfaces.
+ * Consumers: `apps/web/core/components/cycles/**`.
  */
 export const CYCLE_TRACKER_EVENTS = {
   create: "cycle_created",
@@ -95,9 +125,10 @@ export const CYCLE_TRACKER_ELEMENTS = {
 } as const;
 
 /**
- * ===========================================================================
- * Module Events and Elements
- * ===========================================================================
+ * Module CRUD, favorite/archive toggles, and nested module-link CRUD instrumentation
+ * — `_EVENTS` carry string-name values; `_ELEMENTS` are attached as `data-ph-element`
+ * on module list/detail surfaces.
+ * Consumers: `apps/web/core/components/modules/**`.
  */
 export const MODULE_TRACKER_EVENTS = {
   create: "module_created",
@@ -126,9 +157,11 @@ export const MODULE_TRACKER_ELEMENTS = {
 } as const;
 
 /**
- * ===========================================================================
- * Work Item Events and Elements
- * ===========================================================================
+ * Work-item (issue) lifecycle instrumentation — the largest group because work
+ * items are reachable from every layout root (WORK_ITEMS/PROJECT_VIEW/CYCLE/MODULE/
+ * GLOBAL_VIEW/ARCHIVED/DRAFT), so `_ELEMENTS` are nested one level deeper to carry
+ * the originating surface in funnel analytics.
+ * Consumers: `apps/web/core/components/issues/**`.
  */
 export const WORK_ITEM_TRACKER_EVENTS = {
   create: "work_item_created",
@@ -188,9 +221,10 @@ export const WORK_ITEM_TRACKER_ELEMENTS = {
 } as const;
 
 /**
- * ===========================================================================
- * State Events and Elements
- * ===========================================================================
+ * Workflow-state CRUD instrumentation for per-project state values (Backlog/In
+ * Progress/Done) — `_EVENTS` carry string-name values; `_ELEMENTS` are attached as
+ * `data-ph-element` on state settings add/edit/delete controls.
+ * Consumers: `apps/web/core/components/project-states/**`.
  */
 export const STATE_TRACKER_EVENTS = {
   create: "state_created",
@@ -204,9 +238,10 @@ export const STATE_TRACKER_ELEMENTS = {
 };
 
 /**
- * ===========================================================================
- * Project Page Events and Elements
- * ===========================================================================
+ * Project-page (Hocuspocus-collaborative wiki/doc) lifecycle instrumentation —
+ * create/update/delete plus archive/lock/access/favorite/duplicate/move; `_ELEMENTS`
+ * are attached as `data-ph-element` on the corresponding page list/detail controls.
+ * Consumers: `apps/web/core/components/pages/**`.
  */
 export const PROJECT_PAGE_TRACKER_EVENTS = {
   create: "project_page_created",
@@ -237,9 +272,11 @@ export const PROJECT_PAGE_TRACKER_ELEMENTS = {
 } as const;
 
 /**
- * ===========================================================================
- * Member Events and Elements
- * ===========================================================================
+ * Member invite/accept and project/workspace leave instrumentation — nested by
+ * scope (`project.*` vs `workspace.*`) for distinguishable PostHog reports;
+ * `_ELEMENTS` are attached as `data-ph-element` on add/accept/leave controls.
+ * Consumers: `apps/web/core/components/{workspace,project}/settings/**`,
+ * `apps/web/core/components/onboarding/**`.
  */
 export const MEMBER_TRACKER_EVENTS = {
   invite: "member_invited",
@@ -264,9 +301,11 @@ export const MEMBER_TRACKER_ELEMENTS = {
 } as const;
 
 /**
- * ===========================================================================
- * Auth Events and Elements
- * ===========================================================================
+ * Authentication funnel instrumentation (code_verify, sign_up/in_with_password,
+ * forgot_password, new_code_requested, password_created) — renames break PostHog
+ * conversion funnels; `_ELEMENTS` are attached as `data-ph-element` on auth-screen
+ * navigation and the set-password form.
+ * Consumers: `apps/web/core/components/account/**`.
  */
 export const AUTH_TRACKER_EVENTS = {
   code_verify: "code_verified",
@@ -289,9 +328,10 @@ export const AUTH_TRACKER_ELEMENTS = {
 };
 
 /**
- * ===========================================================================
- * Global View Events and Elements
- * ===========================================================================
+ * Workspace-level (cross-project) global view CRUD plus `open` event for
+ * heavily-used filter combinations; `_ELEMENTS` are attached as `data-ph-element`
+ * on global-view list/header controls.
+ * Consumers: `apps/web/core/components/issues/issue-layouts/roots/all-issue-layout-root.tsx`.
  */
 export const GLOBAL_VIEW_TRACKER_EVENTS = {
   create: "global_view_created",
@@ -308,9 +348,11 @@ export const GLOBAL_VIEW_TRACKER_ELEMENTS = {
 };
 
 /**
- * ===========================================================================
- * Project View Events and Elements
- * ===========================================================================
+ * Per-project view CRUD instrumentation — the three save-as-view element
+ * identifiers (project/cycle/module header) carry the originating layout root so
+ * analytics can distinguish save-as-view origins.
+ * Consumers: `apps/web/core/components/views/**`,
+ * `apps/web/core/components/issues/issue-layouts/roots/**`.
  */
 export const PROJECT_VIEW_TRACKER_EVENTS = {
   create: "project_view_created",
@@ -331,9 +373,9 @@ export const PROJECT_VIEW_TRACKER_ELEMENTS = {
 };
 
 /**
- * ===========================================================================
- * Product Tour Events and Elements
- * ===========================================================================
+ * In-app product tour funnel instrumentation — `complete` is the terminal event;
+ * `_ELEMENTS` are attached as `data-ph-element` on tour start/skip/create-project controls.
+ * Consumers: `apps/web/core/components/onboarding/**`.
  */
 export const PRODUCT_TOUR_TRACKER_EVENTS = {
   complete: "product_tour_completed",
@@ -346,9 +388,10 @@ export const PRODUCT_TOUR_TRACKER_ELEMENTS = {
 };
 
 /**
- * ===========================================================================
- * Notification Events and Elements
- * ===========================================================================
+ * Notification archive/unarchive and read-state instrumentation including the bulk
+ * `all_marked_read` event; `_ELEMENTS` are attached as `data-ph-element` on the
+ * inbox bulk-read/archive/read-toggle controls.
+ * Consumers: `apps/web/core/components/workspace-notifications/**`.
  */
 export const NOTIFICATION_TRACKER_EVENTS = {
   archive: "notification_archived",
@@ -365,9 +408,10 @@ export const NOTIFICATION_TRACKER_ELEMENTS = {
 };
 
 /**
- * ===========================================================================
- * User Events
- * ===========================================================================
+ * User-profile lifecycle (add_details, onboarding_complete) and changelog
+ * modal/redirect instrumentation; `_ELEMENTS` are attached as `data-ph-element` on
+ * the changelog modal and redirect link.
+ * Consumers: `apps/web/core/components/onboarding/**` and the changelog modal.
  */
 export const USER_TRACKER_EVENTS = {
   add_details: "user_details_added",
@@ -380,9 +424,10 @@ export const USER_TRACKER_ELEMENTS = {
 };
 
 /**
- * ===========================================================================
- * Onboarding Events and Elements
- * ===========================================================================
+ * Element-only group — onboarding semantic events are tracked via the auth
+ * (password), workspace (creation), and member (invite/accept) groups; this map
+ * provides `data-ph-element` identifiers for onboarding-specific UI controls only.
+ * Consumers: `apps/web/core/components/onboarding/**`.
  */
 export const ONBOARDING_TRACKER_ELEMENTS = {
   PROFILE_SETUP_FORM: "onboarding_profile_setup_form",
@@ -391,9 +436,10 @@ export const ONBOARDING_TRACKER_ELEMENTS = {
 };
 
 /**
- * ===========================================================================
- * Sidebar Events
- * ===========================================================================
+ * Element-only group — sidebar interactions are pure autocapture click-tracking
+ * with no semantic event names; provides `data-ph-element` identifiers for
+ * sidenav user menu and the sidebar create-work-item button.
+ * Consumers: `apps/web/core/components/workspace/sidebar/**`.
  */
 export const SIDEBAR_TRACKER_ELEMENTS = {
   USER_MENU_ITEM: "sidenav_user_menu_item",
@@ -401,9 +447,10 @@ export const SIDEBAR_TRACKER_ELEMENTS = {
 };
 
 /**
- * ===========================================================================
- * Project Settings Events and Elements
- * ===========================================================================
+ * Project settings instrumentation across labels/estimates/automations sub-areas;
+ * `_ELEMENTS` are attached as `data-ph-element` on the corresponding settings
+ * controls (label CRUD, estimate toggle/CRUD, automation toggles).
+ * Consumers: `apps/web/core/components/{labels,estimates,automation}/**`.
  */
 export const PROJECT_SETTINGS_TRACKER_ELEMENTS = {
   LABELS_EMPTY_STATE_CREATE_BUTTON: "labels_empty_state_create_button",
@@ -433,9 +480,10 @@ export const PROJECT_SETTINGS_TRACKER_EVENTS = {
 };
 
 /**
- * ===========================================================================
- * Profile Settings Events and Elements
- * ===========================================================================
+ * Profile settings instrumentation across Account/Preferences/Notifications/PAT
+ * sub-areas; `_ELEMENTS` mirror the four sub-areas one-to-one and are attached
+ * as `data-ph-element` on the corresponding controls.
+ * Consumers: `apps/web/core/components/{profile,user}/**`.
  */
 export const PROFILE_SETTINGS_TRACKER_EVENTS = {
   // Account
@@ -474,9 +522,10 @@ export const PROFILE_SETTINGS_TRACKER_ELEMENTS = {
 };
 
 /**
- * ===========================================================================
- * Workspace Settings Events and Elements
- * ===========================================================================
+ * Workspace settings instrumentation across Billing/Exports/Webhooks sub-areas;
+ * `_ELEMENTS.BILLING_UPGRADE_BUTTON` is the only function value (see its JSDoc
+ * for subscription-aware identifier generation).
+ * Consumers: `apps/web/core/components/{billing,exporter,web-hooks}/**`.
  */
 export const WORKSPACE_SETTINGS_TRACKER_EVENTS = {
   // Billing
@@ -493,6 +542,13 @@ export const WORKSPACE_SETTINGS_TRACKER_EVENTS = {
 
 export const WORKSPACE_SETTINGS_TRACKER_ELEMENTS = {
   // Billing
+  /**
+   * Generates the subscription-aware `data-ph-element` value for the in-app Upgrade CTA so
+   * autocapture can segment upgrade clicks by the user's source `EProductSubscriptionEnum` tier.
+   *
+   * @param subscriptionType - The user's current product subscription tier.
+   * @returns Tracker identifier of the form `billing_upgrade_${subscriptionType}_button`.
+   */
   BILLING_UPGRADE_BUTTON: (subscriptionType: EProductSubscriptionEnum) => `billing_upgrade_${subscriptionType}_button`,
   BILLING_TALK_TO_SALES_BUTTON: "billing_talk_to_sales_button",
   // Exports

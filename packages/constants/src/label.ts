@@ -4,6 +4,10 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Canonical client-side label color palette (the backend `Label.color` CharField does not constrain to this list).
+ * Consumers: `<ColorPickerInput colors={...} />` in `apps/web/core/components/labels/create-update-label-inline.tsx`.
+ */
 export const LABEL_COLOR_OPTIONS = [
   "#FF6900",
   "#FCB900",
@@ -17,6 +21,10 @@ export const LABEL_COLOR_OPTIONS = [
   "#9900EF",
 ];
 
+/**
+ * Returns a random color from {@link LABEL_COLOR_OPTIONS} so new labels get a varied default without forcing manual color selection.
+ * Consumers: label create form in `apps/web/core/components/labels/**` and inline-create paths in `apps/web/core/components/issues/{select,issue-layouts/properties,issue-detail/label/select}/**`.
+ */
 export const getRandomLabelColor = () => {
   const randomIndex = Math.floor(Math.random() * LABEL_COLOR_OPTIONS.length);
   return LABEL_COLOR_OPTIONS[randomIndex];

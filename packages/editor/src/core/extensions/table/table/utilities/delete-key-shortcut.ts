@@ -4,6 +4,24 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Cell-selection-rectangle-aware delete handler for the `Table`
+ * extension's `Backspace`, `Mod-Backspace`, `Delete`, and `Mod-Delete`
+ * keyboard shortcuts.
+ *
+ * MUTATES editor state via `editor.commands.deleteRow()` /
+ * `editor.commands.deleteColumn()` calls dispatched in loops.
+ *
+ * Public export: `handleDeleteKeyOnTable` (`KeyboardShortcutCommand`).
+ * Private helpers: `getTableInfo`, `getSelectedCellCoords`,
+ * `findCellCoordinate`, `checkCellsHaveContent`,
+ * `calculateSelectionBounds`, `deleteMultipleRows`,
+ * `deleteMultipleColumns`, `setCursorAtPosition`, plus the private types
+ * `CellCoord` and `TableInfo`.
+ *
+ * Bound to four keyboard shortcuts in `../table.ts` (lines 261–264).
+ */
+
 import { findParentNodeClosestToPos } from "@tiptap/core";
 import type { Editor, KeyboardShortcutCommand } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -27,6 +45,57 @@ type TableInfo = {
   totalRows: number;
 };
 
+/**
+ * Delete entire rows or columns when the active `CellSelection` rectangle
+ * spans a full row(s) or full column(s) of empty cells.
+ *
+ * Decision tree:
+ *   1. If the selection isn't a `CellSelection` → return `false` (let
+ *      default text-deletion handle it).
+ *   2. If no enclosing table can be resolved → return `false`.
+ *   3. If no selected-cell coordinates can be computed → return `false`.
+ *   4. If ANY selected cell has content (not empty per `isCellEmpty`)
+ *      → return `false` (don't destroy content silently).
+ *   5. If the selection's column span equals the table's total column
+ *      count (full-width selection) → delete those rows one at a time
+ *      via `editor.commands.deleteRow()`.
+ *   6. If the selection's row span equals the table's total row count
+ *      (full-height selection) → delete those columns one at a time via
+ *      `editor.commands.deleteColumn()`.
+ *   7. Otherwise → return `false`.
+ *
+ * Input:
+ *   - `props.editor` — used to read `state.selection` and to dispatch
+ *     `deleteRow` / `deleteColumn` / `setCellSelection` commands.
+ *
+ * Output:
+ *   - `true` when a row-delete or column-delete sequence completed.
+ *   - `false` for every other case (the default delete behavior should
+ *     run instead).
+ *
+ * Side effects:
+ *   - Multiple `deleteRow` / `deleteColumn` transactions dispatched in a
+ *     loop (each is undo-able as its own step — intentional: lets users
+ *     undo one row/column at a time).
+ *   - Between iterations, `setCursorAtPosition` re-anchors the
+ *     `CellSelection` to the same column/row index so subsequent
+ *     `deleteRow` / `deleteColumn` commands target the same axis.
+ *
+ * Error handling:
+ *   - Wrapped in a try/catch with `console.error("Error in
+ *     handleDeleteKeyOnTable", error)` — preserves the editor against
+ *     unexpected ProseMirror state shapes; returns `false` to let the
+ *     default handler run as a safety net.
+ *
+ * WHY this routing (vs upstream's default delete):
+ *   Upstream's `Backspace` / `Delete` keymap inside `tableEditing` doesn't
+ *   account for row-drag-handle or column-drag-handle selections (which
+ *   produce full-row or full-column `CellSelection`s). Without this
+ *   handler, pressing Delete on a row drag-handle selection would either
+ *   be a no-op (cells are empty) or destroy the table structure. This
+ *   handler interprets the selection rectangle and routes to the correct
+ *   `deleteRow` / `deleteColumn` command for an intuitive UX.
+ */
 export const handleDeleteKeyOnTable: KeyboardShortcutCommand = (props) => {
   const { editor } = props;
   const { selection } = editor.state;
@@ -96,6 +165,11 @@ const getSelectedCellCoords = (selection: CellSelection, tableInfo: TableInfo): 
   return selectedCellCoords;
 };
 
+/**
+ * Resolve a cell start position to its (row, col) coordinate in the
+ * table grid. Tries `Array.indexOf` first for the common case; falls
+ * back to a manual scan to handle TableMap quirks with merged cells.
+ */
 const findCellCoordinate = (cellStart: number, tableInfo: TableInfo): CellCoord | null => {
   // Primary method: use indexOf
   const cellIndex = tableInfo.map.map.indexOf(cellStart);
@@ -198,6 +272,11 @@ const deleteMultipleColumns = (
   return true;
 };
 
+/**
+ * Move the editor's `CellSelection` to a specific (row, col) cell.
+ * The `+1` offset on `cellPos` accounts for the table's open-tag token
+ * that precedes the cell content in the ProseMirror document index.
+ */
 const setCursorAtPosition = (editor: Editor, tableInfo: TableInfo, row: number, col: number): void => {
   const cellIndex = row * tableInfo.totalColumns + col;
   const cellPos = tableInfo.pos + tableInfo.map.map[cellIndex] + 1;

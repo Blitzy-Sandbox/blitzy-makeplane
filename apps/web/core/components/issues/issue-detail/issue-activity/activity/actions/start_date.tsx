@@ -4,6 +4,24 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders a start-date set or remove event in the issue activity timeline.
+ *
+ * Props:
+ *   - activityId (string, required): identifier of the activity record to render.
+ *   - ends ("top" | "bottom" | undefined, required): timeline-stack position marker.
+ *   - showIssue (boolean, optional, default `true`): when true, appends " for "
+ *     (set) or " from " (removed) followed by an `IssueLink`.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — reads `activity.getActivityById(activityId)`. The
+ *     date value is taken from `activity.new_value` and formatted via
+ *     `renderFormattedDate` from `@plane/utils`.
+ *
+ * Side effects: none. Read-only / presentational; no mutations, no navigations,
+ * no API calls.
+ */
+
 import { observer } from "mobx-react";
 import { CalendarDays } from "lucide-react";
 // hooks

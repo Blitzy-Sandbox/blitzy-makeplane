@@ -4,6 +4,34 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Route-driven peek wrapper that mounts the CycleDetailsSidebar in a fixed right-side
+ * panel whenever the URL carries a `peekCycle` query parameter, resolving the cycle
+ * from store state and triggering a live or archived detail fetch on mount.
+ *
+ * Props:
+ *   - workspaceSlug (string, required): workspace slug used for the detail-fetch call.
+ *   - projectId (string, optional): explicit project context; when omitted, falls back
+ *     to the project ID embedded in the resolved cycle from the cycle store.
+ *   - isArchived (boolean, optional): when true, fetches archived cycle details instead
+ *     of live cycle details — used by the archived-cycles route.
+ *
+ * MobX stores read:
+ *   - useCycle (cycle store): getCycleById to resolve the peek cycle's metadata;
+ *     fetchCycleDetails / fetchArchivedCycleDetails as the data-fetching actions.
+ *
+ * Side effects:
+ *   - API calls (via store actions, both wired to CycleService / CycleArchiveService):
+ *     fetchCycleDetails(workspaceSlug, projectId, peekCycle) when isArchived is false;
+ *     fetchArchivedCycleDetails(...) when isArchived is true. Triggered by the useEffect
+ *     dependent on peekCycle + projectId.
+ *   - Navigations: useAppRouter().push to `${pathname}?${query}` to remove `peekCycle`
+ *     from the URL on close (handleClose strips the query param via generateQueryParams).
+ *
+ * Consumers: mounted from the cycles list route and the archived cycles route so a
+ * peek panel can open over either listing.
+ */
+
 import React, { useEffect } from "react";
 import { observer } from "mobx-react";
 import { usePathname, useSearchParams } from "next/navigation";

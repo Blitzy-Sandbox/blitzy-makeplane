@@ -2,6 +2,30 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Schema-driven export orchestration for CSV, JSON, and XLSX outputs.
+
+This module defines :class:`Exporter`, the entry point that wires a
+declarative ``ExportSchema`` (see :mod:`plane.utils.exporters.schemas`)
+together with a format-specific writer
+(:class:`~plane.utils.exporters.formatters.CSVFormatter`,
+:class:`~plane.utils.exporters.formatters.JSONFormatter`,
+:class:`~plane.utils.exporters.formatters.XLSXFormatter`) and emits a
+``(filename, content)`` tuple ready for upload or in-memory streaming.
+Callers may pass either a Django ``QuerySet`` (serialized through the
+schema) or an already-serialized ``List[dict]`` (forwarded as-is).
+
+The companion :mod:`plane.utils.exporters.formatters` module routes CSV
+output through :func:`plane.utils.csv_utils.sanitize_csv_value` to
+neutralize CSV formula injection. Storage placement (S3/MinIO upload,
+ZIP packaging) is the caller's responsibility -- this module returns
+bytes and a filename only.
+
+This package is parallel to :mod:`plane.utils.porters`, which provides
+the DRF-serializer-based export pipeline currently used by
+:mod:`plane.bgtasks.export_task`. No Celery task in :mod:`plane.bgtasks`
+dispatches this class directly as of the current code state.
+"""
+
 from typing import Any, Dict, List, Type, Union
 
 from django.db.models import QuerySet
@@ -10,7 +34,27 @@ from .formatters import CSVFormatter, JSONFormatter, XLSXFormatter
 
 
 class Exporter:
-    """Generic exporter class that handles data exports using different formatters."""
+    """Schema-driven export orchestrator for CSV, JSON, and XLSX outputs.
+
+    Wires a declarative ``ExportSchema`` subclass (see
+    :mod:`plane.utils.exporters.schemas`) together with one of the
+    registered formatters (``csv`` / ``json`` / ``xlsx``) and emits a
+    ``(filename, content)`` tuple. Field ordering, labels, and value
+    preparation are taken from the schema; the optional ``fields``
+    argument on :meth:`export` restricts the output to a subset of
+    declared fields, and per-format options are forwarded via
+    ``self.options``.
+
+    Supported formats are declared on the class-level :attr:`FORMATTERS`
+    mapping (``csv`` -> :class:`CSVFormatter`, ``json`` ->
+    :class:`JSONFormatter`, ``xlsx`` -> :class:`XLSXFormatter`) and may
+    be extended at runtime via :meth:`register_formatter`.
+
+    This class is the schema-driven counterpart to
+    :class:`plane.utils.porters.exporter.DataExporter`, which serves the
+    DRF-serializer-backed export path currently invoked by
+    :mod:`plane.bgtasks.export_task`.
+    """
 
     # Available formatters
     FORMATTERS = {

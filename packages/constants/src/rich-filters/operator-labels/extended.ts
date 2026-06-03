@@ -4,24 +4,25 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Reserved typed containers for future extended/negated operator labels — empty at this revision so the barrel can spread them unconditionally into the consolidated lookup tables.
+ * Consumers: `packages/constants/src/rich-filters/operator-labels/index.ts` (spread into `OPERATOR_LABELS_MAP` and `DATE_OPERATOR_LABELS_MAP`).
+ */
+
 import type { TExtendedSupportedOperators } from "@plane/types";
 
 /**
- * Extended operator labels
+ * Reserved typed container for extended-operator labels beyond the core vocabulary; the `Record<TExtendedSupportedOperators, string>` signature locks the future key space.
+ * Consumers: spread into `OPERATOR_LABELS_MAP`/`DATE_OPERATOR_LABELS_MAP` by `packages/constants/src/rich-filters/operator-labels/index.ts`.
  */
 export const EXTENDED_OPERATOR_LABELS_MAP: Record<TExtendedSupportedOperators, string> = {} as const;
 
-/**
- * Extended date-specific operator labels
- */
 export const EXTENDED_DATE_OPERATOR_LABELS_MAP: Record<TExtendedSupportedOperators, string> = {} as const;
 
 /**
- * Negated operator labels for all operators
+ * Reserved typed container for negated-operator labels (e.g., `is not`, `is not any of`); `Record<never, string>` signals no negated keys are populated yet.
+ * Consumers: spread into `OPERATOR_LABELS_MAP`/`DATE_OPERATOR_LABELS_MAP` by `packages/constants/src/rich-filters/operator-labels/index.ts`.
  */
 export const NEGATED_OPERATOR_LABELS_MAP: Record<never, string> = {} as const;
 
-/**
- * Negated date operator labels for all date operators
- */
 export const NEGATED_DATE_OPERATOR_LABELS_MAP: Record<never, string> = {} as const;

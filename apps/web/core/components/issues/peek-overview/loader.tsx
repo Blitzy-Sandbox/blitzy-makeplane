@@ -4,6 +4,35 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Skeleton placeholder for the work item peek-overview panel while initial data loads.
+ *
+ * Rendered purpose: mirrors the eventual peek-overview layout with `Loader.Item` skeleton blocks
+ * for the header row, title + description, sub-issues, attachments, and properties sidebar. Keeps
+ * the close button (`MoveRight` icon) live so users can dismiss the panel during a slow fetch.
+ *
+ * Props (TIssuePeekOverviewLoader):
+ *   - removeRoutePeekId (() => void, required): close-peek callback supplied by the parent view shell;
+ *     wired to the visible dismiss button so users are not stuck waiting on a stalled fetch
+ *
+ * MobX stores read: none — this is a pure visual placeholder.
+ *
+ * Side effects: none — the only interactive element is the dismiss button, which simply calls the
+ * caller-supplied `removeRoutePeekId` callback.
+ *
+ * Architectural notes:
+ *   - `Loader` and `Loader.Item` come from `@plane/ui`; both are presentational skeleton primitives.
+ *   - `Tooltip` from `@plane/propel/tooltip`; `usePlatformOS()` (from `@/hooks/use-platform-os`) is used
+ *     to toggle mobile tooltip behavior.
+ *
+ * Accessibility notes:
+ *   - The dismiss button retains a keyboard-focusable `<button>` element wrapped in `Tooltip`, so
+ *     keyboard users can escape the loading state without waiting for content.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/issues/peek-overview/view.tsx` — rendered when
+ *     `isLoading && !isError`
+ */
 import { MoveRight } from "lucide-react";
 import { Tooltip } from "@plane/propel/tooltip";
 import { Loader } from "@plane/ui";

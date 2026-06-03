@@ -4,4 +4,9 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Barrel for rich-filter property configuration types — re-exports
+ * `TFilterConfig<P>` from `./filter-config`.
+ */
+
 export * from "./filter-config";

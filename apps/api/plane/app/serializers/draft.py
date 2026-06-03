@@ -2,6 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Serializers for draft issues — work-in-progress issues that have not yet been promoted to the active board.
+
+Drafts maintain their own join tables (``DraftIssueAssignee``,
+``DraftIssueLabel``, ``DraftIssueCycle``, ``DraftIssueModule``) that are
+separate from the active-issue join tables, so a draft can carry the same
+assignee/label/cycle/module relationships an issue would without polluting
+the active issue board until it is promoted.
+"""
+
 # Django imports
 from django.utils import timezone
 
@@ -31,6 +40,17 @@ from plane.app.permissions import ROLE
 
 
 class DraftIssueCreateSerializer(BaseSerializer):
+    """Write serializer for ``DraftIssue`` rows.
+
+    Handles writes for the draft itself plus its assignees, labels, cycle,
+    and modules via bulk-create on the dedicated draft join tables. The
+    ``label_ids`` and ``assignee_ids`` write-only list fields are NOT
+    model columns — they are accepted at write time and translated into
+    ``DraftIssueLabel`` / ``DraftIssueAssignee`` rows inside :meth:`create`
+    and :meth:`update`. ``workspace``, ``created_by``, ``updated_by``,
+    ``created_at`` and ``updated_at`` are server-managed and read-only.
+    """
+
     # ids
     state_id = serializers.PrimaryKeyRelatedField(
         source="state", queryset=State.objects.all(), required=False, allow_null=True
@@ -50,6 +70,8 @@ class DraftIssueCreateSerializer(BaseSerializer):
     )
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = DraftIssue
         fields = "__all__"
         read_only_fields = [
@@ -61,6 +83,11 @@ class DraftIssueCreateSerializer(BaseSerializer):
         ]
 
     def to_representation(self, instance):
+        """Echo the inbound ``assignee_ids`` and ``label_ids`` payload values into the response.
+
+        Mirrors the write request shape so the join rows do not need to be
+        re-queried by the caller after a successful write.
+        """
         data = super().to_representation(instance)
         assignee_ids = self.initial_data.get("assignee_ids")
         data["assignee_ids"] = assignee_ids if assignee_ids else []
@@ -69,6 +96,14 @@ class DraftIssueCreateSerializer(BaseSerializer):
         return data
 
     def validate(self, attrs):
+        """Enforce start/target date ordering, sanitize description content, and project-scope foreign keys.
+
+        Confirms referenced state/parent/estimate all belong to the current
+        project, sanitizes ``description_html`` / ``description_binary``
+        payloads, and FILTERS ``assignee_ids`` to active project members
+        whose role is at least ``ROLE.MEMBER`` — silently dropping invalid
+        assignees rather than erroring on them.
+        """
         if (
             attrs.get("start_date", None) is not None
             and attrs.get("target_date", None) is not None
@@ -140,6 +175,12 @@ class DraftIssueCreateSerializer(BaseSerializer):
         return attrs
 
     def create(self, validated_data):
+        """Create the ``DraftIssue`` row and mirror the inbound M2M payload onto the draft join tables.
+
+        Bulk-creates rows in ``DraftIssueAssignee``, ``DraftIssueLabel``,
+        and ``DraftIssueModule`` plus a single ``DraftIssueCycle`` row
+        when ``cycle_id`` is supplied in the initial payload.
+        """
         assignees = validated_data.pop("assignee_ids", None)
         labels = validated_data.pop("label_ids", None)
         modules = validated_data.pop("module_ids", None)
@@ -217,6 +258,14 @@ class DraftIssueCreateSerializer(BaseSerializer):
         return issue
 
     def update(self, instance, validated_data):
+        """Replace the draft's join rows (assignees/labels/cycle/modules) for any payload keys that are present.
+
+        The cycle association is only re-synced when ``self.context["cycle_id"]``
+        differs from the sentinel string ``"not_provided"``, preserving
+        the existing cycle when the caller omits the key. ``updated_at``
+        is always bumped so the timestamp moves even when only
+        related-model rows changed.
+        """
         assignees = validated_data.pop("assignee_ids", None)
         labels = validated_data.pop("label_ids", None)
         cycle_id = self.context.get("cycle_id", None)
@@ -298,6 +347,15 @@ class DraftIssueCreateSerializer(BaseSerializer):
 
 
 class DraftIssueSerializer(BaseSerializer):
+    """Read-only ``DraftIssue`` serializer exposing the flat record plus pre-computed ID lists.
+
+    The ``label_ids``, ``assignee_ids`` and ``module_ids`` fields are
+    derived from queryset annotations performed upstream by the ViewSet;
+    they are absent from the rendered response when the ViewSet does not
+    annotate them because they are not stored columns on the
+    ``DraftIssue`` model.
+    """
+
     # ids
     cycle_id = serializers.PrimaryKeyRelatedField(read_only=True)
     module_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
@@ -307,6 +365,8 @@ class DraftIssueSerializer(BaseSerializer):
     assignee_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = DraftIssue
         fields = [
             "id",
@@ -335,8 +395,17 @@ class DraftIssueSerializer(BaseSerializer):
 
 
 class DraftIssueDetailSerializer(DraftIssueSerializer):
+    """Detail-view extension of :class:`DraftIssueSerializer`.
+
+    Adds the inline ``description_html`` payload to the read shape so the
+    draft editor view receives the full document body alongside the
+    flat-record metadata.
+    """
+
     description_html = serializers.CharField()
 
     class Meta(DraftIssueSerializer.Meta):
+        """DRF serializer Meta options (extends parent with ``description_html``)."""
+
         fields = DraftIssueSerializer.Meta.fields + ["description_html"]
         read_only_fields = fields

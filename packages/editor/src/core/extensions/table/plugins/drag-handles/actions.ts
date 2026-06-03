@@ -4,6 +4,31 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Drag-handle and dropdown action handlers for ProseMirror table restructuring.
+ *
+ * Owns the table-restructuring operations triggered by drag-handle drops
+ * (`moveSelectedColumns`, `moveSelectedRows`) and dropdown "duplicate" actions
+ * (`duplicateRows`, `duplicateColumns`).
+ *
+ * Canonical strategy: every restructuring operation round-trips the table through a
+ * sparse cell matrix (`tableToCells` → reorder/duplicate → `tableFromCells`) so
+ * merged-cell structure (colspan/rowspan) is preserved automatically. Manipulating
+ * ProseMirror table nodes in place would require hand-rolling colspan/rowspan
+ * mutation, which is error-prone; the matrix round-trip instead lets the schema's
+ * `tableRow.create` recompute the merged structure naturally from the surviving
+ * cell node attrs.
+ *
+ * Consumers (siblings under the same `drag-handles/` folder):
+ *  - `column/drag-handle.tsx` → `moveSelectedColumns`
+ *  - `row/drag-handle.tsx`    → `moveSelectedRows`
+ *  - `column/dropdown.tsx`    → `duplicateColumns`
+ *  - `row/dropdown.tsx`       → `duplicateRows`
+ *
+ * All four exports accept and mutate a `tr: Transaction`; the caller is responsible
+ * for dispatching the transaction on the editor view.
+ */
+
 import type { Editor } from "@tiptap/core";
 import { Fragment } from "@tiptap/pm/model";
 import type { Node, Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -13,17 +38,44 @@ import type { CellSelection } from "@tiptap/pm/tables";
 // extensions
 import type { TableNodeLocation } from "@/extensions/table/table/utilities/helpers";
 
+/**
+ * Sparse row representation: one entry per logical column, with `null` filling
+ * slots already covered by a merged cell from a previous column or row.
+ *
+ * `TableRows` is the matrix `TableRow[]`; this sparse matrix shape is what
+ * enables merged-cell-safe reconstruction in `tableFromCells` (see module-level
+ * JSDoc for the round-trip rationale).
+ */
 type TableRow = (ProseMirrorNode | null)[];
 type TableRows = TableRow[];
 
 /**
- * Move the selected columns to the specified index.
- * @param {Editor} editor - The editor instance.
- * @param {TableNodeLocation} table - The table node location.
- * @param {CellSelection} selection - The cell selection.
- * @param {number} to - The index to move the columns to.
- * @param {Transaction} tr - The transaction.
- * @returns {Transaction} The updated transaction.
+ * Move the contiguous range of selected columns to a new column index, preserving
+ * merged-cell structure via the `tableToCells` → reorder → `tableFromCells`
+ * round-trip.
+ *
+ * Validation (returns `tr` unchanged on rejection):
+ *  - No `CellSelection` columns walked (columnStart/columnEnd remain `-1`).
+ *  - `to` is out of range (`< 0` or `> tableMap.width`).
+ *  - `to` falls within the source range `[columnStart, columnEnd)`.
+ *
+ * Algorithm:
+ *  1. Walk `selection.forEachCell` and compute the contiguous column bounds
+ *     `[columnStart, columnEnd)` via `TableMap.findCell(...)`.
+ *  2. `tableToCells(table)` produces the sparse cell matrix.
+ *  3. For each row, splice out the column range and re-insert at an offset
+ *     adjusted for movement direction (rightward moves shift by the range width).
+ *  4. `tableFromCells` rebuilds the table node and replaces it in `tr`.
+ *
+ * Preserves merged cells: colspan/rowspan reconstruction is delegated to the
+ * schema via the matrix round-trip — no in-place colspan/rowspan math.
+ *
+ * @param {Editor} editor - The editor instance (used to read `editor.schema.nodes`).
+ * @param {TableNodeLocation} table - The table node location (`pos`/`start`/`node`).
+ * @param {CellSelection} selection - The active cell selection providing the column range.
+ * @param {number} to - Destination column index (must be in `[0, tableMap.width]` and outside the source range).
+ * @param {Transaction} tr - Transaction to mutate.
+ * @returns {Transaction} The same `tr`, with the table replacement step appended (or unchanged on rejection).
  */
 export const moveSelectedColumns = (
   editor: Editor,
@@ -64,13 +116,32 @@ export const moveSelectedColumns = (
 };
 
 /**
- * Move the selected rows to the specified index.
- * @param {Editor} editor - The editor instance.
- * @param {TableNodeLocation} table - The table node location.
- * @param {CellSelection} selection - The cell selection.
- * @param {number} to - The index to move the rows to.
- * @param {Transaction} tr - The transaction.
- * @returns {Transaction} The updated transaction.
+ * Move the contiguous range of selected rows to a new row index, preserving
+ * merged-cell structure via the `tableToCells` → reorder → `tableFromCells`
+ * round-trip.
+ *
+ * Validation (returns `tr` unchanged on rejection):
+ *  - No `CellSelection` rows walked (rowStart/rowEnd remain `-1`).
+ *  - `to` is out of range (`< 0` or `> tableMap.height`).
+ *  - `to` falls within the source range `[rowStart, rowEnd)`.
+ *
+ * Algorithm:
+ *  1. Walk `selection.forEachCell` and compute the contiguous row bounds
+ *     `[rowStart, rowEnd)` via `TableMap.findCell(...).top/bottom`.
+ *  2. `tableToCells(table)` produces the sparse cell matrix.
+ *  3. Splice the rows array directly (rows are first-class; no per-row loop
+ *     needed) and re-insert at an offset adjusted for movement direction.
+ *  4. `tableFromCells` rebuilds the table node and replaces it in `tr`.
+ *
+ * Preserves merged cells: colspan/rowspan reconstruction is delegated to the
+ * schema via the matrix round-trip — no in-place colspan/rowspan math.
+ *
+ * @param {Editor} editor - The editor instance (used to read `editor.schema.nodes`).
+ * @param {TableNodeLocation} table - The table node location (`pos`/`start`/`node`).
+ * @param {CellSelection} selection - The active cell selection providing the row range.
+ * @param {number} to - Destination row index (must be in `[0, tableMap.height]` and outside the source range).
+ * @param {Transaction} tr - Transaction to mutate.
+ * @returns {Transaction} The same `tr`, with the table replacement step appended (or unchanged on rejection).
  */
 export const moveSelectedRows = (
   editor: Editor,
@@ -109,11 +180,33 @@ export const moveSelectedRows = (
 };
 
 /**
- * @description Duplicate the selected rows.
+ * Duplicate one or more rows in place, inserting the copies immediately AFTER the
+ * last index in `rowIndices`.
+ *
+ * Inputs: an explicit `rowIndices` array — duplication is NOT derived from the
+ * current selection. The caller resolves selection to indices first (see
+ * `row/dropdown.tsx`, which reads `TableMap` to produce indices).
+ *
+ * Validation (returns `tr` unchanged on rejection):
+ *  - Any index `< 0` or `> maxRow` (where `maxRow = rows.length - 1`).
+ *
+ * Algorithm:
+ *  1. `tableToCells(table)` produces the sparse cell matrix.
+ *  2. Read `TableMap` for `map` (cell-position lookup) and `width`.
+ *  3. Compute the post-last-row insert position (`lastRowPos + nodeSize + 1`) and
+ *     map it through `tr.mapping` so subsequent mapping events stay aligned.
+ *  4. Iterate `rowIndices` in REVERSE order and `tr.insert` each row at the same
+ *     `insertPos`, filtering out `null` placeholders so the schema only receives
+ *     real cell nodes.
+ *
+ * Why reverse iteration: each `tr.insert` shifts subsequent positions; iterating
+ * in reverse keeps the precomputed `insertPos` valid for every iteration without
+ * remapping per-iteration.
+ *
  * @param {TableNodeLocation} table - The table node location.
- * @param {number[]} rowIndices - The indices of the rows to duplicate.
- * @param {Transaction} tr - The transaction.
- * @returns {Transaction} The updated transaction.
+ * @param {number[]} rowIndices - Row indices to duplicate (validated against `rows.length`).
+ * @param {Transaction} tr - Transaction to mutate.
+ * @returns {Transaction} The same `tr`, with insert steps appended (or unchanged on rejection).
  */
 export const duplicateRows = (table: TableNodeLocation, rowIndices: number[], tr: Transaction): Transaction => {
   const rows = tableToCells(table);
@@ -144,11 +237,32 @@ export const duplicateRows = (table: TableNodeLocation, rowIndices: number[], tr
 };
 
 /**
- * @description Duplicate the selected columns.
+ * Duplicate one or more columns in place; for each existing row, the duplicate
+ * column cells are inserted immediately AFTER the source column position.
+ *
+ * Inputs: an explicit `columnIndices` array — duplication is NOT derived from
+ * the current selection. The caller resolves selection to indices first (see
+ * `column/dropdown.tsx`).
+ *
+ * Validation (returns `tr` unchanged on rejection):
+ *  - Any index `< 0` or `>= width`.
+ *
+ * Algorithm:
+ *  1. `tableToCells(table)` produces the sparse cell matrix.
+ *  2. Read `TableMap` for `map`, `width`, `height`.
+ *  3. For each row, compute the post-source-column insert position through
+ *     `tr.mapping` (one `insertPos` per row, because columns sit at row-relative
+ *     positions in the document).
+ *  4. Insert column cells in REVERSE `columnIndices` order; skip `null` cells
+ *     (merged-into slots) so no empty inserts are emitted.
+ *
+ * Why reverse iteration: identical rationale to `duplicateRows` — keeps the
+ * per-row `insertPos` valid as inserts shift positions.
+ *
  * @param {TableNodeLocation} table - The table node location.
- * @param {number[]} columnIndices - The indices of the columns to duplicate.
- * @param {Transaction} tr - The transaction.
- * @returns {Transaction} The updated transaction.
+ * @param {number[]} columnIndices - Column indices to duplicate (validated against `width`).
+ * @param {Transaction} tr - Transaction to mutate.
+ * @returns {Transaction} The same `tr`, with insert steps appended (or unchanged on rejection).
  */
 export const duplicateColumns = (table: TableNodeLocation, columnIndices: number[], tr: Transaction): Transaction => {
   const rows = tableToCells(table);
@@ -180,9 +294,25 @@ export const duplicateColumns = (table: TableNodeLocation, columnIndices: number
 };
 
 /**
- * @description Convert the table to cells.
+ * Walk the table node and produce a sparse 2D array (`TableRows`) where each
+ * merged cell occupies its "primary" `(row, col)` slot and `null` fills the
+ * merged-into slots.
+ *
+ * Why this representation: the sparse matrix is the architectural heart of
+ * merged-cell-safe restructuring — row-splice / column-splice / insert
+ * operations can manipulate the matrix without tracking colspan/rowspan, and
+ * the inverse `tableFromCells` rebuilds a valid table from the schema using the
+ * surviving cell node attrs. This round-trip is what enables `moveSelectedColumns`,
+ * `moveSelectedRows`, `duplicateRows`, and `duplicateColumns` to handle merged
+ * cells correctly.
+ *
+ * Implementation note: a `visitedCells` set keyed by absolute document position
+ * guarantees the same physical cell node is emitted only once at its primary
+ * `(row, col)` position; subsequent visits push `null` to mark the merged-into
+ * slot.
+ *
  * @param {TableNodeLocation} table - The table node location.
- * @returns {TableRows} The table rows.
+ * @returns {TableRows} The sparse cell matrix (one row per `height`, one slot per `width`).
  */
 const tableToCells = (table: TableNodeLocation): TableRows => {
   const { map, width, height } = TableMap.get(table.node);
@@ -203,11 +333,30 @@ const tableToCells = (table: TableNodeLocation): TableRows => {
 };
 
 /**
- * @description Convert the cells to a table.
- * @param {Editor} editor - The editor instance.
- * @param {TableNodeLocation} table - The table node location.
- * @param {TableRows} rows - The table rows.
- * @param {Transaction} tr - The transaction.
+ * Inverse of `tableToCells`: reconstruct a table node from the sparse cell
+ * matrix and replace the existing table in `tr`. Colspan/rowspan information
+ * is recovered naturally from the surviving cell node attrs.
+ *
+ * Implementation:
+ *  1. For each row, `schema.tableRow.create(null, row.filter(non-null))` produces
+ *     a new row node containing only real cell nodes.
+ *  2. The new rows are wrapped in a copy of the original table node
+ *     (`table.node.copy(Fragment.from(newRowNodes))`) so table-level attributes
+ *     are preserved.
+ *  3. `tr.replaceWith(table.pos, table.pos + table.node.nodeSize, newTableNode)`
+ *     swaps the table in place.
+ *
+ * Why filter nulls: sparse placeholders must not be passed to `tableRow.create`,
+ * which expects real cell nodes. The colspan/rowspan information was already
+ * baked into the surviving cell nodes by `tableToCells` (they carry their
+ * original `attrs`), so no explicit reconstruction of the merged geometry is
+ * needed — this is the closing half of the merged-cell-safe round-trip.
+ *
+ * @param {Editor} editor - The editor instance (used to read `editor.schema.nodes`).
+ * @param {TableNodeLocation} table - The table node location to replace.
+ * @param {TableRows} rows - The (possibly reordered/duplicated) sparse cell matrix.
+ * @param {Transaction} tr - Transaction to mutate (a `replaceWith` step is appended).
+ * @returns {void}
  */
 const tableFromCells = (editor: Editor, table: TableNodeLocation, rows: TableRows, tr: Transaction): void => {
   const schema = editor.schema.nodes;

@@ -4,6 +4,44 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Destructive-action confirmation modal for permanently deleting a work item, sub-work item, or epic.
+ *
+ * Rendered purpose: an `AlertModalCore` dialog that gates work item deletion behind a permission
+ * check (only the issue creator or a project admin may delete) and shows entity-aware wording.
+ *
+ * Props:
+ *   - isOpen (boolean, required): modal open state
+ *   - handleClose (() => void, required): close-modal callback
+ *   - dataId (string | null | undefined, optional): id used to resolve the issue from `issueMap` when `data` is not provided
+ *   - data (TIssue | TDeDupeIssue, optional): pre-resolved issue payload (takes precedence over `dataId`)
+ *   - isSubIssue (boolean, optional, default=false): switches confirmation copy to sub-work-item wording
+ *   - onSubmit (() => Promise<void>, optional): the actual delete operation invoked when the user confirms
+ *   - isEpic (boolean, optional, default=false): switches copy to epic-specific wording
+ *
+ * MobX stores read:
+ *   - `useIssues()` — `issueMap` for resolving an issue payload from `dataId`
+ *   - `useProject()` — `getProjectById` for resolving project identifier + sequence id wording
+ *   - `useUser()` — current user (used for the `isIssueCreator` check)
+ *   - `useUserPermissions()` — `allowPermissions` for the project-admin gate
+ *
+ * Side effects:
+ *   - Invokes the `onSubmit` callback supplied by the parent (which in turn calls `IssueService.delete*` or the relevant
+ *     issue-store action).
+ *   - Emits `setToast` (success / permission-error / generic-error variants) via `@plane/propel/toast`.
+ *   - On unauthorized attempt, short-circuits with an error toast and closes the modal.
+ *
+ * Imperative / derived state notes:
+ *   - `useEffect` resets `isDeleting` whenever `isOpen` changes so that re-opening the modal starts in a fresh state.
+ *   - `authorized = isIssueCreator || canPerformProjectAdminActions`. Permission check is also re-validated server-side;
+ *     the client check is a UX optimization that prevents a needless API round-trip.
+ *   - `PROJECT_ERROR_MESSAGES.permissionError` / `issueDeleteError` are i18n-keyed message bundles from `@plane/constants`.
+ *
+ * Consumers: rendered by issue-detail quick-action menus and list-item quick-action dropdowns —
+ * e.g., `apps/web/core/components/issues/issue-detail/issue-detail-quick-actions.tsx`,
+ * `apps/web/core/components/issues/issue-layouts/quick-action-dropdowns/*`, and bulk-delete flows.
+ */
+
 import { useEffect, useState } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";

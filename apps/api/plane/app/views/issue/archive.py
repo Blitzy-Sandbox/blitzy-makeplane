@@ -2,6 +2,19 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Issue archive and bulk-archive HTTP endpoints.
+
+Exposes :class:`IssueArchiveViewSet` for listing/retrieving archived
+issues and toggling individual archive state, and
+:class:`BulkArchiveIssuesEndpoint` for archiving many issues in one
+request. Archiving is implemented by setting ``Issue.archived_at`` to
+today's date; unarchiving sets it back to ``None``. Both flows enqueue
+``plane.bgtasks.issue_activities_task.issue_activity`` (Celery via
+RabbitMQ) to record the change in the issue timeline. The business
+rule -- only issues whose state ``group`` is ``"completed"`` or
+``"cancelled"`` may be archived -- is enforced inline.
+"""
+
 # Python imports
 import copy
 import json
@@ -51,6 +64,86 @@ from plane.utils.filters import IssueFilterSet
 
 
 class IssueArchiveViewSet(BaseViewSet):
+    """Read + archive-toggle endpoints for issues that have been archived (``archived_at IS NOT NULL``).
+
+    HTTP methods + URL patterns:
+        GET    /api/workspaces/<slug>/projects/<project_id>/archived-issues/
+                (action: ``list``)
+        GET    /api/workspaces/<slug>/projects/<project_id>/issues/<pk>/archive/
+                (action: ``retrieve``)
+        POST   /api/workspaces/<slug>/projects/<project_id>/issues/<pk>/archive/
+                (action: ``archive``)
+        DELETE /api/workspaces/<slug>/projects/<project_id>/issues/<pk>/archive/
+                (action: ``unarchive``)
+
+    Query parameters (list):
+        group_by (str, optional): groups results by the given issue field.
+        sub_group_by (str, optional): adds a second-level grouping; MUST
+            differ from ``group_by`` (else 400).
+        order_by (str, optional, default=``-created_at``): order field
+            forwarded to :func:`plane.utils.order_queryset.order_issue_queryset`.
+        show_sub_issues (str ``"true"|"false"``, default ``"true"``): when
+            ``"false"`` excludes rows whose ``parent`` is set.
+        plus any filter accepted by
+        :class:`plane.utils.filters.IssueFilterSet` and the legacy
+        :func:`plane.utils.issue_filters.issue_filters` shape.
+
+    Request body:
+        - ``list`` / ``retrieve``: none.
+        - ``archive`` (POST): none -- pk in URL identifies the issue.
+        - ``unarchive`` (DELETE): none.
+
+    Response shape:
+        - ``list``: paginated grouped or flat list keyed by the chosen
+          grouper; see
+          :class:`plane.utils.paginator.GroupedOffsetPaginator` /
+          :class:`SubGroupedOffsetPaginator`.
+        - ``retrieve``: :class:`plane.app.serializers.IssueDetailSerializer`
+          (with prefetched ``issue_reactions`` and ``issue_link`` and the
+          ``is_subscribed`` Exists annotation).
+        - ``archive``: ``{"archived_at": "<YYYY-MM-DD>"}``.
+        - ``unarchive``: HTTP 204 empty body.
+
+    Permissions:
+        permission_classes -- not set on the class; inherits
+        ``[IsAuthenticated]`` from :class:`BaseViewSet`. Every method is
+        gated by ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER])`` so
+        guests cannot reach archive endpoints. Use of
+        :class:`plane.utils.filters.IssueFilterSet` and the
+        ``project_id`` / ``workspace__slug`` filters on ``get_queryset``
+        further scopes results to the requesting member's project.
+
+    get_queryset filter logic:
+        ``Issue.objects.filter(Q(type__isnull=True) | Q(type__is_epic=False))``
+        -- excludes ``Issue.type`` rows that represent epics (epics are
+        listed via a separate workspace-level endpoint),
+        ``archived_at__isnull=False`` (archived only),
+        ``project_id=<URL kwarg>``,
+        ``workspace__slug=<URL kwarg>``.
+
+    Business rule (``archive``):
+        Only issues whose ``state.group`` is ``"completed"`` or
+        ``"cancelled"`` may be archived; archiving any other state group
+        returns HTTP 400 with ``{"error": "Can only archive completed or
+        cancelled state group issue"}``.
+
+    Side effects on archive/unarchive:
+        ``plane.bgtasks.issue_activities_task.issue_activity`` is enqueued
+        via Celery (RabbitMQ) with ``type="issue.activity.updated"`` and a
+        payload containing the new ``archived_at`` value -- the worker
+        appends a row to :class:`IssueActivity` for the issue timeline.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.allow_permission``.
+        - Serializers: ``plane.app.serializers.IssueFlatSerializer``,
+          ``plane.app.serializers.IssueDetailSerializer``.
+        - Models: ``plane.db.models.Issue``, ``plane.db.models.IssueLink``,
+          ``plane.db.models.FileAsset``, ``plane.db.models.CycleIssue``,
+          ``plane.db.models.IssueSubscriber``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
+    """
+
     serializer_class = IssueFlatSerializer
     model = Issue
 
@@ -58,6 +151,12 @@ class IssueArchiveViewSet(BaseViewSet):
     filterset_class = IssueFilterSet
 
     def apply_annotations(self, issues):
+        """Annotate an Issue queryset with ``cycle_id``, ``link_count``, ``attachment_count``, and ``sub_issues_count``.
+
+        Also prefetches the ``assignees``, ``labels``, and
+        ``issue_module__module`` relations used by downstream serializers
+        and group-by operations.
+        """
         return (
             issues.annotate(
                 cycle_id=Subquery(
@@ -95,6 +194,7 @@ class IssueArchiveViewSet(BaseViewSet):
         )
 
     def get_queryset(self):
+        """Return archived issues (``archived_at IS NOT NULL``) for the URL's workspace + project, excluding epics."""
         return (
             Issue.objects.filter(Q(type__isnull=True) | Q(type__is_epic=False))
             .filter(archived_at__isnull=False)
@@ -105,6 +205,15 @@ class IssueArchiveViewSet(BaseViewSet):
     @method_decorator(gzip_page)
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def list(self, request, slug, project_id):
+        """Return paginated archived issues, optionally grouped by ``group_by`` and ``sub_group_by`` query params.
+
+        Combines legacy :func:`issue_filters` with the modern
+        :class:`IssueFilterSet`, applies :func:`apply_annotations`, sorts
+        via :func:`order_issue_queryset`, and routes through
+        :class:`GroupedOffsetPaginator` or
+        :class:`SubGroupedOffsetPaginator` depending on the grouping
+        request.
+        """
         filters = issue_filters(request.query_params, "GET")
         show_sub_issues = request.GET.get("show_sub_issues", "true")
 
@@ -219,6 +328,12 @@ class IssueArchiveViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def retrieve(self, request, slug, project_id, pk=None):
+        """Return a single archived issue with reactions + links prefetched.
+
+        ``is_subscribed`` is annotated via an :class:`Exists` subquery on
+        :class:`IssueSubscriber` for the requesting user. Returns
+        HTTP 404 if the issue does not exist or is not archived.
+        """
         issue = (
             self.get_queryset()
             .filter(pk=pk)
@@ -255,6 +370,11 @@ class IssueArchiveViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def archive(self, request, slug, project_id, pk=None):
+        """Set ``archived_at = today`` on the issue and enqueue an ``issue.activity.updated`` Celery task.
+
+        Returns HTTP 400 if the issue's ``state.group`` is not
+        ``"completed"`` or ``"cancelled"``.
+        """
         issue = Issue.issue_objects.get(workspace__slug=slug, project_id=project_id, pk=pk)
         if issue.state.group not in ["completed", "cancelled"]:
             return Response(
@@ -279,6 +399,11 @@ class IssueArchiveViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def unarchive(self, request, slug, project_id, pk=None):
+        """Set ``archived_at = None`` on the issue (restoring it from archive).
+
+        Enqueues an ``issue.activity.updated`` Celery task (RabbitMQ) so
+        the unarchive event is recorded in the issue timeline.
+        """
         issue = Issue.objects.get(
             workspace__slug=slug,
             project_id=project_id,
@@ -303,10 +428,60 @@ class IssueArchiveViewSet(BaseViewSet):
 
 
 class BulkArchiveIssuesEndpoint(BaseAPIView):
+    """Bulk-archive endpoint: archives many issues in one request.
+
+    HTTP methods + URL patterns:
+        POST /api/workspaces/<slug>/projects/<project_id>/bulk-archive-issues/
+
+    Request body:
+        issue_ids (list[UUID], required): the issues to archive in this batch.
+
+    Response shape:
+        Success: ``{"archived_at": "<YYYY-MM-DD>"}``.
+        Empty list: HTTP 400 ``{"error": "Issue IDs are required"}``.
+        Wrong state group on any row: HTTP 400 with
+        ``{"error_code": ERROR_CODES["INVALID_ARCHIVE_STATE_GROUP"],
+        "error_message": "INVALID_ARCHIVE_STATE_GROUP"}`` -- the whole
+        batch is rejected (atomic-style validation).
+
+    Permissions:
+        ``permission_classes = [ProjectEntityPermission]`` -- declared on
+        the class attribute (see
+        :file:`apps/api/plane/app/views/issue/archive.py`). Defined in
+        :class:`plane.app.permissions.project.ProjectEntityPermission`.
+        Per-method gate: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER])``
+
+    Business rule:
+        Same as :meth:`IssueArchiveViewSet.archive` -- only issues whose
+        ``state.group`` is ``"completed"`` or ``"cancelled"`` may be
+        archived. Validated up-front; if ANY supplied issue fails the
+        check the entire request is rejected.
+
+    Side effects:
+        Issues are mutated via ``Issue.objects.bulk_update(...,
+        ["archived_at"])``; for each affected issue one
+        ``plane.bgtasks.issue_activities_task.issue_activity`` Celery task
+        is enqueued (RabbitMQ) with ``type="issue.activity.updated"``.
+
+    Cross-references:
+        - Permissions: ``plane.app.permissions.ProjectEntityPermission``,
+          ``plane.app.permissions.allow_permission``.
+        - Models: ``plane.db.models.Issue``, ``plane.db.models.State``.
+        - Celery tasks (via RabbitMQ): ``plane.bgtasks.issue_activities_task.issue_activity``.
+        - URL registration: ``apps/api/plane/app/urls/issue.py``.
+    """
+
     permission_classes = [ProjectEntityPermission]
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def post(self, request, slug, project_id):
+        """Validate ``issue_ids`` are in a ``completed``/``cancelled`` state group, then bulk-archive them.
+
+        Bulk-updates ``archived_at`` on every supplied issue and
+        enqueues one ``issue.activity.updated`` Celery task per issue
+        (RabbitMQ) so each archive event is recorded in the issue
+        timeline.
+        """
         issue_ids = request.data.get("issue_ids", [])
 
         if not len(issue_ids):

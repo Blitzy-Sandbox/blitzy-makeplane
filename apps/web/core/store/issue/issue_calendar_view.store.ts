@@ -4,6 +4,64 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Issue calendar view-layout store: owns the active month/week filters, the generated
+ * calendar payload, and the derivations components use to render day/week cells.
+ *
+ * State slice:
+ *   - loader: boolean (observable.ref) — calendar-fetch loader flag declared on the
+ *       class; intentionally not part of `ICalendarStore` so it is an internal
+ *       implementation detail rather than a consumer-facing contract.
+ *   - error: any | null (observable.ref) — calendar-fetch error placeholder declared
+ *       on the class; same internal-only scoping as `loader`.
+ *   - calendarFilters: { activeMonthDate: Date; activeWeekDate: Date } (observable.ref)
+ *       — currently selected month/week reference dates that drive every computed
+ *       below.
+ *   - calendarPayload: ICalendarPayload | null (observable.ref) — generated calendar
+ *       week/day grid keyed by year/month/week; source of truth for the rendered grid.
+ *
+ * Actions:
+ *   - updateCalendarFilters(filters): regenerates `calendarPayload` for the new date
+ *       via `updateCalendarPayload`, then mutates `calendarFilters` inside
+ *       `runInAction` so observers see one consistent transition.
+ *   - updateCalendarPayload(date): calls `generateCalendarData` from `@plane/utils`
+ *       with the user's `start_of_the_week` preference and replaces `calendarPayload`;
+ *       returns early when no payload exists yet, so `initCalendar` must seed first.
+ *   - regenerateCalendar(): clears and rebuilds `calendarPayload` from `null`; invoked
+ *       when the user's start-of-week preference changes (see Reactions).
+ *   - initCalendar(): constructor bootstrap that seeds `calendarPayload` with today's
+ *       date so the first render has a payload to compute against.
+ *
+ * Computed (recompute only when their declared dependencies change):
+ *   - allWeeksOfActiveMonth: ordered week map for `calendarFilters.activeMonthDate`;
+ *       recomputes when `calendarPayload` or `calendarFilters.activeMonthDate` changes.
+ *   - activeWeekNumber: ISO week number of `calendarFilters.activeWeekDate`;
+ *       recomputes when `calendarFilters.activeWeekDate` changes.
+ *   - allDaysOfActiveWeek: day map for the current week, factoring in the user's
+ *       `start_of_the_week` preference; recomputes when `calendarPayload`,
+ *       `calendarFilters.activeWeekDate`, or `start_of_the_week` change.
+ *
+ * Computed actions (computedFn from mobx-utils — memoized per argument tuple):
+ *   - getStartAndEndDate(layout): returns `{ startDate, endDate }` for the active
+ *       `"week"` or `"month"` layout; recomputes per `(layout)` argument tuple when
+ *       its upstream computeds change.
+ *
+ * Reactions:
+ *   - Constructor registers a `reaction()` on
+ *       `rootStore.user.userProfile.data?.start_of_the_week` that calls
+ *       `regenerateCalendar()` whenever the preference changes — a non-obvious
+ *       side-effecting subscription installed at construction time so callers do not
+ *       need to wire the dependency manually.
+ *
+ * Consumers:
+ *   - apps/web/core/components/issues/issue-layouts/calendar/base-calendar-root.tsx
+ *   - apps/web/core/components/issues/issue-layouts/calendar/calendar.tsx
+ *   - apps/web/core/components/issues/issue-layouts/calendar/dropdowns/months-dropdown.tsx
+ *   - Accessed via apps/web/core/hooks/store/use-calendar-view.ts —
+ *       `useCalendarView()` returns `context.issue.issueCalendarView`
+ *   - Composed by apps/web/core/store/issue/root.store.ts as `issueCalendarView`
+ */
+
 import { observable, action, makeObservable, runInAction, computed, reaction } from "mobx";
 
 // helpers

@@ -2,7 +2,29 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""Development settings"""
+"""Local development overlay applied via DJANGO_SETTINGS_MODULE=plane.settings.local.
+
+Imports the shared baseline from :mod:`plane.settings.common` and applies
+development-only overrides: forces ``DEBUG=True``, wires Django Debug
+Toolbar into ``INSTALLED_APPS`` and ``MIDDLEWARE``, routes outbound email
+to the console backend (overridable via the ``EMAIL_BACKEND`` env var),
+points ``MEDIA_ROOT`` at a local ``uploads/`` directory, and configures a
+verbose JSON-formatted developer logging policy that emits to stdout.
+
+Cache backend remains the standard ``django_redis`` against ``REDIS_URL``
+inherited from common. Sessions remain DB-backed via the
+``plane.db.models.session`` engine inherited from common; Redis is the
+cache backend ONLY (Celery uses RabbitMQ via AMQP — see AAP §0.2.2).
+
+Module-level side effects:
+    - ``os.makedirs(LOG_DIR)`` is invoked at import time when ``logs/``
+      does not yet exist so the file-less developer LOGGING configuration
+      below can resolve handler paths consistently.
+
+Migrator startup contract: like every settings overlay, this module is
+evaluated before the ``migrator`` container runs Django migrations, so
+nothing here may import models or query the database at import time.
+"""
 
 import os
 

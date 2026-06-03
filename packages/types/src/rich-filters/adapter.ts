@@ -4,26 +4,36 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Adapter contracts at the serialize/deserialize boundary between the in-memory
+ * `TFilterExpression` tree and the persisted wire formats (legacy
+ * `IIssueFilterOptions`, rich-filter JSON); consumed by
+ * `packages/shared-state/src/store/work-item-filters/adapter.ts`.
+ */
+
 // local imports
 import type { TFilterExpression, TFilterProperty } from "./expression";
 
 /**
- * External filter format
+ * Permissive wire-format shape every adapter accepts and produces; `undefined`
+ * means "never configured", `null` means "explicitly cleared".
  */
 export type TExternalFilter = Record<string, unknown> | undefined | null;
 
 /**
- * Adapter for converting between internal filter trees and external formats.
- * @template P - Filter property type (e.g., 'state_id', 'priority', 'assignee')
- * @template E - External filter format type (e.g., work item filters, automation filters)
+ * Bidirectional contract for round-tripping `TFilterExpression<P>` against an
+ * external wire format `E`; implementations must be inverses on the subset of
+ * filters representable in `E`.
  */
 export interface IFilterAdapter<P extends TFilterProperty, E extends TExternalFilter> {
   /**
-   * Converts external format to internal filter tree.
+   * Decodes the external wire format into an internal expression tree, returning
+   * `null` when the external input has no representable filter.
    */
   toInternal(externalFilter: E): TFilterExpression<P> | null;
   /**
-   * Converts internal filter tree to external format.
+   * Encodes the internal expression tree back into the external wire format;
+   * accepts `null` to represent an explicit "clear all filters" state.
    */
   toExternal(internalFilter: TFilterExpression<P> | null): E;
 }

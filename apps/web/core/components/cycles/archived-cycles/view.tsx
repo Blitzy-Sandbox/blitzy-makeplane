@@ -4,6 +4,46 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX-observed list view that renders the project's archived cycles via the shared
+ * `CyclesList` component in archived mode, switching to a loader or a filter/search-
+ * aware empty state when the filtered result set is empty.
+ *
+ * Props (`IArchivedCyclesView`):
+ *   - workspaceSlug (string, required): workspace slug forwarded to `CyclesList` for
+ *     downstream API targeting in row-level actions.
+ *   - projectId (string, required): project ID used to derive the filtered archived
+ *     cycle ID list and forwarded to `CyclesList`.
+ *
+ * MobX stores read:
+ *   - useCycle (cycle store): `getFilteredArchivedCycleIds(projectId)` to compute
+ *     the project-scoped filtered ID list, and `loader` to show the skeleton during
+ *     the parent route's SWR fetch.
+ *   - useCycleFilter (cycle filter store): `archivedCyclesSearchQuery` to pick the
+ *     empty-state copy and artwork variant (filter empty vs. search empty).
+ *
+ * Side effects:
+ *   - None directly — this component is a pure selector over store-derived data.
+ *     The archived-cycles fetch is owned by the parent `ArchivedCycleLayoutRoot`
+ *     (via SWR); row-level mutations (restore, delete, copy-link, etc.) are owned
+ *     by the row quick-actions menu mounted inside `CyclesList`.
+ *
+ * Conditional rendering:
+ *   - When `loader` is truthy or `filteredArchivedCycleIds` is undefined →
+ *     `CycleModuleListLayoutLoader`.
+ *   - When `filteredArchivedCycleIds.length === 0` → centered empty state with
+ *     either `AllFiltersImage` (when `archivedCyclesSearchQuery` is blank, meaning
+ *     filters alone are responsible for the empty result) or `NameFilterImage`
+ *     (when a search query is present, with copy directing the user to clear it).
+ *   - Otherwise → `CyclesList` with `completedCycleIds={[]}`, the filtered archived
+ *     IDs as `cycleIds`, and `isArchived` to drive archive-specific row UI.
+ *
+ * Consumers:
+ *   - `ArchivedCycleLayoutRoot` in `./root.tsx` mounts this view inside a
+ *     full-height scrollable container when there is at least one archived cycle
+ *     in the current project.
+ */
+
 import { observer } from "mobx-react";
 // assets
 import AllFiltersImage from "@/app/assets/empty-state/cycle/all-filters.svg?url";

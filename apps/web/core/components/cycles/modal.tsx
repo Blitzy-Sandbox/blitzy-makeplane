@@ -4,6 +4,51 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Create-or-update modal that wraps CycleForm with persistence orchestration —
+ * runs a date-overlap pre-check, calls the cycle store's create or update action,
+ * handles success/error toasts, and resets the cycle tab to "all" after creation.
+ *
+ * Props (CycleModalProps):
+ *   - isOpen (boolean, required): controls the ModalCore visibility.
+ *   - handleClose (() => void, required): called to close the modal; also triggered
+ *     on Escape via useKeypress, and after a successful save.
+ *   - data (ICycle | null, optional): when present, switches the modal into edit
+ *     mode and prefills the form; when null/undefined, the modal is in create mode.
+ *   - workspaceSlug (string, required): workspace slug used for all API calls.
+ *   - projectId (string, required): fallback project context when payload omits
+ *     project_id (the user may pick a different project via the form's
+ *     ProjectDropdown).
+ *
+ * MobX stores read:
+ *   - useProject (project store): workspaceProjectIds — used by the activeProject
+ *     fallback logic in the open/edit useEffect.
+ *   - useCycle (cycle store): createCycle, updateCycleDetails actions.
+ *   - usePlatformOS: isMobile flag forwarded to CycleForm for tab-index handling.
+ *
+ * Side effects:
+ *   - API calls (via store actions wired to CycleService):
+ *       - createCycle(workspaceSlug, projectId, payload) on submit when no `data.id`.
+ *       - updateCycleDetails(workspaceSlug, projectId, id, payload) on submit when
+ *         `data.id` is present.
+ *       - cycleService.cycleDateCheck(...) directly (the only place this component
+ *         instantiates a service class) to detect overlapping cycle dates before
+ *         persistence.
+ *   - SWR cache: `mutate(`PROJECT_ACTIVE_CYCLE_${selectedProjectId}`)` invoked
+ *     after a successful create when the new cycle bounds include "now", so the
+ *     active-cycle SWR key refreshes immediately.
+ *   - Local storage: useLocalStorage<TCycleTabOptions>("cycle_tab", "active")
+ *     setter (setCycleTab) — called with "all" after a successful create so the
+ *     newly created (likely future-dated) cycle is visible.
+ *   - Toasts: TOAST_TYPE.SUCCESS / ERROR via setToast on create, update, and
+ *     date-conflict outcomes.
+ *   - Keyboard: useKeypress("Escape") triggers handleClose when the modal is open.
+ *
+ * Consumers: opened from cycle list rows (apps/web/core/components/cycles/list/**),
+ * the cycle quick-actions menu (quick-actions.tsx), and the page-level "create cycle"
+ * trigger in cycles routes.
+ */
+
 import { useEffect, useState } from "react";
 import { mutate } from "swr";
 // types

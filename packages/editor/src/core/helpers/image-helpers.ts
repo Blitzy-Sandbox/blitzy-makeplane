@@ -4,6 +4,12 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Legacy public-image recovery helper for the editor's `onCreate` hook.
+ *
+ * Older Plane content predates the asset-management API and references images by direct HTTP URL (no managed asset id). This helper walks the document, identifies those external-source image nodes, and invokes a per-source restore callback to duplicate them into the managed asset bucket so the images survive future workspace migrations and apiserver auth changes.
+ */
+
 import type { Editor } from "@tiptap/core";
 // constants
 import { CORE_EXTENSIONS } from "@/constants/extension";
@@ -11,12 +17,12 @@ import { CORE_EXTENSIONS } from "@/constants/extension";
 import type { TFileHandler } from "@/types";
 
 /**
- * Finds all public image nodes in the document and restores them using the provided restore function
+ * Walks the document, collects unique HTTP image sources from `image` / `imageComponent` nodes, and invokes `restoreImageFn` once per unique source to re-ingest them through the managed asset bucket.
  *
- * Never remove this onCreate hook, it's a hack to restore old public
- * images, since they don't give error if they've been deleted as they are
- * rendered directly from image source instead of going through the
- * apiserver
+ * Legacy hack: do not remove this `onCreate` hook. Older public images render directly from their HTTP source without going through the apiserver, so a deleted source produces no error feedback in the editor — duplicating them into managed storage is the only way to make legacy content survive workspace migrations and apiserver auth changes.
+ *
+ * @param editor - TipTap editor instance whose document is walked via `state.doc.descendants`.
+ * @param restoreImageFn - File-handler `restore` callback; invoked once per unique HTTP source. Errors are caught and logged so a single failure does not block other restorations.
  */
 export const restorePublicImages = (editor: Editor, restoreImageFn: TFileHandler["restore"]) => {
   const imageSources = new Set<string>();

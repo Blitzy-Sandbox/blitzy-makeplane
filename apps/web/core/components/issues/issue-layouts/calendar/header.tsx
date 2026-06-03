@@ -4,6 +4,30 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Compact top bar for the issue calendar that exposes previous/next navigation,
+ * a Today reset, the month dropdown, and the calendar options dropdown.
+ *
+ * Props (ICalendarHeader, L23-L31):
+ *   - issuesFilterStore (required) — route-scoped filter store supplying the
+ *     active calendar layout ("month" | "week", defaults to "month").
+ *   - updateFilters (optional) — forwarded into CalendarOptionsDropdown for
+ *     persisted display-filter updates.
+ *   - setSelectedDate (required) — clears the mobile day selection when the
+ *     Today action is invoked.
+ *
+ * Stores read:
+ *   - useCalendarView().calendarFilters.activeMonthDate / activeWeekDate.
+ *   - useTranslation() for the "Today" label.
+ *
+ * Side effects:
+ *   - issueCalendarView.updateCalendarFilters({ activeMonthDate | activeWeekDate })
+ *     on prev/next click; Today resets BOTH the month anchor and the selected date.
+ *
+ * Consumers:
+ *   - ./calendar.tsx (CalendarChart).
+ */
+
 import { observer } from "mobx-react";
 
 // components
@@ -30,6 +54,7 @@ interface ICalendarHeader {
   setSelectedDate: (date: Date) => void;
 }
 
+/** Renders prev/next navigation, Today reset, and the month/options dropdowns; persists view state via useCalendarView. */
 export const CalendarHeader = observer(function CalendarHeader(props: ICalendarHeader) {
   const { issuesFilterStore, updateFilters, setSelectedDate } = props;
 

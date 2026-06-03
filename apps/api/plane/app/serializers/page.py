@@ -2,6 +2,19 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Serializers for pages, page detail/version snapshots, and binary content updates.
+
+Page bodies are persisted in parallel representations (Y.js CRDT binary,
+HTML, and ProseMirror JSON). The live collaboration server (``apps/live``)
+is the authoritative writer of the binary state; the HTTP API exposes all
+three encodings and routes write traffic through
+:class:`PageBinaryUpdateSerializer`, which validates and sanitizes the
+inbound payload before persisting it.
+
+Cross-reference: technical specification §5.2.5.4 real-time collaboration
+sequence; :mod:`plane.db.models.page`; :mod:`plane.utils.content_validator`.
+"""
+
 # Third party imports
 from rest_framework import serializers
 import base64
@@ -23,6 +36,19 @@ from plane.db.models import (
 
 
 class PageSerializer(BaseSerializer):
+    """Read/write serializer for :class:`~plane.db.models.Page`.
+
+    Handles the many-to-many label and project linkage through the
+    :class:`~plane.db.models.PageLabel` and
+    :class:`~plane.db.models.ProjectPage` join tables. ``labels`` is
+    write-only (the inbound payload accepts :class:`~plane.db.models.Label`
+    primary keys but the rendered response exposes ``label_ids`` instead);
+    ``project_ids`` is similarly an inbound-only UUID list. ``workspace``
+    and ``owned_by`` are read-only and derived server-side from the request
+    context. ``is_favorite`` is a per-user computed boolean annotated by the
+    view's queryset.
+    """
+
     is_favorite = serializers.BooleanField(read_only=True)
     labels = serializers.ListField(
         child=serializers.PrimaryKeyRelatedField(queryset=Label.objects.all()),
@@ -34,6 +60,8 @@ class PageSerializer(BaseSerializer):
     project_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
 
     class Meta:
+        """Bind :class:`PageSerializer` to :class:`~plane.db.models.Page`."""
+
         model = Page
         fields = [
             "id",
@@ -59,6 +87,14 @@ class PageSerializer(BaseSerializer):
         read_only_fields = ["workspace", "owned_by"]
 
     def create(self, validated_data):
+        """Create the page, link it to its project, and attach the supplied labels.
+
+        Creates the :class:`~plane.db.models.Page` row using the
+        ``description_*`` bodies supplied via serializer context, then
+        creates the matching :class:`~plane.db.models.ProjectPage` join row
+        and bulk-creates the supplied :class:`~plane.db.models.PageLabel`
+        rows in a single batched query.
+        """
         labels = validated_data.pop("labels", None)
         project_id = self.context["project_id"]
         owned_by_id = self.context["owned_by_id"]
@@ -106,6 +142,13 @@ class PageSerializer(BaseSerializer):
         return page
 
     def update(self, instance, validated_data):
+        """Re-sync page labels and delegate other field updates to the parent.
+
+        When ``labels`` is present, the existing
+        :class:`~plane.db.models.PageLabel` rows for the page are deleted
+        and re-created from the supplied set; remaining fields are forwarded
+        to :meth:`rest_framework.serializers.ModelSerializer.update`.
+        """
         labels = validated_data.pop("labels", None)
         if labels is not None:
             PageLabel.objects.filter(page=instance).delete()
@@ -127,14 +170,32 @@ class PageSerializer(BaseSerializer):
 
 
 class PageDetailSerializer(PageSerializer):
+    """Detail-view extension of :class:`PageSerializer` that inlines the rendered body.
+
+    Adds ``description_html`` -- the server-rendered HTML representation of
+    the page body -- so a single GET response can power the full read view
+    without a follow-up call to the binary/HTML download endpoint.
+    """
+
     description_html = serializers.CharField()
 
     class Meta(PageSerializer.Meta):
+        """Inherit :class:`PageSerializer.Meta` and append ``description_html``."""
+
         fields = PageSerializer.Meta.fields + ["description_html"]
 
 
 class PageVersionSerializer(BaseSerializer):
+    """Read serializer for :class:`~plane.db.models.PageVersion` history rows.
+
+    Returns only the metadata for a historical snapshot (timestamps, owner,
+    audit fields) so the version-history list can be rendered without
+    transferring the full description payload for every entry.
+    """
+
     class Meta:
+        """Bind :class:`PageVersionSerializer` to :class:`~plane.db.models.PageVersion`."""
+
         model = PageVersion
         fields = [
             "id",
@@ -151,7 +212,16 @@ class PageVersionSerializer(BaseSerializer):
 
 
 class PageVersionDetailSerializer(BaseSerializer):
+    """Read serializer for :class:`~plane.db.models.PageVersion` snapshots with full content.
+
+    Includes the full description payloads -- ``description_binary``,
+    ``description_html`` and ``description_json`` -- needed to restore or
+    diff a historical snapshot against the current page body.
+    """
+
     class Meta:
+        """Bind :class:`PageVersionDetailSerializer` to :class:`~plane.db.models.PageVersion`."""
+
         model = PageVersion
         fields = [
             "id",
@@ -171,14 +241,20 @@ class PageVersionDetailSerializer(BaseSerializer):
 
 
 class PageBinaryUpdateSerializer(serializers.Serializer):
-    """Serializer for updating page binary description with validation"""
+    """Validate-and-persist serializer for the binary/HTML/JSON description payload of a page.
+
+    This is a plain :class:`rest_framework.serializers.Serializer` rather
+    than a ``ModelSerializer`` because each request may carry any non-empty
+    subset of the three description encodings; :meth:`update` writes only
+    the fields actually supplied and leaves the others untouched.
+    """
 
     description_binary = serializers.CharField(required=False, allow_blank=True)
     description_html = serializers.CharField(required=False, allow_blank=True)
     description_json = serializers.JSONField(required=False, allow_null=True)
 
     def validate_description_binary(self, value):
-        """Validate the base64-encoded binary data"""
+        """Decode the base64-encoded Y.js binary state and reject malformed or unsafe payloads."""
         if not value:
             return value
 
@@ -198,7 +274,7 @@ class PageBinaryUpdateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Failed to decode base64 data")
 
     def validate_description_html(self, value):
-        """Validate the HTML content"""
+        """Run the HTML through the content sanitizer and reject markup that fails security checks."""
         if not value:
             return value
 
@@ -211,7 +287,7 @@ class PageBinaryUpdateSerializer(serializers.Serializer):
         return sanitized_html if sanitized_html is not None else value
 
     def update(self, instance, validated_data):
-        """Update the page instance with validated data"""
+        """Persist whichever of ``description_binary``/``description_html``/``description_json`` are present."""
         if "description_binary" in validated_data:
             instance.description_binary = validated_data.get("description_binary")
 

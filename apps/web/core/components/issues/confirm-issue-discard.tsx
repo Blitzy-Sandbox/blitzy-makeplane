@@ -4,6 +4,35 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Confirmation modal for discarding or saving a work item draft.
+ *
+ * Rendered purpose: a `ModalCore` (top-anchored, XXL width) that asks the user whether to save the
+ * current in-progress work item as a draft; presents three actions — Discard, Cancel, Save to Drafts.
+ *
+ * Props:
+ *   - isOpen (boolean, required): modal open state
+ *   - handleClose (() => void, required): close-modal callback
+ *   - onDiscard (() => void, required): invoked when the user clicks "Discard" (parent typically closes the
+ *     issue create/edit flow and drops the in-memory form)
+ *   - onConfirm (() => Promise<void>, required): invoked when the user clicks "Save to Drafts"; this component
+ *     awaits its resolution and toggles its local `isLoading` indicator
+ *
+ * MobX stores read: none — this is a pure UI primitive that delegates persistence to the parent.
+ *
+ * Side effects:
+ *   - Awaits `onConfirm()` and toggles local loading state.
+ *   - No toasts, no service calls, no navigations.
+ *
+ * Derived state notes:
+ *   - `onClose` wraps `handleClose` plus a `setIsLoading(false)` reset so re-opening the modal starts clean.
+ *   - The Save button surfaces "Saving" copy while `isLoading` is true (handled inline in JSX).
+ *
+ * Consumers: rendered by the issue create/update modal flow — e.g.,
+ * `apps/web/core/components/issues/issue-modal/draft-issue-layout.tsx` mounts this when the user
+ * tries to close a dirty draft form.
+ */
+
 import { useState } from "react";
 // ui
 import { Button } from "@plane/propel/button";

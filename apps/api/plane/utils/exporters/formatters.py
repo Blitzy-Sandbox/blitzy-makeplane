@@ -2,6 +2,31 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Per-format row/column writers for the export pipeline.
+
+This module supplies the file-format writers consumed by
+``plane.utils.exporters.exporter.Exporter``. Each formatter accepts
+schema-serialized records (a ``List[dict]``), a schema class (used to
+recover declared field order and labels), and an options bag, and
+returns a ``(filename_with_extension, content)`` tuple.
+
+- ``CSVFormatter`` emits comma-delimited UTF-8 text with
+  ``csv.QUOTE_ALL``. Every row is routed through
+  ``plane.utils.csv_utils.sanitize_csv_row`` to prefix values starting
+  with formula-trigger characters (``=``, ``+``, ``-``, ``@``, tab,
+  carriage return, newline) with a single quote, defeating OWASP-style
+  CSV formula injection when the file is opened in a spreadsheet
+  application.
+- ``JSONFormatter`` emits a JSON array, preserving Python primitive
+  types (lists stay as arrays, dicts stay as objects).
+- ``XLSXFormatter`` emits an XLSX workbook built with ``openpyxl`` in
+  an in-memory ``BytesIO`` buffer.
+
+All formatters are intentionally stateless across export calls; per-call
+behavior is driven by the ``options`` dict (notably the ``fields``
+allow-list and the CSV/XLSX ``list_joiner`` separator).
+"""
+
 import csv
 import io
 import json
@@ -92,6 +117,14 @@ class CSVFormatter(BaseFormatter):
         return buf.getvalue()
 
     def format(self, filename, records, schema_class, options: Dict[str, Any] | None = None) -> tuple[str, str]:
+        """Serialize ``records`` to a CSV string paired with ``<filename>.csv``.
+
+        Honors ``options['fields']`` (allow-list) and
+        ``options['list_joiner']`` (default ``", "``). Every row is
+        routed through ``plane.utils.csv_utils.sanitize_csv_row`` to
+        neutralize OWASP-style spreadsheet formula injection before the
+        bytes leave this process.
+        """
         if not records:
             return (f"{filename}.csv", "")
 
@@ -127,6 +160,13 @@ class JSONFormatter(BaseFormatter):
         return {field_labels[field]: record.get(field) for field in field_order if field in record}
 
     def format(self, filename, records, schema_class, options: Dict[str, Any] | None = None) -> tuple[str, str]:
+        """Serialize ``records`` to a JSON array string paired with ``<filename>.json``.
+
+        Honors ``options['fields']`` (allow-list). Nested Python lists
+        and dicts are preserved as native JSON arrays and objects rather
+        than coerced to strings, so downstream consumers can round-trip
+        complex values.
+        """
         if not records:
             return (f"{filename}.json", "[]")
 
@@ -182,6 +222,13 @@ class XLSXFormatter(BaseFormatter):
         return out.getvalue()
 
     def format(self, filename, records, schema_class, options: Dict[str, Any] | None = None) -> tuple[str, bytes]:
+        """Serialize ``records`` to an XLSX workbook bytes blob paired with ``<filename>.xlsx``.
+
+        Honors ``options['fields']`` (allow-list) and
+        ``options['list_joiner']`` (default ``", "``). The workbook is
+        built in-memory with ``openpyxl`` and returned as raw bytes; the
+        caller writes or uploads them.
+        """
         if not records:
             # Create empty workbook
             content = self._create_xlsx_file([])

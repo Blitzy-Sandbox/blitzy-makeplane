@@ -4,6 +4,39 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * PowerK base store: reusable MobX foundation for the PowerK command-palette
+ * surface; extended by `PowerKStore` at `apps/web/ce/store/power-k.store.ts`
+ * (imported via the `@/plane-web/store/power-k.store` alias) which is wired
+ * into the composition root as `CoreRootStore.powerK`.
+ *
+ * State slice:
+ *   - isPowerKModalOpen: boolean (observable.ref) — whether the PowerK command-palette modal is open
+ *   - isShortcutsListModalOpen: boolean (observable.ref) — whether the keyboard shortcuts list modal is open
+ *   - commandRegistry: IPowerKCommandRegistry (observable.ref) — registry of available PowerK commands
+ *   - activeContext: TPowerKContextType | null (observable) — entity context the palette is acting on
+ *   - activePage: TPowerKPageType | null (observable) — current drill-down page inside the palette
+ *   - topNavInputRef: React.RefObject<HTMLInputElement> | null (observable.ref) — ref to the top-nav input, target of keyboard shortcuts
+ *   - topNavSearchInputRef: React.RefObject<HTMLInputElement> | null (observable.ref) — ref to the top-nav search input
+ *
+ * Actions:
+ *   - togglePowerKModal(value?: boolean) — sets isPowerKModalOpen to `value` when provided, else toggles it
+ *   - toggleShortcutsListModal(value?: boolean) — sets isShortcutsListModalOpen to `value` when provided, else toggles it
+ *   - setActiveContext(entity: TPowerKContextType | null) — mutates activeContext
+ *   - setActivePage(page: TPowerKPageType | null) — mutates activePage
+ *   - setTopNavInputRef(ref: React.RefObject<HTMLInputElement> | null) — mutates topNavInputRef so keyboard shortcuts can focus the input
+ *   - setTopNavSearchInputRef(ref: React.RefObject<HTMLInputElement> | null) — mutates topNavSearchInputRef so keyboard shortcuts can focus the search input
+ *
+ * Computed:
+ *   - None at the base layer — derived selectors live in hooks/components that consume this store
+ *
+ * Consumers:
+ *   - apps/web/ce/store/power-k.store.ts (`PowerKStore` subclass wired into `CoreRootStore.powerK`)
+ *   - apps/web/core/hooks/store/use-power-k.ts (`usePowerK` hook returning `IPowerKStore` via `StoreContext`)
+ *   - apps/web/core/components/power-k/** (PowerK UI: command palette, shortcuts list, global shortcuts)
+ *   - apps/web/ce/components/command-palette/power-k/** (edition-specific palette views)
+ */
+
 import { observable, action, makeObservable } from "mobx";
 // plane imports
 import type { EIssuesStoreType } from "@plane/types";

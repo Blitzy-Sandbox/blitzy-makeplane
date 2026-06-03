@@ -2,11 +2,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""
-Import/Export System with Pluggable Formatters
+"""Import/export system with pluggable formatters.
 
-Exporter: QuerySet → Serializer → Formatter → File/String
-Importer: File/String → Formatter → Serializer → Models
+Defines :class:`BaseFormatter` and concrete CSV, JSON, and XLSX implementations
+used by :class:`plane.utils.porters.exporter.DataExporter` to convert serialized
+row dicts into file/string payloads for export and back into row dicts for
+import. CSV output is sanitized through :mod:`plane.utils.csv_utils` to prevent
+formula injection in downstream spreadsheet applications.
+
+Encode direction: QuerySet → Serializer → Formatter → File/String
+Decode direction: File/String → Formatter → Serializer → Models
 """
 
 import csv
@@ -23,40 +28,71 @@ from plane.utils.csv_utils import sanitize_csv_row, sanitize_csv_value
 
 
 class BaseFormatter(ABC):
+    """Polymorphic interface for formatter implementations.
+
+    Subclasses must override :meth:`encode`, :meth:`decode`, and the
+    :attr:`extension` property so callers can treat JSON, CSV, and XLSX
+    payloads uniformly. The contract is round-trip lossy on purpose:
+    flattening, header prettification, and JSON-string fallbacks for nested
+    values are owned by each subclass.
+    """
+
     @abstractmethod
     def encode(self, data: List[Dict]) -> Union[str, bytes]:
-        """Data → formatted string/bytes"""
+        """Encode rows into the format's serialized string or byte payload."""
         pass
 
     @abstractmethod
     def decode(self, content: Union[str, bytes]) -> List[Dict]:
-        """Formatted string/bytes → data"""
+        """Decode a serialized payload back into a list of row dicts."""
         pass
 
     @property
     @abstractmethod
     def extension(self) -> str:
+        """Return the canonical file extension for this format (without leading dot)."""
         pass
 
 
 class JSONFormatter(BaseFormatter):
+    """Encode and decode row data using the stdlib :mod:`json` module.
+
+    Lists of dicts are serialized with :func:`json.dumps`, falling back to
+    :class:`str` for non-JSON-native values (e.g. ``datetime``, ``UUID``) so
+    DRF serializer output round-trips cleanly.
+    """
+
     def __init__(self, indent: int = 2):
+        """Initialize the JSON formatter with the indent width passed to :func:`json.dumps`."""
         self.indent = indent
 
     def encode(self, data: List[Dict]) -> str:
+        """Serialize ``data`` as a JSON string with configured indentation."""
         return json.dumps(data, indent=self.indent, default=str)
 
     def decode(self, content: str) -> List[Dict]:
+        """Parse a JSON string into the original list of row dicts."""
         return json.loads(content)
 
     @property
     def extension(self) -> str:
+        """Return ``"json"`` so :class:`DataExporter` can compose ``<name>.json`` filenames."""
         return "json"
 
 
 class CSVFormatter(BaseFormatter):
+    """Encode and decode row data as CSV with optional nested-dict flattening.
+
+    Flattens nested dicts using ``parent__child`` keys, JSON-encodes list
+    values, prettifies headers (``created_by_name`` → ``Created By Name``)
+    on encode, and reverses both transformations on decode. Every encoded
+    value passes through :func:`plane.utils.csv_utils.sanitize_csv_value` to
+    prevent CSV formula injection in downstream spreadsheet applications.
+    """
+
     def __init__(self, flatten: bool = True, delimiter: str = ",", prettify_headers: bool = True):
-        """
+        """Initialize the CSV formatter with flattening, delimiter, and header style options.
+
         Args:
             flatten: Whether to flatten nested dicts.
             delimiter: CSV delimiter character.
@@ -67,11 +103,11 @@ class CSVFormatter(BaseFormatter):
         self.prettify_headers = prettify_headers
 
     def _prettify_header(self, header: str) -> str:
-        """Transform 'created_by_name' → 'Created By Name'"""
+        """Transform 'created_by_name' → 'Created By Name'."""
         return header.replace("_", " ").title()
 
     def _normalize_header(self, header: str) -> str:
-        """Transform 'Display Name' → 'display_name' (reverse of prettify)"""
+        """Transform 'Display Name' → 'display_name' (reverse of prettify)."""
         return header.strip().lower().replace(" ", "_")
 
     def _flatten(self, row: Dict, parent_key: str = "") -> Dict:
@@ -106,6 +142,7 @@ class CSVFormatter(BaseFormatter):
         return result
 
     def encode(self, data: List[Dict]) -> str:
+        """Serialize ``data`` as a CSV string with sanitized values and configured header style."""
         if not data:
             return ""
 
@@ -142,12 +179,11 @@ class CSVFormatter(BaseFormatter):
         return output.getvalue()
 
     def decode(self, content: str, normalize_headers: bool = True) -> List[Dict]:
-        """
-        Decode CSV content to list of dicts.
+        """Decode CSV content into a list of row dicts.
 
         Args:
-            content: CSV string
-            normalize_headers: If True, converts 'Display Name' → 'display_name'
+            content: CSV string.
+            normalize_headers: If True, converts 'Display Name' → 'display_name'.
         """
         rows = list(csv.DictReader(StringIO(content), delimiter=self.delimiter))
 
@@ -162,14 +198,22 @@ class CSVFormatter(BaseFormatter):
 
     @property
     def extension(self) -> str:
+        """Return ``"csv"`` so :class:`DataExporter` can compose ``<name>.csv`` filenames."""
         return "csv"
 
 
 class XLSXFormatter(BaseFormatter):
-    """Formatter for XLSX (Excel) files using openpyxl."""
+    """Encode and decode row data as XLSX workbooks using :mod:`openpyxl`.
+
+    Writes and reads workbooks via in-memory :class:`io.BytesIO` buffers so
+    no temporary files are required, joins list values with ``list_joiner``
+    on encode, JSON-stringifies dict values, and best-effort restores nested
+    structures on decode via JSON parsing.
+    """
 
     def __init__(self, prettify_headers: bool = True, list_joiner: str = ", "):
-        """
+        """Initialize the XLSX formatter with header style and list-joining options.
+
         Args:
             prettify_headers: If True, transforms 'created_by_name' → 'Created By Name'.
             list_joiner: String to join list values (default: ", ").
@@ -178,11 +222,11 @@ class XLSXFormatter(BaseFormatter):
         self.list_joiner = list_joiner
 
     def _prettify_header(self, header: str) -> str:
-        """Transform 'created_by_name' → 'Created By Name'"""
+        """Transform 'created_by_name' → 'Created By Name'."""
         return header.replace("_", " ").title()
 
     def _normalize_header(self, header: str) -> str:
-        """Transform 'Display Name' → 'display_name' (reverse of prettify)"""
+        """Transform 'Display Name' → 'display_name' (reverse of prettify)."""
         return header.strip().lower().replace(" ", "_")
 
     def _format_value(self, value: Any) -> Any:
@@ -231,12 +275,11 @@ class XLSXFormatter(BaseFormatter):
         return output.getvalue()
 
     def decode(self, content: bytes, normalize_headers: bool = True) -> List[Dict]:
-        """
-        Decode XLSX bytes to list of dicts.
+        """Decode XLSX workbook bytes into a list of row dicts.
 
         Args:
-            content: XLSX file bytes
-            normalize_headers: If True, converts 'Display Name' → 'display_name'
+            content: XLSX file bytes.
+            normalize_headers: If True, converts 'Display Name' → 'display_name'.
         """
         wb = load_workbook(filename=BytesIO(content), read_only=True, data_only=True)
         ws = wb.active
@@ -271,4 +314,5 @@ class XLSXFormatter(BaseFormatter):
 
     @property
     def extension(self) -> str:
+        """Return ``"xlsx"`` so :class:`DataExporter` can compose ``<name>.xlsx`` filenames."""
         return "xlsx"

@@ -4,6 +4,10 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * In-editor AI assistant task identifiers; `ASK_ANYTHING` opens the generic prompt entry point.
+ * Consumers: `packages/editor/src/**`, `apps/web/core/components/**` AI prompt UIs.
+ */
 export enum AI_EDITOR_TASKS {
   ASK_ANYTHING = "ASK_ANYTHING",
 }

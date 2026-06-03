@@ -2,6 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routes for the external ``/api/v1/`` asset upload and download surface.
+
+Binds workspace-scoped and user-scoped asset endpoints to the view classes in
+``plane.api.views`` (``UserAssetEndpoint``, ``UserServerAssetEndpoint``,
+``GenericAssetEndpoint``); all routes inherit ``X-Api-Key`` authentication
+and ``ApiKeyRateThrottle`` throttling from ``BaseAPIView``.
+"""
+
 from django.urls import path
 
 from plane.api.views import (

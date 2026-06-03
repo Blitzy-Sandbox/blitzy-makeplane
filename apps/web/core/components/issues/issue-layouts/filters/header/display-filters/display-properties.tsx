@@ -4,6 +4,27 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Display-properties section inside the Display Filters dropdown.
+ *
+ * Rendered purpose: renders a checkbox row per per-card property (`assignee`, `due_date`, `labels`,
+ * `priority`, etc.) iterating `ISSUE_DISPLAY_PROPERTIES_KEYS` from `@plane/constants`; toggling a row
+ * flips that property's per-card visibility.
+ *
+ * Props (`Props`):
+ *   - `displayProperties` (`IIssueDisplayProperties`, required): per-card visibility map
+ *   - `displayPropertiesToRender` (`(keyof IIssueDisplayProperties)[]`, required): subset of keys to
+ *     render — sourced from `layoutDisplayFiltersOptions.display_properties` so each layout only
+ *     surfaces properties it actually consumes.
+ *   - `handleUpdate` (`(partial: Partial<IIssueDisplayProperties>) => void`, required): toggle
+ *     callback. Parent persists via `EIssueFilterType.DISPLAY_PROPERTIES`.
+ *   - `isEpic` (`boolean`, optional): toggle epic-aware copy for relevant properties.
+ *
+ * MobX stores read: none.
+ *
+ * Side effects: none. Row click invokes `handleUpdate({ <key>: !prev })`.
+ */
+
 import React from "react";
 import { observer } from "mobx-react";
 // plane constants

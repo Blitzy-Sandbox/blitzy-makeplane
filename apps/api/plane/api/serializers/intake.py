@@ -1,6 +1,14 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Intake (triage inbox) serializers for the ``/api/v1/`` API surface.
+
+Used by :mod:`plane.api.views.intake` to validate and shape requests against
+``IntakeIssue`` (the staging row that links a submitted ``Issue`` to its
+host project). The ``IntakeIssueUpdateSerializer`` carries the
+TRIAGE → default-state transition contract used when triagers accept an
+intake submission into the project workflow.
+"""
 
 # Module imports
 from .base import BaseSerializer
@@ -20,6 +28,8 @@ class IssueForIntakeSerializer(BaseSerializer):
     description = serializers.JSONField(source="description_json", required=False, allow_null=True)
 
     class Meta:
+        """Bind ``IssueForIntakeSerializer`` to the ``Issue`` model with the intake-scoped field set."""
+
         model = Issue
         fields = [
             "name",
@@ -50,6 +60,8 @@ class IntakeIssueCreateSerializer(BaseSerializer):
     issue = IssueForIntakeSerializer(help_text="Issue data for the intake issue")
 
     class Meta:
+        """Bind ``IntakeIssueCreateSerializer`` to ``IntakeIssue`` exposing the nested ``issue`` field only."""
+
         model = IntakeIssue
         fields = ["issue"]
 
@@ -66,6 +78,8 @@ class IntakeIssueSerializer(BaseSerializer):
     inbox = serializers.UUIDField(source="intake.id", read_only=True)
 
     class Meta:
+        """Bind ``IntakeIssueSerializer`` to ``IntakeIssue`` exposing all fields with relational fields read-only."""
+
         model = IntakeIssue
         fields = "__all__"
         read_only_fields = [
@@ -91,6 +105,8 @@ class IntakeIssueUpdateSerializer(BaseSerializer):
     issue = IssueForIntakeSerializer(required=False, help_text="Issue data to update in the intake issue")
 
     class Meta:
+        """Bind ``IntakeIssueUpdateSerializer`` to ``IntakeIssue`` with the mutable subset for triage updates."""
+
         model = IntakeIssue
         fields = [
             "status",
@@ -111,11 +127,12 @@ class IntakeIssueUpdateSerializer(BaseSerializer):
         ]
 
     def validate(self, attrs):
-        """
-        Validate that if status is being changed to accepted (1),
-        the project has a default state to transition to.
-        """
+        """Validate transitions when accepting an intake issue.
 
+        If ``status`` is being changed to accepted (1), require the
+        project to have a default state to transition the underlying
+        issue out of TRIAGE.
+        """
         # Check if status is being updated to accepted
         if attrs.get("status") == 1:
             intake_issue = self.instance
@@ -136,10 +153,7 @@ class IntakeIssueUpdateSerializer(BaseSerializer):
         return attrs
 
     def update(self, instance, validated_data):
-        """
-        Update intake issue and transition associated issue state if accepted.
-        """
-
+        """Update intake issue and transition associated issue state if accepted."""
         # Update the intake issue with validated data
         instance = super().update(instance, validated_data)
 

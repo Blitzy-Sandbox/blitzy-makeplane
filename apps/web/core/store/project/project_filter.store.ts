@@ -4,6 +4,62 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Project filter store — workspace-scoped MobX store for project list filtering,
+ * sorting, and search.
+ *
+ * State slice (each registered as observable in the `makeObservable` block):
+ *   - displayFilters: Record<string, TProjectDisplayFilters>
+ *       Per-workspace display filter map keyed by workspaceSlug
+ *       (order_by, my_projects, archived_projects).
+ *   - filters: Record<string, TProjectFilters>
+ *       Per-workspace filter map keyed by workspaceSlug (e.g., access, members,
+ *       lead, networks).
+ *   - searchQuery: string (observable.ref)
+ *       Free-text query applied to project name and identifier.
+ *
+ * Computed getters (each registered as `computed` in `makeObservable`):
+ *   - currentWorkspaceDisplayFilters — derives from displayFilters and the active
+ *     `rootStore.router.workspaceSlug`; recomputes when either changes.
+ *   - currentWorkspaceAppliedDisplayFilters — derives the subset of toggled keys
+ *     ("my_projects", "archived_projects") whose values are truthy; recomputes
+ *     when displayFilters or router.workspaceSlug change.
+ *   - currentWorkspaceFilters — derives from filters and router.workspaceSlug.
+ *
+ * Computed functions (memoized via `mobx-utils#computedFn`):
+ *   - getDisplayFiltersByWorkspaceSlug(workspaceSlug) — memoized per-workspace
+ *     display filter lookup.
+ *   - getFiltersByWorkspaceSlug(workspaceSlug) — memoized per-workspace filter
+ *     lookup.
+ *
+ * Actions:
+ *   - initWorkspaceFilters(workspaceSlug) — seeds `displayFilters[slug]` with
+ *     `order_by: "created_at"` default and ensures `filters[slug]` exists.
+ *     Triggered reactively whenever `rootStore.router.workspaceSlug` changes
+ *     via a constructor `reaction`; also clears `searchQuery`.
+ *   - updateDisplayFilters(workspaceSlug, displayFilters) — merges partial
+ *     display filters via `lodash-es/set`.
+ *   - updateFilters(workspaceSlug, filters) — merges partial filters via
+ *     `lodash-es/set`.
+ *   - updateSearchQuery(query) — replaces `searchQuery` (observable.ref).
+ *   - clearAllFilters(workspaceSlug) — resets `filters[workspaceSlug]` to `{}`.
+ *   - clearAllAppliedDisplayFilters(workspaceSlug) — toggles every key currently
+ *     in `currentWorkspaceAppliedDisplayFilters` to `false`.
+ *
+ * Cross-store reads:
+ *   - rootStore.router.workspaceSlug — used by computed getters and the
+ *     constructor `reaction` to scope filter state to the current workspace.
+ *
+ * Consumers:
+ *   - apps/web/core/store/project/project.store.ts (filteredProjectIds getter
+ *     reads displayFilters/filters/searchQuery from this store).
+ *   - Project list and applied-filter components under
+ *     apps/web/core/components/project/** (filter dropdowns, search inputs).
+ *   - apps/web/core/components/issues/issue-layouts/filters/** components that
+ *     reference project filter state when projects appear in cross-workspace
+ *     filters.
+ */
+
 import { set } from "lodash-es";
 import { action, computed, observable, makeObservable, runInAction, reaction } from "mobx";
 import { computedFn } from "mobx-utils";

@@ -2,13 +2,31 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Serializer-driven data exporter for CSV, JSON, and XLSX outputs.
+
+This module supplies :class:`DataExporter`, the orchestrator that pairs a
+Django REST Framework serializer with a pluggable :class:`BaseFormatter`
+implementation drawn from the :attr:`DataExporter.FORMATTERS` registry.
+Consumers (notably the Celery task ``apps/api/plane/bgtasks/export_task.py``,
+running via Celery on RabbitMQ) call :meth:`DataExporter.export` to obtain
+an ``(filename, content)`` tuple ready to write or upload. Legacy
+:meth:`DataExporter.to_string` and :meth:`DataExporter.to_file` paths are
+retained for callers that supply their own formatter instance.
+"""
+
 from typing import Dict, List, Union
 from .formatters import BaseFormatter, CSVFormatter, JSONFormatter, XLSXFormatter
 
 
 class DataExporter:
-    """
-    Export data using DRF serializers with built-in format support.
+    """Orchestrate serializer-driven exports through the formatter registry.
+
+    Composes a DRF serializer class with a :class:`BaseFormatter` selected
+    from :attr:`FORMATTERS` (keyed by ``"csv"``, ``"json"``, ``"xlsx"``) so
+    callers obtain ready-to-write payloads without coupling to a specific
+    output format. The class uses composition rather than subclass override;
+    new formats are added by registering another :class:`BaseFormatter`
+    subclass in :attr:`FORMATTERS`.
 
     Usage:
         # New simplified interface
@@ -58,7 +76,7 @@ class DataExporter:
             return formatter_class()
 
     def serialize(self, queryset) -> List[Dict]:
-        """QuerySet → list of dicts"""
+        """Serialize ``queryset`` to a list of plain ``dict`` rows via the bound serializer."""
         serializer = self.serializer_class(
             queryset,
             many=True,
@@ -67,18 +85,17 @@ class DataExporter:
         return serializer.data
 
     def export(self, filename: str, queryset) -> tuple[str, Union[str, bytes]]:
-        """
-        Export queryset to file with configured format.
+        """Export ``queryset`` using the configured formatter and filename stem.
 
         Args:
-            filename: Base filename (without extension)
-            queryset: Django QuerySet to export
+            filename: Base filename (without extension).
+            queryset: Django QuerySet to export.
 
         Returns:
-            Tuple of (filename_with_extension, content)
+            Tuple of (filename_with_extension, content).
 
         Raises:
-            ValueError: If format_type was not provided during initialization
+            ValueError: If ``format_type`` was not provided at initialization.
         """
         if not self.formatter:
             raise ValueError("format_type must be provided during initialization to use export() method")
@@ -90,12 +107,12 @@ class DataExporter:
         return full_filename, content
 
     def to_string(self, queryset, formatter: BaseFormatter) -> Union[str, bytes]:
-        """Export to formatted string (legacy interface)"""
+        """Return the encoded payload for ``queryset`` using a caller-supplied formatter (legacy interface)."""
         data = self.serialize(queryset)
         return formatter.encode(data)
 
     def to_file(self, queryset, filepath: str, formatter: BaseFormatter) -> str:
-        """Export to file (legacy interface)"""
+        """Write the encoded payload for ``queryset`` to ``filepath`` as UTF-8 text (legacy interface)."""
         content = self.to_string(queryset, formatter)
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(content)

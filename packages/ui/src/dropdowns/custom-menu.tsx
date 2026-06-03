@@ -4,6 +4,21 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Headless UI Menu-based dropdown for action menus (vs. value-selection dropdowns).
+ *
+ * Use this for triggering actions ("Delete", "Archive", "Duplicate") rather than picking a value.
+ * For value selection use `custom-select.tsx` or `custom-search-select.tsx`.
+ *
+ * Composes: a `Menu` root with multiple trigger variants (custom button, horizontal/vertical
+ * ellipsis, or labelled button), a popper-positioned `Menu.Items` panel that can be optionally
+ * portaled, hover-open behavior, close-on-select coordination, outside-click dismissal, and a
+ * `SubMenu` system that coordinates sibling closure through `MenuContext`.
+ *
+ * Subcomponents exposed as static members: `CustomMenu.Portal`, `CustomMenu.MenuItem`,
+ * `CustomMenu.SubMenu`, `CustomMenu.SubMenuTrigger`, `CustomMenu.SubMenuContent`.
+ */
+
 import { Menu } from "@headlessui/react";
 import { MoreHorizontal } from "lucide-react";
 import * as React from "react";
@@ -31,6 +46,22 @@ interface PortalProps {
   asChild?: boolean;
 }
 
+/**
+ * Client-only portal helper used by `CustomMenu` and `SubMenu` to render menu panels into
+ * `document.body` (or a caller-supplied container) so they escape parent overflow/stacking
+ * contexts.
+ *
+ * Rendering is deferred until the component has mounted (`useEffect` flips `mounted`) to
+ * avoid SSR mismatches — server-rendered output is `null` and the portal only attaches after
+ * hydration.
+ *
+ * Props (local `PortalProps`):
+ *   - `children` (required): React subtree to portal.
+ *   - `container`: target element; defaults to `document.body`.
+ *   - `asChild` (default `false`): when `true`, the children are portaled directly; when
+ *     `false`, they are wrapped in a `<div data-radix-portal="">` for compatibility with
+ *     consumers that scope styles or event delegation by that attribute.
+ */
 function Portal({ children, container, asChild = false }: PortalProps) {
   const [mounted, setMounted] = React.useState(false);
 
@@ -58,6 +89,35 @@ const MenuContext = React.createContext<{
   registerSubmenu: (closeSubmenu: () => void) => () => void;
 } | null>(null);
 
+/**
+ * Action-menu dropdown built on Headless UI `Menu`. Distinct from `CustomSelect` and
+ * `CustomSearchSelect`: this primitive triggers actions (Delete, Archive, Duplicate) rather
+ * than selecting a value.
+ *
+ * Composes Headless UI `Menu` with three trigger variants (custom button → ellipsis →
+ * labelled chevron button), `react-popper` placement, optional portal mounting into a caller-
+ * supplied container, hover-open/close coordination with a 150 ms grace period for moving to
+ * a submenu, and a `MenuContext`-mediated submenu system where each nested `SubMenu` registers
+ * a close callback so siblings can be dismissed when a new one opens.
+ *
+ * The component runs its OWN outside-click handler (a `mousedown` listener) in addition to
+ * `useOutsideClickDetector` because portaled menus live outside `dropdownRef` and need to
+ * recognise clicks on `[data-prevent-outside-click="true"]` (submenu panels) as inside-clicks.
+ *
+ * Props (see `ICustomMenuDropdownProps` in `./helper`):
+ *   - `children` (required): typically `<CustomMenu.MenuItem>` and `<CustomMenu.SubMenu>` entries.
+ *   - Trigger: `customButton` / `ellipsis` (horizontal MoreHorizontal) / `verticalEllipsis`
+ *     (rotated 90°) / `label` (default button text) / `noChevron` / `noBorder`.
+ *   - Behavior: `closeOnSelect` / `openOnHover` (150 ms close delay) / `disabled` /
+ *     `menuButtonOnClick` / `onMenuClose` / `useCaptureForOutsideClick`.
+ *   - Panel: `placement` (default `"auto"`) / `maxHeight` (default `"md"`) /
+ *     `menuItemsClassName` / `optionsClassName` / `portalElement` (mount target).
+ *   - Accessibility: `ariaLabel` — required for icon-only ellipsis triggers.
+ *
+ * Accessibility: Headless UI Menu provides ARIA `menu` role, `aria-expanded`, `aria-haspopup`,
+ * arrow-key navigation between items, Enter to activate, Escape to close. The local
+ * `useDropdownKeyDown` adds Enter-to-open and an active-item activator used by keyboard input.
+ */
 function CustomMenu(props: ICustomMenuDropdownProps) {
   const {
     ariaLabel,
@@ -308,6 +368,32 @@ const SubMenuContext = React.createContext<{ closeSubmenu: () => void } | null>(
 const useSubMenu = () => React.useContext(SubMenuContext);
 
 // SubMenu implementation
+/**
+ * Nested submenu rendered inside a `CustomMenu`. The trigger row appears as a `Menu.Item` with
+ * a `ChevronRightIcon` affordance; clicking or hovering the row toggles a portaled panel
+ * positioned to the right of the trigger via `react-popper` with `strategy: "fixed"` (so the
+ * panel escapes overflow constraints of the parent menu).
+ *
+ * Each `SubMenu` registers a `closeSubmenu` callback with the parent `MenuContext` so the
+ * `CustomMenu` can close ALL submenus on outer dismissal, and so a newly-opened submenu can
+ * close its siblings.
+ *
+ * The portaled content carries `data-prevent-outside-click="true"` so the parent menu's
+ * outside-click handler treats clicks inside the submenu as inside-clicks. Hover events on the
+ * panel re-dispatch synthetic `mouseenter`/`mouseleave` to the parent `data-main-menu="true"`
+ * element so the parent's hover-open delay does not collapse the menu while the cursor is on
+ * a submenu panel.
+ *
+ * Popper modifiers: 4 px offset, fallback placements (`left-start`, `right-end`, `left-end`,
+ * `top-start`, `bottom-start`), and `preventOverflow` with 8 px padding.
+ *
+ * Props (see `ICustomSubMenuProps` in `./helper`):
+ *   - `trigger` (required): row content shown in the parent menu.
+ *   - `children` (required): submenu panel content (typically `CustomMenu.MenuItem` entries).
+ *   - `disabled`: greys out the trigger and blocks open.
+ *   - `className` / `contentClassName`: trigger / panel class overrides.
+ *   - `placement` (default `"right-start"`): popper placement.
+ */
 function SubMenu(props: ICustomSubMenuProps) {
   const {
     children,
@@ -452,6 +538,21 @@ function SubMenu(props: ICustomSubMenuProps) {
   );
 }
 
+/**
+ * Single actionable row rendered inside a `CustomMenu`. Wraps Headless UI `Menu.Item` and
+ * renders a `<button>` whose click invokes the caller's `onClick` and then closes the menu
+ * via Headless UI's render-prop `close`. If this `MenuItem` is rendered inside a `SubMenu`,
+ * the local `SubMenuContext` is also notified so the submenu collapses.
+ *
+ * Props (see `ICustomMenuItemProps` in `./helper`):
+ *   - `children` (required): row content.
+ *   - `onClick`: invoked with the click `MouseEvent`; the menu then auto-closes.
+ *   - `disabled`: greys out and blocks click.
+ *   - `className`: extra Tailwind classes merged onto the button.
+ *
+ * Accessibility: native `<button type="button">` semantics; ARIA `menuitem` role is provided
+ * by the parent Headless UI `Menu`.
+ */
 function MenuItem(props: ICustomMenuItemProps) {
   const { children, disabled = false, onClick, className } = props;
   const submenuContext = useSubMenu();
@@ -484,6 +585,19 @@ function MenuItem(props: ICustomMenuItemProps) {
   );
 }
 
+/**
+ * Helper row that visually mimics a `SubMenu` trigger (chevron-right affordance, hover styling)
+ * without owning submenu open/close state. Useful when consumers want to render the trigger
+ * appearance as a presentational element.
+ *
+ * Props (see `ICustomSubMenuTriggerProps` in `./helper`):
+ *   - `children` (required): row content.
+ *   - `disabled`: greys out the row.
+ *   - `className`: extra Tailwind classes.
+ *
+ * Accessibility: rendered as a Headless UI `Menu.Item` (with `as="div"`), so the parent menu's
+ * ARIA `menuitem` semantics apply.
+ */
 function SubMenuTrigger(props: ICustomSubMenuTriggerProps) {
   const { children, disabled = false, className } = props;
 
@@ -510,6 +624,18 @@ function SubMenuTrigger(props: ICustomSubMenuTriggerProps) {
   );
 }
 
+/**
+ * Plain styled container for submenu content. Unlike `SubMenu`, this does NOT manage
+ * popper positioning, open state, or portal mounting — it is a presentational shell that
+ * consumers can compose when they want submenu visuals without the coordination machinery.
+ *
+ * Props (see `ICustomSubMenuContentProps` in `./helper`):
+ *   - `children` (required): panel content.
+ *   - `className`: extra Tailwind class overrides.
+ *
+ * (The `placement`, `sideOffset`, `alignOffset` props declared on `ICustomSubMenuContentProps`
+ * are not consumed by this presentational shell — they exist for API parity with `SubMenu`.)
+ */
 function SubMenuContent(props: ICustomSubMenuContentProps) {
   const { children, className } = props;
 

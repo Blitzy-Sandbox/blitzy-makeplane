@@ -4,6 +4,14 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Shared outer composition component for every editor variant in `@plane/editor`.
+ *
+ * `DocumentEditor`, `CollaborativeDocumentEditor`, `LiteTextEditor`, and
+ * `RichTextEditor` all compose around this wrapper to obtain a configured
+ * TipTap editor instance and consistent container/content rendering.
+ */
+
 import type { Editor, Extensions } from "@tiptap/core";
 // components
 import { EditorContainer } from "@/components/editors";
@@ -22,6 +30,29 @@ type Props = IEditorProps & {
   extensions: Extensions;
 };
 
+/**
+ * Builds and renders a configured TipTap editor through the local
+ * `useEditor` hook, applies `DEFAULT_DISPLAY_CONFIG`, and short-circuits to
+ * `null` when no usable editor is produced.
+ *
+ * Props are typed by the local `Props` alias which extends `IEditorProps`
+ * with `editable: boolean`, `extensions: Extensions`, and an optional
+ * `children(editor)` render-prop for editor-aware UI.
+ *
+ * Side effects are confined to `useEditor`, which owns the TipTap editor
+ * lifecycle, extension registration, and event-handler attachment per its
+ * own contract.
+ *
+ * TipTap surface:
+ * - Exposes the live `Editor` instance via the `children(editor)` render-prop.
+ * - Overrides TipTap's default `EditorContent` mounting layout by composing
+ *   `EditorContainer` + `EditorContentWrapper` instead.
+ * - Hides TipTap's default styling, replacing it with class names produced by
+ *   `getEditorClassNames` and the package's display-configuration system.
+ *
+ * Consumed by every editor variant under `editors/document/`,
+ * `editors/lite-text/`, and `editors/rich-text/`.
+ */
 export function EditorWrapper(props: Props) {
   const {
     children,

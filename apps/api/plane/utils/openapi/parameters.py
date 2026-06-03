@@ -2,18 +2,53 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""
-Common OpenAPI parameters for drf-spectacular.
+"""Reusable :class:`OpenApiParameter` definitions for drf-spectacular schema generation.
 
-This module provides reusable parameter definitions that can be shared
-across multiple API endpoints to ensure consistency.
+Every constant in this module is a fully-configured ``OpenApiParameter``
+(or pair, for required/optional variants) referenced from view-level
+``@extend_schema(parameters=[...])`` decorators in
+``apps/api/plane/utils/openapi/decorators.py`` and re-exported via the
+package ``__init__``.
+
+Parameter categories:
+
+  - **Path parameters** — URL path segments such as ``{slug}``, ``{project_id}``,
+    ``{cycle_id}``. Each declares ``required=True`` and
+    ``location=OpenApiParameter.PATH``. Several entities have both a
+    ``<entity>_ID_PARAMETER`` (used on nested routes where the entity is
+    not the primary resource) and a ``<entity>_PK_PARAMETER`` (used on
+    ViewSet detail routes where the entity IS the primary resource — DRF
+    routes the URL kwarg to ``pk`` in that case).
+  - **Query parameters** — ``cursor`` and ``per_page`` for pagination,
+    matching the contract enforced by ``plane.utils.paginator.BasePaginator``.
+  - **External integration parameters** — ``external_id`` and
+    ``external_source`` for cross-system entity lookup (GitHub, Jira, etc.).
+  - **Ordering / search / field-selection parameters** — generic query-string
+    knobs consumed by ``plane.utils.order_queryset`` and the various
+    ``filter_<entity>_queryset`` helpers.
+  - **Cycle view parameter** — ``cycle_view`` filters cycles by lifecycle
+    status (all / current / upcoming / completed / draft / incomplete).
+
+These constants are loaded transitively via
+``apps/api/plane/utils/openapi/__init__.py`` and are only relevant when
+``settings.ENABLE_DRF_SPECTACULAR`` is truthy (see the
+``if settings.ENABLE_DRF_SPECTACULAR:`` block in :mod:`plane.urls`) — at
+runtime in non-schema mode they are inert references with no effect on
+request/response handling.
 """
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 
 
+# ---------------------------------------------------------------------------
 # Path Parameters
+# ---------------------------------------------------------------------------
+# URL path segments declared as ``required=True``,
+# ``location=OpenApiParameter.PATH``. Used by nested-route ``@extend_schema``
+# decorators (e.g., a cycle list endpoint receives both
+# ``WORKSPACE_SLUG_PARAMETER`` and ``PROJECT_ID_PARAMETER``). All UUID examples
+# use the canonical placeholder ``550e8400-e29b-41d4-a716-446655440000``.
 WORKSPACE_SLUG_PARAMETER = OpenApiParameter(
     name="slug",
     description="Workspace slug",
@@ -44,6 +79,7 @@ PROJECT_ID_PARAMETER = OpenApiParameter(
     ],
 )
 
+# Detail-route alias for ``PROJECT_ID_PARAMETER`` (same UUID exposed as ``pk``).
 PROJECT_PK_PARAMETER = OpenApiParameter(
     name="pk",
     description="Project ID",
@@ -134,6 +170,7 @@ MODULE_ID_PARAMETER = OpenApiParameter(
     ],
 )
 
+# Detail-route alias for ``MODULE_ID_PARAMETER`` (same UUID exposed as ``pk``).
 MODULE_PK_PARAMETER = OpenApiParameter(
     name="pk",
     description="Module ID",
@@ -179,7 +216,13 @@ STATE_ID_PARAMETER = OpenApiParameter(
     ],
 )
 
-# Additional Path Parameters
+# ---------------------------------------------------------------------------
+# Additional Path Parameters (ViewSet detail-route ``pk`` aliases)
+# ---------------------------------------------------------------------------
+# Each of the following uses ``name="pk"`` because DRF's default
+# ``DefaultRouter`` maps the detail-route URL kwarg to ``pk`` on the ViewSet.
+# Pairs an entity-specific description with the generic ``pk`` URL slot so
+# the rendered OpenAPI doc is self-documenting on detail routes.
 LABEL_ID_PARAMETER = OpenApiParameter(
     name="pk",
     description="Label ID",
@@ -255,7 +298,12 @@ ACTIVITY_ID_PARAMETER = OpenApiParameter(
     ],
 )
 
-# Query Parameters
+# ---------------------------------------------------------------------------
+# Query Parameters — Cursor Pagination
+# ---------------------------------------------------------------------------
+# Matches the cursor protocol implemented by
+# ``plane.utils.paginator.BasePaginator``: cursor format is
+# ``"<page_size>:<page_number>:<offset>"``; default page size is 20, max 100.
 CURSOR_PARAMETER = OpenApiParameter(
     name="cursor",
     type=OpenApiTypes.STR,
@@ -283,7 +331,12 @@ PER_PAGE_PARAMETER = OpenApiParameter(
     ],
 )
 
+# ---------------------------------------------------------------------------
 # External Integration Parameters
+# ---------------------------------------------------------------------------
+# Used by integration endpoints (GitHub, Jira, Slack, etc.) to look up or
+# filter Plane entities by their counterpart identifier in the external
+# system. Both fields are typically supplied together as a (source, id) pair.
 EXTERNAL_ID_PARAMETER = OpenApiParameter(
     name="external_id",
     type=OpenApiTypes.STR,
@@ -319,7 +372,13 @@ EXTERNAL_SOURCE_PARAMETER = OpenApiParameter(
     ],
 )
 
-# Ordering Parameters
+# ---------------------------------------------------------------------------
+# Ordering Parameter
+# ---------------------------------------------------------------------------
+# Consumed by ``plane.utils.order_queryset.order_issue_queryset`` (and
+# sibling helpers). Prefix the value with ``-`` for descending order. Common
+# ordering keys: ``created_at``, ``priority``, ``state__group``,
+# ``assignees__first_name``.
 ORDER_BY_PARAMETER = OpenApiParameter(
     name="order_by",
     type=OpenApiTypes.STR,
@@ -350,7 +409,14 @@ ORDER_BY_PARAMETER = OpenApiParameter(
     ],
 )
 
-# Search Parameters
+# ---------------------------------------------------------------------------
+# Search & Limit Parameters
+# ---------------------------------------------------------------------------
+# ``SEARCH_PARAMETER`` (optional) is used on list endpoints where search is
+# a refinement. ``SEARCH_PARAMETER_REQUIRED`` (required=True) is used on
+# dedicated search endpoints where the query string is the entire purpose
+# of the call. ``WORKSPACE_SEARCH_PARAMETER`` toggles workspace-wide vs.
+# project-scoped search on those endpoints.
 SEARCH_PARAMETER = OpenApiParameter(
     name="search",
     type=OpenApiTypes.STR,
@@ -371,6 +437,8 @@ SEARCH_PARAMETER = OpenApiParameter(
     ],
 )
 
+# Variant of ``SEARCH_PARAMETER`` with ``required=True`` for endpoints
+# where the search query is the sole input.
 SEARCH_PARAMETER_REQUIRED = OpenApiParameter(
     name="search",
     type=OpenApiTypes.STR,
@@ -423,6 +491,8 @@ WORKSPACE_SEARCH_PARAMETER = OpenApiParameter(
     ],
 )
 
+# Query-string variant of ``PROJECT_ID_PARAMETER`` for endpoints that
+# accept project as an optional filter rather than as a URL path segment.
 PROJECT_ID_QUERY_PARAMETER = OpenApiParameter(
     name="project_id",
     description="Project ID for filtering results within a specific project",
@@ -438,7 +508,13 @@ PROJECT_ID_QUERY_PARAMETER = OpenApiParameter(
     ],
 )
 
+# ---------------------------------------------------------------------------
 # Cycle View Parameter
+# ---------------------------------------------------------------------------
+# Filters cycle list responses by lifecycle status. Valid values mirror the
+# computed status logic in ``plane.app.views.cycle.base.CycleViewSet``:
+# ``all`` / ``current`` / ``upcoming`` / ``completed`` / ``draft`` /
+# ``incomplete``.
 CYCLE_VIEW_PARAMETER = OpenApiParameter(
     name="cycle_view",
     type=OpenApiTypes.STR,
@@ -455,7 +531,13 @@ CYCLE_VIEW_PARAMETER = OpenApiParameter(
     ],
 )
 
+# ---------------------------------------------------------------------------
 # Field Selection Parameters
+# ---------------------------------------------------------------------------
+# ``fields`` projects the response to a subset of model fields;
+# ``expand`` inflates ForeignKey/M2M relations from a list of IDs into full
+# nested objects. Both consume comma-separated field names matching
+# serializer attribute names.
 FIELDS_PARAMETER = OpenApiParameter(
     name="fields",
     type=OpenApiTypes.STR,
@@ -496,6 +578,8 @@ EXPAND_PARAMETER = OpenApiParameter(
     ],
 )
 
+# Path parameter for estimate detail routes. (No ``examples=[]`` — preserve
+# existing definition; do not refactor.)
 ESTIMATE_ID_PARAMETER = OpenApiParameter(
     name="estimate_id",
     description="Estimate ID",

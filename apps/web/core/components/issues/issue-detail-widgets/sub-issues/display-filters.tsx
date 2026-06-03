@@ -4,6 +4,31 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * `SubIssueDisplayFilters` — dropdown UI for configuring how the sub-issues list is displayed: which display properties are visible,
+ * how rows are grouped, and how they are ordered. Renders only when the supplied layout options enable display filters; renders the
+ * order-by section only when the layout exposes order-by options.
+ *
+ * Props (TSubIssueDisplayFiltersProps):
+ *   - displayProperties (IIssueDisplayProperties, required): Current display-property selection bag (e.g. show/hide labels, assignee).
+ *   - displayFilters (IIssueDisplayFilterOptions, required): Current group-by/order-by selection bag.
+ *   - handleDisplayFiltersUpdate ((updatedDisplayFilter: Partial<IIssueDisplayFilterOptions>) => void, required): Callback invoked when a display-filter section changes — forwarded to `FilterGroupBy` and `FilterOrderBy`. The parent (`SubWorkItemTitleActions`) dispatches the actual MobX action.
+ *   - handleDisplayPropertiesUpdate ((updatedDisplayProperties: Partial<IIssueDisplayProperties>) => void, required): Callback invoked when a display-property toggle flips — forwarded to `FilterDisplayProperties`.
+ *   - layoutDisplayFiltersOptions (ILayoutDisplayFiltersOptions | undefined, required): Layout-specific option set sourced from `ISSUE_DISPLAY_FILTERS_BY_PAGE["sub_work_items"].layoutOptions.list`; gates the entire render and each sub-section.
+ *   - isEpic (boolean, optional, default `false`): Forwarded to `FilterDisplayProperties` so epic-only display properties are surfaced/hidden correctly.
+ *
+ * MobX stores read:
+ *   - NONE directly — this component is presentational. It re-renders when its `displayProperties` / `displayFilters` props change, and the parent owns the store wiring.
+ *
+ * Side effects:
+ *   - None directly — invokes the supplied `handleDisplay*Update` callbacks; the parent maps those to MobX actions on `subIssues.filters`.
+ *   - No service calls, no toasts, no navigation.
+ *   - The `bg-accent-primary/20` highlight + dot indicator on the trigger is purely visual feedback driven by `isFilterApplied = isDisplayFiltersApplied({ displayProperties, displayFilters })`.
+ *
+ * Consumers: rendered by `./title-actions.tsx` (`SubWorkItemTitleActions`) inside the
+ * sub-issues collapsible header on the issue-detail widget shell.
+ */
+
 import { useMemo } from "react";
 import { isEmpty } from "lodash-es";
 import { observer } from "mobx-react";

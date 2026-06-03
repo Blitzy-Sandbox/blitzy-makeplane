@@ -4,6 +4,70 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Workspace-scoped "global view" store: caches workspace-level work-item views
+ * (cross-project "all my work" views) keyed by view id, exposes filtering and
+ * search over the cached set, and orchestrates CRUD against `WorkspaceService`.
+ *
+ * State slice:
+ *   - globalViewMap: Record<string, IWorkspaceView> — every fetched workspace
+ *     view keyed by `view.id`. Multi-workspace safe because each entry carries
+ *     its own `workspace` id used for scoping in computed selectors.
+ *
+ * Computed:
+ *   - currentWorkspaceViews: string[] | null — ids of cached views whose
+ *     `workspace` matches `rootStore.workspaceRoot.currentWorkspace.id`.
+ *     Recomputes when `globalViewMap` mutates or the active workspace changes;
+ *     returns `null` until the active workspace is resolved.
+ *
+ * Computed actions (`computedFn` from mobx-utils — parameterized, memoized):
+ *   - getSearchedViews(searchQuery): string[] | null — workspace-scoped ids
+ *     filtered by case-insensitive `name` substring match against
+ *     `searchQuery`. Recomputes when inputs or `globalViewMap` change.
+ *   - getViewDetailsById(viewId): IWorkspaceView | null — direct cache lookup.
+ *
+ * Actions (all wrapped via `makeObservable(..., { ...: action })`):
+ *   - fetchAllGlobalViews(workspaceSlug) → WorkspaceService.getAllViews;
+ *     hydrates `globalViewMap` inside `runInAction`.
+ *   - fetchGlobalViewDetails(workspaceSlug, viewId) → WorkspaceService
+ *     .getViewDetails; upserts the single entry into `globalViewMap`.
+ *   - createGlobalView(workspaceSlug, data) → WorkspaceService.createView;
+ *     adds the persisted view to `globalViewMap`. Rethrows on failure.
+ *   - updateGlobalView(workspaceSlug, viewId, data, shouldSyncFilters = true)
+ *     → optimistically patches `globalViewMap[viewId]`, calls WorkspaceService
+ *     .updateView, and — when `shouldSyncFilters` is true AND `rich_filters`
+ *     changed — propagates the new filter expression to
+ *     `rootStore.issue.workspaceIssuesFilter.updateFilterExpression` and
+ *     re-fetches issues via
+ *     `rootStore.issue.workspaceIssues.fetchIssuesWithExistingPagination`
+ *     (mutation mode). Rolls the optimistic patch back on failure.
+ *   - deleteGlobalView(workspaceSlug, viewId) → WorkspaceService.deleteView;
+ *     removes the entry from `globalViewMap` inside `runInAction`.
+ *
+ * Cross-store interactions:
+ *   - Reads `rootStore.workspaceRoot.currentWorkspace` for workspace scoping
+ *     in `currentWorkspaceViews` and `getSearchedViews`.
+ *   - Writes through `rootStore.issue.workspaceIssuesFilter` and
+ *     `rootStore.issue.workspaceIssues` to keep the issue layout consistent
+ *     with the persisted view filters when a view is updated.
+ *
+ * Consumers (via `useGlobalView()` from
+ * `apps/web/core/hooks/store/use-global-view.ts`):
+ *   - apps/web/core/components/workspace/views/** (header, views-list,
+ *     view-list-item, modal, delete-view-modal) — workspace view CRUD UI
+ *   - apps/web/core/components/issues/issue-layouts/roots/
+ *     all-issue-layout-root.tsx and
+ *     issues/issue-layouts/spreadsheet/roots/workspace-root.tsx —
+ *     workspace-level issue layouts that resolve the active view
+ *   - apps/web/core/components/work-item-filters/filters-hoc/
+ *     workspace-level.tsx — filter chrome wrapping workspace views
+ *   - apps/web/core/components/views/helper.tsx — shared view helpers
+ *   - apps/web/core/store/router.store.ts,
+ *     apps/web/core/store/issue/root.store.ts, and
+ *     apps/web/core/store/issue/workspace/filter.store.ts —
+ *     cross-store reads of cached view details
+ */
+
 import { set, cloneDeep, isEqual } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";

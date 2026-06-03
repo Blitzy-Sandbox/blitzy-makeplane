@@ -4,6 +4,37 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Per-date cell that registers as an Atlaskit pragmatic drag-and-drop drop
+ * target, validates calendar drag-to-reschedule moves, and renders the day's
+ * issue list (desktop) or a tappable mobile day picker.
+ *
+ * Props (Props type, L30):
+ *   - date: ICalendarDate — date model with .date (Date) and .is_current_month.
+ *   - issuesFilterStore — supplies displayFilters.calendar.layout
+ *     ("month" | "week").
+ *   - issues, groupedIssueIds — used to resolve dragged issue details and the
+ *     day-grouped issue list.
+ *   - quickActions, quickAddCallback, addIssuesToView, enableQuickIssueCreate,
+ *     disableIssueCreation, readOnly, isEpic — forwarded to
+ *     CalendarIssueBlocks.
+ *   - handleDragAndDrop — calls back into BaseCalendarRoot when a drop is valid.
+ *   - selectedDate, setSelectedDate — mobile selection state.
+ *   - canEditProperties — per-issue edit gate.
+ *
+ * Stores read: none directly — issue data flows in via props.
+ *
+ * Side effects:
+ *   - Registers dropTargetForElements from
+ *     @atlaskit/pragmatic-drag-and-drop/element/adapter on dayTileRef.
+ *   - On drop: blocks moves where target_date < start_date and emits an ERROR
+ *     toast via @plane/propel/toast; otherwise forwards the move and clears
+ *     the drag highlight via highlightIssueOnDrop (../utils).
+ *
+ * Consumers:
+ *   - ./week-days.tsx (CalendarWeekDays).
+ */
+
 import { useEffect, useRef, useState } from "react";
 import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
 import { dropTargetForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
@@ -53,6 +84,7 @@ type Props = {
   isEpic?: boolean;
 };
 
+/** Day cell: drop target with start_date validation, today/weekend highlights, and CalendarIssueBlocks body. */
 export const CalendarDayTile = observer(function CalendarDayTile(props: Props) {
   const {
     issuesFilterStore,
@@ -105,6 +137,7 @@ export const CalendarDayTile = observer(function CalendarDayTile(props: Props) {
           if (!sourceData || !destinationData) return;
 
           const issueDetails = issues?.[sourceData?.id];
+          // Drag-to-reschedule MUST NOT push due-date before start_date — reject the drop and surface a toast.
           if (issueDetails?.start_date) {
             const issueStartDate = new Date(issueDetails.start_date);
             const targetDate = new Date(destinationData?.date);

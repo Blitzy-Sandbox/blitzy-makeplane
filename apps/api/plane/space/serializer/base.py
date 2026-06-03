@@ -2,15 +2,61 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Foundational base serializers for the ``plane.space.serializer`` package.
+
+Every serializer in :mod:`plane.space.serializer` inherits (directly or
+transitively) from :class:`BaseSerializer`, which adds a read-only ``id``
+``PrimaryKeyRelatedField`` so the model primary key is always exposed in
+response payloads but never settable from a request.
+:class:`DynamicBaseSerializer` extends that base with a ``fields=``
+constructor kwarg, allowing callers to ask for a selective projection of
+the declared fields without subclassing.
+
+These classes are consumed entirely within the public read surface mounted
+under ``api/public/`` on published deploy boards.
+"""
+
 from rest_framework import serializers
 
 
 class BaseSerializer(serializers.ModelSerializer):
+    """Shared ``ModelSerializer`` base for the ``plane.space.serializer`` package.
+
+    Declares a single read-only ``id`` ``PrimaryKeyRelatedField`` on every
+    subclass so the model primary key is always exposed in responses but
+    never settable from a request. Every other serializer in this folder
+    inherits from this class (directly or transitively via
+    :class:`DynamicBaseSerializer`).
+    """
+
     id = serializers.PrimaryKeyRelatedField(read_only=True)
 
 
 class DynamicBaseSerializer(BaseSerializer):
+    """``BaseSerializer`` extension supporting selective field projection.
+
+    Accepts an optional ``fields=`` constructor kwarg containing either:
+
+    * a list of strings naming the top-level fields to include, or
+    * a list of dicts mapping a nested serializer field to a sub-projection
+      (recursively filtered).
+
+    Any declared field NOT listed in ``fields`` is removed from the
+    serializer instance, so callers can request ad-hoc subset payloads
+    without declaring additional ``*LiteSerializer`` subclasses. When
+    ``fields`` is ``None`` (the default) the serializer is identical to
+    :class:`BaseSerializer`.
+    """
+
     def __init__(self, *args, **kwargs):
+        """Initialize the serializer and apply the optional ``fields`` projection.
+
+        Pops ``fields`` from ``kwargs`` before delegating to the parent
+        ``__init__`` so the parent ``ModelSerializer.__init__`` does not see
+        the custom kwarg (it would otherwise raise ``TypeError``), then
+        prunes ``self.fields`` to the requested projection via
+        :meth:`_filter_fields` when ``fields`` was provided.
+        """
         # If 'fields' is provided in the arguments, remove it and store it separately.
         # This is done so as not to pass this custom argument up to the superclass.
         fields = kwargs.pop("fields", None)

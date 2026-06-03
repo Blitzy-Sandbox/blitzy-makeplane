@@ -4,6 +4,16 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Barrel and composition module for rich-filter operator configs.
+ *
+ * Unions the core + extended per-operator config aliases and exposes the canonical
+ * `TOperatorConfigMap` — a `Map` keyed by operator literal, valued by the union of
+ * admissible config-shape aliases. `TOperatorConfigMap` is the type used on
+ * `TFilterConfig.supportedOperatorConfigsMap` to declare which operators apply to
+ * each filter property and what config payload each operator expects.
+ */
+
 import type { EQUALITY_OPERATOR, COLLECTION_OPERATOR, COMPARISON_OPERATOR } from "../operators";
 import type { TCoreExactOperatorConfigs, TCoreInOperatorConfigs, TCoreRangeOperatorConfigs } from "./core";
 import type {
@@ -16,25 +26,24 @@ import type {
 // ----------------------------- Composed Operator Configs -----------------------------
 
 /**
- * EXACT operator - combines core and extended configurations
+ * Public union of core + extended `EXACT`-compatible config shapes; currently equals the core union since extended is `never`.
  */
 export type TExactOperatorConfigs = TCoreExactOperatorConfigs | TExtendedExactOperatorConfigs;
 
 /**
- * IN operator - combines core and extended configurations
+ * Public union of core + extended `IN`-compatible config shapes; currently equals the core union.
  */
 export type TInOperatorConfigs = TCoreInOperatorConfigs | TExtendedInOperatorConfigs;
 
 /**
- * RANGE operator - combines core and extended configurations
+ * Public union of core + extended `RANGE`-compatible config shapes; currently equals the core union.
  */
 export type TRangeOperatorConfigs = TCoreRangeOperatorConfigs | TExtendedRangeOperatorConfigs;
 
 // ----------------------------- Final Operator Specific Configs -----------------------------
 
 /**
- * Type-safe mapping of specific operators to their supported filter type configurations.
- * Each operator maps to its composed (core + extended) configurations.
+ * Mapped type keying each public operator literal to its admissible config-shape union — composed of core + extended via the unions above.
  */
 export type TOperatorSpecificConfigs = {
   [EQUALITY_OPERATOR.EXACT]: TExactOperatorConfigs;
@@ -43,8 +52,8 @@ export type TOperatorSpecificConfigs = {
 } & TExtendedOperatorSpecificConfigs;
 
 /**
- * Operator filter configuration mapping - for different operators.
- * Provides type-safe mapping of operators to their specific supported configurations.
+ * Runtime-shaped `Map<operatorKey, configUnion>` exposed on `TFilterConfig.supportedOperatorConfigsMap`.
+ * Map (not Record) because consumer code iterates with insertion-order semantics and uses `.get()`/`.set()` from `@plane/utils` filter builders.
  */
 export type TOperatorConfigMap = Map<
   keyof TOperatorSpecificConfigs,

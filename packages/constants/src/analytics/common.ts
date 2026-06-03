@@ -4,9 +4,20 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Typed analytics configuration (insight-field catalog, chart axis selectors,
+ * duration presets, v2 date-key allowlist) consumed by
+ * `apps/web/core/components/analytics/**` and `apps/web/core/store/analytics.store.ts`.
+ */
+
 import type { TAnalyticsTabsBase } from "@plane/types";
 import { ChartXAxisProperty, ChartYAxisMetric } from "@plane/types";
 
+/**
+ * Analytics insight tile descriptor — pairs a backend payload `key` with an i18n
+ * `i18nKey` and optional interpolation slots (`entity`/`entityPlural`/`prefix`/`suffix`).
+ * Consumer: `apps/web/core/components/analytics/total-insights.tsx`.
+ */
 export interface IInsightField {
   key: string;
   i18nKey: string;
@@ -19,6 +30,11 @@ export interface IInsightField {
   };
 }
 
+/**
+ * Insight field catalog per analytics tab (`overview` = workspace-wide totals with
+ * entity slots; `work-items` = lifecycle totals with localized keys).
+ * Consumer: `apps/web/core/components/analytics/total-insights.tsx`.
+ */
 export const ANALYTICS_INSIGHTS_FIELDS: Record<TAnalyticsTabsBase, IInsightField[]> = {
   overview: [
     {
@@ -102,6 +118,11 @@ export const ANALYTICS_INSIGHTS_FIELDS: Record<TAnalyticsTabsBase, IInsightField
   ],
 };
 
+/**
+ * Preset duration filter options for the analytics page (yesterday/last_7_days/
+ * last_30_days/last_3_months); `value` is the API duration token.
+ * Consumers: `apps/web/core/components/analytics/select/duration.tsx`, `apps/web/core/store/analytics.store.ts`.
+ */
 export const ANALYTICS_DURATION_FILTER_OPTIONS = [
   {
     name: "Yesterday",
@@ -121,6 +142,11 @@ export const ANALYTICS_DURATION_FILTER_OPTIONS = [
   },
 ];
 
+/**
+ * Chart x-axis property options (categorical state/priority/label/assignee/etc.
+ * plus date groupings); mirrors backend `x_axis` query parameter.
+ * Consumers: `apps/web/core/components/analytics/select/analytics-params.tsx`.
+ */
 export const ANALYTICS_X_AXIS_VALUES: { value: ChartXAxisProperty; label: string }[] = [
   {
     value: ChartXAxisProperty.STATES,
@@ -172,6 +198,11 @@ export const ANALYTICS_X_AXIS_VALUES: { value: ChartXAxisProperty; label: string
   },
 ];
 
+/**
+ * Chart y-axis metric options (work item / estimate point / epic counts); mirrors
+ * backend `y_axis` query parameter.
+ * Consumer: `apps/web/core/components/analytics/select/analytics-params.tsx`.
+ */
 export const ANALYTICS_Y_AXIS_VALUES: { value: ChartYAxisMetric; label: string }[] = [
   {
     value: ChartYAxisMetric.WORK_ITEM_COUNT,
@@ -187,4 +218,9 @@ export const ANALYTICS_Y_AXIS_VALUES: { value: ChartYAxisMetric; label: string }
   },
 ];
 
+/**
+ * Date-typed field allowlist for analytics-v2 chart x-axis tick formatting
+ * (`completed_at`/`target_date`/`start_date`/`created_at`).
+ */
+// INTENT UNCLEAR: No call site for ANALYTICS_V2_DATE_KEYS was found in apps/web, apps/admin, apps/space, apps/live, or sibling packages at documentation time; the value is exported through the package barrel but may be reserved for a future analytics-v2 surface.
 export const ANALYTICS_V2_DATE_KEYS = ["completed_at", "target_date", "start_date", "created_at"];

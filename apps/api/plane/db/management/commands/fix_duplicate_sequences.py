@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Django management command to repair duplicate issue sequence numbers within a project."""
+
 # Django imports
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Max
@@ -13,18 +15,47 @@ from plane.utils.uuid import convert_uuid_to_integer
 
 
 class Command(BaseCommand):
+    """Re-sequence duplicate ``Issue`` rows sharing the same ``(project, sequence_id)`` tuple.
+
+    CLI signature:
+        ``python manage.py fix_duplicate_sequences <issue_identifier>``
+        (Also prompts interactively for ``workspace_slug``.)
+
+    Side effects:
+        - Resolves the project via ``(workspace.slug, project_identifier)`` parsed
+          from ``issue_identifier`` (``PROJ-123`` → identifier=``PROJ``, sequence=123).
+        - Inside ``transaction.atomic()``, acquires a PostgreSQL advisory lock via
+          ``pg_advisory_xact_lock(<int derived from project UUID>)`` so only one
+          transaction per project may execute the re-sequencing block at a time.
+          (See tech spec §5.2.1.5 for PG-specific feature usage.)
+        - Bulk-updates ``Issue.sequence_id`` and the matching
+          ``IssueSequence.sequence`` rows for duplicates beyond the first occurrence,
+          assigning fresh sequence numbers starting at ``max(existing) + 1``.
+
+    Idempotency:
+        Idempotent on the canonical first occurrence — repeated runs raise
+        ``CommandError`` ("No duplicate issues found") once the duplicates are
+        re-sequenced.
+
+    Trigger context:
+        Operator-invoked manual data repair after rare sequence-collision incidents.
+    """
+
     help = "Fix duplicate sequences"
 
     def add_arguments(self, parser):
+        """Register the ``issue_identifier`` positional argument (e.g., ``PROJ-123``)."""
         # Positional argument
         parser.add_argument("issue_identifier", type=str, help="Issue Identifier")
 
     def strict_str_to_int(self, s):
+        """Convert ``s`` to ``int``, rejecting non-numeric strings (including those with a leading ``+``)."""
         if not s.isdigit() and not (s.startswith("-") and s[1:].isdigit()):
             raise ValueError("Invalid integer string")
         return int(s)
 
     def handle(self, *args, **options):
+        """Acquire a per-project advisory lock and bulk-update the duplicate ``Issue`` and ``IssueSequence`` rows."""
         workspace_slug = input("Workspace slug: ")
 
         if not workspace_slug:

@@ -4,6 +4,30 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Plane custom-link mark extension for the TipTap editor stack.
+ *
+ * API-compatible reimplementation of `@tiptap/extension-link` built directly
+ * on `@tiptap/core`'s `Mark.create` rather than `Link.extend`. The canonical
+ * mark name `"link"` (via `CORE_EXTENSIONS.CUSTOM_LINK`) is preserved so
+ * existing HTML and stored ProseMirror documents round-trip through this
+ * mark without schema migration.
+ *
+ * Plane-specific behavior layered on top of the upstream contract:
+ *   - Three composable in-repo ProseMirror plugins for autolink, click-to-open,
+ *     and paste-to-link (each individually toggleable via options so lite
+ *     editor variants can compose subsets).
+ *   - Editor storage slice (`CustomLinkStorage`) surfaced for Plane's
+ *     bubble-menu link selector UI — the extension only initializes the
+ *     slice; bubble-menu components rendered outside this file own all
+ *     subsequent writes.
+ *   - Hardened `parseHTML` and `renderHTML` that reject (parse-time) or
+ *     blank (render-time) `javascript:`, `data:`, and `vbscript:` href
+ *     values as defense-in-depth against XSS-shaped link content.
+ *   - `linkifyjs` custom-protocol registration in `onCreate` (with `reset()`
+ *     in `onDestroy`) so callers can extend recognized URL schemes via
+ *     `options.protocols` without calling `registerCustomProtocol` directly.
+ */
 import type { PasteRuleMatch } from "@tiptap/core";
 import { Mark, markPasteRule, mergeAttributes } from "@tiptap/core";
 import type { Plugin } from "@tiptap/pm/state";
@@ -88,12 +112,131 @@ declare module "@tiptap/core" {
   }
 }
 
+/**
+ * Editor storage slot installed at `editor.storage[CORE_EXTENSIONS.CUSTOM_LINK]`
+ * (i.e. `editor.storage.link`, since `CUSTOM_LINK` resolves to `"link"`).
+ *
+ * Consumed by Plane's bubble-menu link selector UI rendered outside this
+ * extension. `addStorage` is the only place this extension writes the slice;
+ * the bubble-menu components own every subsequent read and write.
+ *
+ * - `isPreviewOpen` — bubble-menu link-preview popover visibility flag
+ *   (read/written by UI components when the user hovers an existing link).
+ * - `isBubbleMenuOpen` — bubble-menu link-editor visibility flag
+ *   (read/written by UI components when the user opens the link editor).
+ * - `posToInsert` — `{ from, to }` document range the bubble menu targets
+ *   when applying a link to a saved selection.
+ */
 export type CustomLinkStorage = {
   isPreviewOpen: boolean;
   posToInsert: { from: number; to: number };
   isBubbleMenuOpen: boolean;
 };
 
+/**
+ * Plane custom-link mark — API-compatible reimplementation of
+ * `@tiptap/extension-link`.
+ *
+ * Mark identity:
+ *   - Name: `CORE_EXTENSIONS.CUSTOM_LINK` resolves to the string `"link"`
+ *     (see `packages/editor/src/core/constants/extension.ts`). This matches
+ *     upstream `@tiptap/extension-link`'s default mark name, so HTML and
+ *     stored ProseMirror documents authored against upstream's link mark
+ *     round-trip through this mark without schema migration.
+ *   - `priority: 1000` — high priority so the link mark resolves at the
+ *     front of the plugin chain for bubble-menu coordination.
+ *   - `keepOnSplit: false` — the link mark does NOT extend onto new blocks
+ *     created by a block-level split (e.g., pressing Enter inside a link).
+ *
+ * Attributes (from `addAttributes`):
+ *   - `href` — the URL (default `null`).
+ *   - `target` — defaults to `options.HTMLAttributes.target` (`"_blank"`).
+ *   - `rel` — defaults to `options.HTMLAttributes.rel`
+ *     (`"noopener noreferrer nofollow"`; `nofollow` signals to search
+ *     engines not to follow user-content links — anti-spam measure).
+ *   - `class` — defaults to `options.HTMLAttributes.class` (Plane
+ *     design-system link styling: `text-accent-secondary` underline,
+ *     hover transition, cursor pointer).
+ *
+ * Composes three in-repo ProseMirror plugins via `addProseMirrorPlugins`,
+ * each individually gated by an option so editor variants can compose
+ * subsets (e.g., a lite-text comment input can disable autolink while
+ * keeping click-to-open):
+ *   - `autolink` (from `./helpers/autolink`, gated by `options.autolink`)
+ *     — detects URLs in `appendTransaction` as the user types and applies
+ *     the link mark. Honors a `preventAutolink` transaction-meta opt-out.
+ *   - `clickHandler` (from `./helpers/clickHandler`, gated by
+ *     `options.openOnClick`) — on primary-button clicks, climbs the DOM
+ *     for an `<a>` ancestor and opens its `href` via
+ *     `window.open(href, target)`.
+ *   - `pasteHandler` (from `./helpers/pasteHandler`, gated by
+ *     `options.linkOnPaste`) — when the clipboard text is exactly a
+ *     single URL and the selection is non-empty, applies the link mark
+ *     to the selection (distinct from the URL-substring-detecting
+ *     `markPasteRule` registered in `addPasteRules`).
+ *
+ * Exposes (carried over from `@tiptap/extension-link`):
+ *   - Commands `setLink(attrs)`, `toggleLink(attrs)`, `unsetLink()` with
+ *     upstream-equivalent signatures and semantics.
+ *   - `link` mark serialization to `<a href rel target class>` HTML.
+ *   - A `markPasteRule` (via `addPasteRules`) that linkifies URL
+ *     substrings inside larger pasted text, using `linkifyjs.find`.
+ *   - Options `autolink`, `openOnClick`, `linkOnPaste`, `inclusive`,
+ *     `protocols`, `validate` mirroring the upstream option contract.
+ *
+ * Overrides (vs. `@tiptap/extension-link`):
+ *   - `autolink`, `clickHandler`, `pasteHandler` plugins are reimplemented
+ *     in `./helpers/*` rather than reusing the upstream bundle. WHY: the
+ *     split into three files lets editor variants disable plugins
+ *     individually via the three boolean options.
+ *   - All three commands stamp `setMeta("preventAutolink", true)` on every
+ *     transaction they emit. WHY: prevents the `autolink` plugin's
+ *     `appendTransaction` from re-processing changes already produced by
+ *     an explicit link command — otherwise the autolink plugin could
+ *     re-trigger on the just-applied mark, producing duplicate/recursive
+ *     mark application.
+ *   - `parseHTML.getAttrs` rejects (returns `false`) `<a>` whose `href`
+ *     starts with `javascript:`, `data:`, or `vbscript:`; `renderHTML`
+ *     blanks the href for the same protocols. WHY: defense in depth —
+ *     the parse-time check stops dangerous HTML from entering the doc,
+ *     and the render-time check stops dangerous HTML from leaving it
+ *     even when a mark was created programmatically (skipping `parseHTML`).
+ *   - Default `HTMLAttributes` carry Plane design-system link styling
+ *     (`text-accent-secondary` underline + hover transitions) not present
+ *     in upstream defaults.
+ *
+ * Hides (vs. `@tiptap/extension-link`):
+ *   - Upstream's bundled `clickHandler`, `autolink`, and `pasteHandler`
+ *     plugins are not used — Plane's helpers take over wholesale. Mixing
+ *     upstream click handling with Plane's bubble-menu UX is not
+ *     supported.
+ *   - Direct `linkifyjs.registerCustomProtocol` access is not part of the
+ *     wrapper API; protocols are registered automatically from
+ *     `options.protocols` in `onCreate` and cleared via `reset()` in
+ *     `onDestroy`.
+ *
+ * Editor storage (`CustomLinkStorage` at `editor.storage.link`): see the
+ * `CustomLinkStorage` type JSDoc above for the three flags consumed by
+ * the bubble-menu link selector UI.
+ *
+ * WHY the click-handler override matters (CRITICAL ARCHITECTURAL DECISION):
+ *   Plane owns link UX as first-party code. The click handler opens links
+ *   via `window.open(href, target)` (typically `_blank`) so a click on a
+ *   link inside the editor never navigates the editor view away.
+ *   Combined with the bubble-menu link selector orchestrated externally
+ *   via `CustomLinkStorage`, this forms the Plane link interaction
+ *   pattern: clicks open the link (new tab) and the bubble menu edits
+ *   the link (in-place). Removing the click-handler override would
+ *   regress this pattern by falling back to whatever default link
+ *   behavior the editor view permits — DO NOT remove without
+ *   understanding the bubble-menu interaction it pairs with.
+ *
+ * Module augmentation (see `declare module "@tiptap/core"` above):
+ *   registers the `CORE_EXTENSIONS.CUSTOM_LINK` namespace on TipTap's
+ *   `Commands` and `Storage` interfaces so consumers get typed access to
+ *   `editor.commands.setLink({ href })` etc. and to `editor.storage.link`
+ *   as `CustomLinkStorage`.
+ */
 export const CustomLinkExtension = Mark.create<LinkOptions, CustomLinkStorage>({
   name: CORE_EXTENSIONS.CUSTOM_LINK,
 

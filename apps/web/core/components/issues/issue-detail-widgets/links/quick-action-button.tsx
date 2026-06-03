@@ -4,6 +4,32 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Compact trigger button for the issue-detail "Links" widget that opens the link creation
+ * modal; designed to be embedded inside the collapsible header so it must intercept clicks
+ * before they bubble up and toggle the parent collapsible.
+ *
+ * Props:
+ *   - customButton (React.ReactNode, optional): When provided, replaces the default `PlusIcon`
+ *     so consumers can render a custom affordance while keeping the same click behavior.
+ *   - disabled (boolean, optional, default `false`): Forwards to the native `<button disabled>`
+ *     attribute.
+ *   - issueServiceType (TIssueServiceType, required): Selects between the "issues" and "epics"
+ *     issue-detail store slices via `useIssueDetail`.
+ *
+ * MobX stores read:
+ *   - useIssueDetail(issueServiceType).toggleIssueLinkModal: action that flips the store's
+ *     `isIssueLinkModalOpen` flag and (indirectly) mounts the link creation modal.
+ *
+ * Side effects:
+ *   - On click: calls `toggleIssueLinkModal(true)` to open the modal. No direct API calls,
+ *     navigations, or other mutations.
+ *
+ * Consumers: rendered as the `actionItemElement` for the "Links" entry inside `./root.tsx`
+ * (`IssueDetailWidgetCollapsibles`), and supplied as the `customButton` prop to
+ * `IssueLinksActionButton` invocations from sibling collapsible headers.
+ */
+
 import React from "react";
 import { observer } from "mobx-react";
 import { PlusIcon } from "@plane/propel/icons";
@@ -24,6 +50,9 @@ export const IssueLinksActionButton = observer(function IssueLinksActionButton(p
   const { toggleIssueLinkModal } = useIssueDetail(issueServiceType);
 
   // handlers
+  // INTENT: preventDefault + stopPropagation are required because this button is rendered
+  // inside the parent `Collapsible` header — without them, the click would also toggle the
+  // collapsible's open state.
   const handleOnClick = (e: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
     e.preventDefault();
     e.stopPropagation();

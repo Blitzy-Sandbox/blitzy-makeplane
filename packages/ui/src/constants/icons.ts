@@ -4,6 +4,18 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Curated lists of icon names (Material Symbols and lucide-react) used to power
+ * the `IconPicker` and `EmojiIconPicker` UIs across `apps/web` and `apps/admin`.
+ *
+ * Exports `MATERIAL_ICONS_LIST` (Material Symbols name catalog) and
+ * `LUCIDE_ICONS_LIST` (lucide-react name → React element registry). Both are
+ * re-exported from `@plane/ui` via `packages/ui/src/constants/index.ts` and the
+ * top-level `packages/ui/src/index.ts` barrel, so they form part of the public
+ * `@plane/ui` API surface. Editing these lists is a UX decision (which icons
+ * are selectable) — not a runtime configuration change.
+ */
+
 import {
   Activity,
   Airplay,
@@ -163,6 +175,20 @@ import {
   ChevronUpIcon,
 } from "@plane/propel/icons";
 
+/**
+ * Static catalog of Material Symbols icon identifiers exposed by `@plane/ui`.
+ *
+ * Each entry is `{ name: string }`; the `name` is the Material Symbols icon
+ * identifier consumed by downstream picker UIs. Exported publicly via the
+ * `@plane/ui` barrel for entity-icon selection surfaces (project / cycle / module
+ * icons, callout logo selection, etc.). The list constrains which icons users
+ * can select — modifying it is a UX decision, not a runtime configuration change.
+ */
+// INTENT UNCLEAR: no in-tree consumer of `@plane/ui`'s exported `MATERIAL_ICONS_LIST`
+// was found via repo-wide grep. The live `EmojiIconPicker` UI in `@plane/propel`
+// reads from its own private copy at
+// `packages/propel/src/emoji-icon-picker/material-icons.tsx`. This `@plane/ui`
+// export remains public API but appears unused inside the monorepo.
 export const MATERIAL_ICONS_LIST = [
   {
     name: "search",
@@ -769,6 +795,24 @@ export const MATERIAL_ICONS_LIST = [
   },
 ];
 
+/**
+ * Static registry pairing lucide-react icon names with their renderable React
+ * component references, exposed by `@plane/ui`.
+ *
+ * Each entry is `{ name: string; element: ComponentType }`. Consumed by
+ * `getRandomIconName()` in `packages/ui/src/utils/icons.ts` (which uses
+ * `LUCIDE_ICONS_LIST[i].name` to assign random default icons) and re-exported
+ * publicly via the `@plane/ui` barrel for downstream icon selection surfaces.
+ * The pool constrains which icons can be auto-assigned or chosen — editing it
+ * is a UX decision, not a runtime configuration change.
+ *
+ * Some entries intentionally alias the public lucide name to a propel-custom
+ * component (e.g. `Check` → `CheckIcon`, `Copy` → `CopyIcon`, `Globe` → `GlobeIcon`,
+ * `Link`/`Link2` → `LinkIcon`, `Lock` → `LockIcon`, `Search` → `SearchIcon`,
+ * `ExternalLink` → `NewTabIcon`, and the chevron variants → custom propel chevrons).
+ * The aliasing exists so the rendered icon matches Plane's design tokens while the
+ * exposed name remains the familiar lucide identifier.
+ */
 export const LUCIDE_ICONS_LIST = [
   { name: "Activity", element: Activity },
   { name: "Airplay", element: Airplay },

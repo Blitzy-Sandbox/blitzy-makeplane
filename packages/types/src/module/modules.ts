@@ -4,28 +4,54 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Module entity contracts mirroring `apps/api/plane/db/models/module.py::Module`
+ * and `ModuleSerializer`; consumed by `apps/web/core/store/module.store.ts`,
+ * `apps/web/core/store/module_filter.store.ts`, and `apps/web/core/components/modules/**`.
+ */
+
 import type { ILinkDetails } from "../issues";
 import type { TIssue } from "../issues/issue";
 import type { IIssueFilterOptions } from "../view-props";
 
+/**
+ * Module lifecycle status mirroring `ModuleStatus.TextChoices` on the Django
+ * model; keep in sync with the backend choices tuple.
+ */
 export type TModuleStatus = "backlog" | "planned" | "in-progress" | "paused" | "completed" | "cancelled";
 
+/**
+ * Date-indexed burndown/burnup plot points keyed by `YYYY-MM-DD`; `null` marks
+ * dates outside the module's `start_date`–`target_date` window.
+ */
 export type TModuleCompletionChartDistribution = {
   [key: string]: number | null;
 };
 
+/**
+ * Per-bucket issue-count aggregates composed onto each row of the assignees /
+ * labels breakdown inside `TModuleDistribution`.
+ */
 export type TModuleDistributionBase = {
   total_issues: number;
   pending_issues: number;
   completed_issues: number;
 };
 
+/**
+ * Per-bucket estimate-point aggregates used when `TModulePlotType === "points"`;
+ * only populated when the owning project has estimates enabled.
+ */
 export type TModuleEstimateDistributionBase = {
   total_estimates: number;
   pending_estimates: number;
   completed_estimates: number;
 };
 
+/**
+ * Assignee dimension key for module breakdowns; a `null` `assignee_id` row
+ * aggregates unassigned issues.
+ */
 export type TModuleAssigneesDistribution = {
   assignee_id: string | null;
   avatar_url: string | null;
@@ -34,24 +60,44 @@ export type TModuleAssigneesDistribution = {
   display_name: string | null;
 };
 
+/**
+ * Label dimension key for module breakdowns; a `null` `label_id` row aggregates
+ * unlabelled issues.
+ */
 export type TModuleLabelsDistribution = {
   color: string | null;
   label_id: string | null;
   label_name: string | null;
 };
 
+/**
+ * Issue-count breakdown across assignees, labels, and completion-chart
+ * dimensions; returned only when `TModulePlotType === "burndown"`.
+ */
 export type TModuleDistribution = {
   assignees: (TModuleAssigneesDistribution & TModuleDistributionBase)[];
   completion_chart: TModuleCompletionChartDistribution;
   labels: (TModuleLabelsDistribution & TModuleDistributionBase)[];
 };
 
+/**
+ * Estimate-point breakdown across the same dimensions as `TModuleDistribution`;
+ * returned only when `TModulePlotType === "points"` and estimates are enabled.
+ */
 export type TModuleEstimateDistribution = {
   assignees: (TModuleAssigneesDistribution & TModuleEstimateDistributionBase)[];
   completion_chart: TModuleCompletionChartDistribution;
   labels: (TModuleLabelsDistribution & TModuleEstimateDistributionBase)[];
 };
 
+/**
+ * Canonical module entity as returned by `ModuleSerializer`. Non-obvious
+ * semantics: `status` is the `TModuleStatus` enum; `lead_id` is nullable;
+ * `description_text`/`description_html` are typed `any` because the editor
+ * schema is owned by `@plane/editor`; `distribution`/`estimate_distribution`
+ * are populated only on the module-detail endpoint; estimate-point totals
+ * are emitted only when project estimates are enabled.
+ */
 export interface IModule {
   total_issues: number;
   completed_issues: number;
@@ -94,6 +140,10 @@ export interface IModule {
   updated_by?: string;
 }
 
+/**
+ * Hydrated module ↔ issue association carrying both foreign-key ids and the
+ * embedded objects so the UI can render without an extra fetch round-trip.
+ */
 export interface ModuleIssueResponse {
   created_at: Date;
   created_by: string;
@@ -109,15 +159,31 @@ export interface ModuleIssueResponse {
   sub_issues_count: number;
 }
 
+/**
+ * Minimal `title` + `url` payload for module-link create/update; the server
+ * expands this into a full `ILinkDetails` on the response.
+ */
 export type ModuleLink = {
   title: string;
   url: string;
 };
 
+/**
+ * Selected-module UI state coordinating cross-component dialogs; the
+ * `actionType` discriminant tells the consumer which dialog to open.
+ */
 export type SelectModuleType = (IModule & { actionType: "edit" | "delete" | "create-issue" }) | undefined;
 
+/**
+ * Analytics chart-mode discriminator persisted per module in
+ * `ModulesStore.plotType`; `"points"` requires project estimates enabled.
+ */
 export type TModulePlotType = "burndown" | "points";
 
+/**
+ * Minimal public projection (identity only) exposed to anonymous viewers in
+ * Plane Spaces to prevent leakage of internal project state.
+ */
 export type TPublicModule = {
   id: string;
   name: string;

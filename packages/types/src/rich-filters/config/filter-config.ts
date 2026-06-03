@@ -4,15 +4,21 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Per-property filter configuration consumed by the rich-filter UI to render
+ * each chip (label, operators, value input, icons, tooltips); concrete configs
+ * live in `packages/utils/src/work-item-filters/configs/filters/`.
+ */
+
 import type { TFilterProperty } from "../expression";
 import type { TOperatorConfigMap } from "../operator-configs";
 
 /**
- * Main filter configuration type for different properties.
- * This is the primary configuration type used throughout the application.
- *
- * @template P - Property key type (e.g., 'state_id', 'priority', 'assignee')
- * @template V - Value type for the filter
+ * Pairs a filter property `P` with its UI metadata and the operator-configs
+ * applicable to it. Non-obvious semantics: `id` matches `TFilterConditionNode.property`;
+ * `isEnabled=false` hides the property from the add-filter dropdown but preserves
+ * existing conditions; `allowMultipleFilters=true` permits multiple condition
+ * nodes per property in the same tree (e.g. disjoint date ranges).
  */
 export type TFilterConfig<P extends TFilterProperty> = {
   id: P;

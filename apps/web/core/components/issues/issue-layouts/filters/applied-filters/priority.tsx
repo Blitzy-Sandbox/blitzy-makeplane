@@ -4,6 +4,30 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Applied priority filter chips.
+ *
+ * Rendered purpose: renders one removable chip per currently-applied priority value in the issue
+ * layout's applied-filters bar. Each chip shows the priority icon (`PriorityIcon`) and the priority
+ * string literal.
+ *
+ * Props (`Props`):
+ *   - `handleRemove` (`(val: string) => void`, required): invoked with the priority string that should
+ *     be removed from the active filter. The parent aggregator is responsible for invoking
+ *     `issuesFilter.updateFilters(workspaceSlug, projectId, EIssueFilterType.FILTERS, { priority: <next> })`.
+ *   - `values` (`string[]`, required): currently-applied priority strings — values from the
+ *     `TIssuePriorities` union (`"urgent" | "high" | "medium" | "low" | "none"`).
+ *   - `editable` (`boolean | undefined`, required): when truthy, renders the close button; when
+ *     falsy/undefined, the chip is read-only (used in read-only views such as archived issues or
+ *     shared spaces).
+ *
+ * MobX stores read: none — priority is an enum-backed filter (no entity resolution required). The
+ * `observer` wrapper is retained for consistency with the rest of the applied-filter chips and to
+ * preserve re-render behavior if the parent passes MobX-observable arrays.
+ *
+ * Side effects: none — render-only; the only outbound interaction is `handleRemove(priority)` on click.
+ */
+
 import { observer } from "mobx-react";
 
 // icons

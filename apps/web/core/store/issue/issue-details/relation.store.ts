@@ -4,6 +4,51 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for bidirectional issue relations (blocks, blocked-by, related-to, duplicate-of, etc.) — keeps a
+ * relationMap indexed by issue id and relation type so the relation widget on the issue-detail page can render
+ * both directions of every link.
+ *
+ * State slice:
+ * - relationMap: TIssueRelationMap — { [issueId]: { [relationType]: relatedIssueId[] } }; both the issue and
+ *   its related counterpart receive entries via the REVERSE_RELATIONS map so reads from either side are O(1).
+ *
+ * Actions:
+ * - fetchRelations(workspaceSlug, projectId, issueId): GET via IssueRelationService.listIssueRelations;
+ *   populates relationMap for the issue and `rootIssueStore.issues.addIssue` for every related issue payload
+ *   so the relation widget can render related issues without extra round-trips.
+ * - createRelation(workspaceSlug, projectId, issueId, relationType, issues): POST via the service; populates
+ *   BOTH directions of the relation in relationMap (using REVERSE_RELATIONS), seeds the related issues into
+ *   the shared cache, and refreshes the activity feed.
+ * - createCurrentRelation(issueId, relationType, relatedIssueId): same-project OPTIMISTIC variant — updates
+ *   both directions of the relationMap synchronously, then performs the POST. On failure the original
+ *   bucket arrays are restored from snapshots taken before the optimistic write.
+ * - removeRelation(workspaceSlug, projectId, issueId, relationType, related_issue, updateLocally?): removes
+ *   the relation from both directions; when `updateLocally` is true the API call is skipped (used for
+ *   client-side cleanup after a delete elsewhere). On failure the relation list is re-fetched.
+ * - extractRelationsFromIssues(issues): seed-from-payload helper — pulls `issue_relation` and `issue_related`
+ *   off the issue payloads and writes them into relationMap; used after bulk issue fetches so a subsequent
+ *   detail view does not need its own listIssueRelations call.
+ *
+ * Computed:
+ * - issueRelations: relation buckets for the currently-peeked issue; recomputes when `peekIssue.issueId`
+ *   or `relationMap[peekIssueId]` changes.
+ *
+ * Computed helpers (computedFn):
+ * - getRelationCountByIssueId(issueId, ISSUE_RELATION_OPTIONS): sums the bucket lengths across only the
+ *   relation types passed in via ISSUE_RELATION_OPTIONS — used by widgets that show a subset of relation
+ *   types only.
+ *
+ * Helper queries: getRelationsByIssueId, getRelationByIssueIdRelationType.
+ *
+ * Consumers: relation widgets under apps/web/core/components/issues/issue-detail/**,
+ * apps/web/core/components/issues/issue-detail-widgets/relations/** and
+ * apps/web/core/components/issues/relations/**, accessed via apps/web/core/hooks/store/use-issue-detail.ts.
+ *
+ * Note on dual storage: relation counts are also reflected on the parent issue via the `issues` shared cache
+ * so list/board widgets do not have to query this store.
+ */
+
 import { uniq, get, set } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";

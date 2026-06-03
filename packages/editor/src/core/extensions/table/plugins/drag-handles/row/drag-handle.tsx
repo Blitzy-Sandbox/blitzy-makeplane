@@ -4,6 +4,20 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Visible row-handle button at the LEFT of each table row — opens the row
+ * actions menu OR initiates drag-to-reorder on mouse-down.
+ *
+ * Mounted by `./plugin.ts`, which wraps this component in a `ReactRenderer`
+ * and attaches one widget per row via a ProseMirror `Decoration.widget`.
+ *
+ * Symmetric Y-axis counterpart to `../column/drag-handle.tsx` — substitute
+ * `top`/`height` here for `left`/`width` in the column file. The axes live in
+ * separate subfolders so the axis-specific math is visible at a glance; do
+ * NOT merge them "for DRY" — the symmetric split keeps the row-vs-column
+ * logic review tractable.
+ */
+
 import {
   autoUpdate,
   flip,
@@ -46,11 +60,80 @@ import { showCellContent } from "../utils";
 import { RowOptionsDropdown } from "./dropdown";
 import { calculateRowDropIndex, constructRowDragPreview, getTableRowNodesInfo } from "./utils";
 
+/**
+ * Props for the row drag-handle component.
+ *
+ * Passed by `./plugin.ts` when mounting the React renderer per row.
+ *
+ * @property editor Tiptap `Editor` instance — used to dispatch transactions,
+ *   resolve the current table from selection, and register/unregister the
+ *   active-dropbar flag while the row menu is open.
+ * @property row Zero-based row index this handle controls — used to select the
+ *   row on mousedown and to identify the dragged row for drop-index
+ *   calculation during `mousemove`.
+ */
 export type RowDragHandleProps = {
   editor: Editor;
   row: number;
 };
 
+/**
+ * Visible row drag-handle button anchored at the LEFT of each table row.
+ *
+ * Two responsibilities:
+ *   1. Open the `RowOptionsDropdown` floating panel for row-level commands
+ *      (insert above/below, duplicate, toggle header row, set row color,
+ *      clear contents, delete).
+ *   2. Initiate row drag-to-reorder on mouse-down.
+ *
+ * Accessibility / positioning: uses `@floating-ui/react` (`useFloating` with
+ * `placement: "bottom-start"`, `flip` middleware with fallbacks `top-start`,
+ * `bottom-start`, `top-end`, `bottom-end`, `shift({ padding: 8 })`, and
+ * `autoUpdate`) for live-positioned panel placement; `useClick` / `useDismiss`
+ * / `useRole` + `useInteractions` for ARIA-correct toggle behavior;
+ * `FloatingPortal` + `FloatingOverlay({ lockScroll: true })` to render above
+ * the editor and block background scroll. A document-level `keydown` listener
+ * installed while open closes the panel on any key press (Escape and friends)
+ * via `context.onOpenChange(false)`.
+ *
+ * Drag lifecycle (`handleMouseDown`):
+ *   1. Stops propagation and prevents default.
+ *   2. Defends against zombie listeners from prior incomplete drags by
+ *      removing any `mousemove` / `mouseup` listeners still tracked in
+ *      `activeListenersRef.current` before installing fresh ones.
+ *   3. Resolves the current table via `findTable`; no-ops if not in a table.
+ *   4. Selects the entire dragged row via `selectRow(table, row, tr)` and
+ *      dispatches the transaction.
+ *   5. Measures table height via `getTableHeightPx` and per-row geometry via
+ *      `getTableRowNodesInfo`.
+ *   6. Looks up the in-table drop-marker and drag-marker DOM nodes via
+ *      `getDropMarker` / `getRowDragMarker`.
+ *   7. Installs a window `mousemove` listener that recomputes `dropIndex` via
+ *      `calculateRowDropIndex`, lazily builds the preview row on first move
+ *      via `constructRowDragPreview` (matching the table width via
+ *      `getTableWidthPx` so explicit-column-width tables do not visually
+ *      jump), and updates marker positions via `updateRowDragMarker` /
+ *      `updateRowDropMarker`.
+ *   8. Installs a window `mouseup` listener (`handleFinish`) that hides both
+ *      markers, calls `showCellContent` to restore hidden source cells if a
+ *      `CellSelection` is active, dispatches `moveSelectedRows` to actually
+ *      reorder iff the index changed, and clears both window listeners + the
+ *      active-listener refs.
+ *
+ * Cross-extension contract (NON-NEGOTIABLE): while the dropdown is open this
+ * component calls `editor.commands.addActiveDropbarExtension(CORE_EXTENSIONS
+ * .TABLE)` and on close calls `removeActiveDropbarExtension` (deferred via
+ * `setTimeout(..., 0)` so the close-click's synchronous handlers still see
+ * the flag). Other dropbar-aware extensions (`enter-key.ts`, slash-commands,
+ * mention/emoji suggestions, ...) READ `editor.storage.utility
+ * .activeDropbarExtensions` to suppress their own affordances while a dropbar
+ * is active — do NOT remove this coupling without updating all readers.
+ *
+ * Cleanup: an unmount `useEffect` removes any window-level `mousemove` /
+ * `mouseup` listeners still tracked in `activeListenersRef.current`, guarding
+ * against zombie listeners if `./plugin.ts` tears down the renderer mid-drag
+ * (which happens whenever the table structure changes).
+ */
 export function RowDragHandle(props: RowDragHandleProps) {
   const { editor, row } = props;
   // states

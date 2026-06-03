@@ -4,6 +4,58 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Issue-detail `IssueStore` — fetch-by-id / fetch-by-identifier and detail-level mutations. The store does
+ * not own the issue cache itself (which lives in `rootIssueStore.issues`); it orchestrates a single
+ * detail-page load and then hydrates all sibling stores (reactions, attachments, links, subscription,
+ * activity, comments, sub-issues, relations) so the issue-detail page is fully populated in one round-trip
+ * surface.
+ *
+ * State slice:
+ * - fetchingIssueDetails: id of the issue currently being fetched (or undefined when idle) — used by
+ *   `getIsFetchingIssueDetails` to drive per-issue loading spinners.
+ *
+ * Actions:
+ * - fetchIssue(workspaceSlug, projectId, issueId): GET via IssueService.retrieve with
+ *   `expand=issue_reactions,issue_attachments,issue_link,parent`. Writes a pruned `issuePayload` (whitelisted
+ *   fields only — see `addIssueToStore`) into the shared issue cache so unrelated keys cannot leak into the
+ *   normalized cache, then hydrates the sibling reaction/link/attachment stores from the embedded payload,
+ *   triggers subscription bootstrap, kicks off activity/comments/sub-issues/relations fetches, and warms
+ *   project states. The parent issue is also fetched if `issue.parent` is present and refreshes the
+ *   shared cache.
+ * - fetchIssueWithIdentifier(workspaceSlug, projectIdentifier, sequenceId): GET via
+ *   IssueService.retrieveWithIdentifier (resolves `${projectIdentifier}-${sequenceId}` to an issue uuid),
+ *   registers the identifier→id mapping in the shared cache, and otherwise behaves like fetchIssue. If
+ *   `issue.is_epic` is true the hydration is routed through `rootIssueStore.epicDetail` instead of
+ *   `issueDetail` so the right detail composition is populated.
+ * - addIssueToStore(issue): whitelists the fields the issue-detail page cares about and writes the pruned
+ *   payload into the shared issue cache. Clearing `fetchingIssueDetails` here marks the load complete.
+ * - updateIssue(workspaceSlug, projectId, issueId, data): delegates to
+ *   `rootIssueStore.projectIssues.updateIssue` (or `projectEpics.updateIssue` when `serviceType === EPICS`)
+ *   AND refreshes the activity feed in parallel so the audit trail stays current.
+ * - removeIssue / archiveIssue: delegate to the appropriate project store (issues vs. epics) based on
+ *   serviceType.
+ * - addCycleToIssue / addIssueToCycle / removeIssueFromCycle: delegate to `rootIssueStore.cycleIssues` and
+ *   refresh activity.
+ * - changeModulesInIssue / removeIssueFromModule: delegate to `rootIssueStore.moduleIssues` and refresh activity.
+ *
+ * Computed helpers (computedFn):
+ * - getIsFetchingIssueDetails(issueId): true iff `fetchingIssueDetails === issueId`.
+ * - getIssueById(issueId): proxies to `rootIssueStore.issues.getIssueById`.
+ * - getIssueIdByIdentifier(issueIdentifier): proxies to `rootIssueStore.issues.getIssueIdByIdentifier`.
+ *
+ * Services:
+ * - issueService: IssueService(serviceType) — primary detail fetcher; works for both issues and epics.
+ * - epicService: IssueService(EIssueServiceType.EPICS) — explicitly constructed for cross-cutting epic flows.
+ * - issueArchiveService: IssueArchiveService(serviceType) — archive endpoints.
+ * - draftWorkItemService: WorkspaceDraftService — draft work-item endpoints.
+ *
+ * Consumers: this is the orchestration entry point for every issue-detail load — used by
+ * apps/web/core/hooks/store/use-issue-detail.ts, every component under
+ * apps/web/core/components/issues/issue-detail/**, apps/web/core/components/issues/issue-detail-widgets/**,
+ * and apps/web/core/components/issues/peek-overview/**.
+ */
+
 import { makeObservable, observable } from "mobx";
 import { computedFn } from "mobx-utils";
 // types

@@ -4,6 +4,31 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders a work-item relation add or remove event (e.g., blocking, blocked_by,
+ * duplicate, related) in the activity timeline.
+ *
+ * Props:
+ *   - activityId (string, required): identifier of the activity record to render.
+ *   - ends ("top" | "bottom" | undefined, required): timeline-stack position marker.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — reads `activity.getActivityById(activityId)`.
+ *   - `useTimeLineRelationOptions()` from `@/plane-web/components/relations` —
+ *     resolves the relation-type icon map keyed by `TIssueRelationTypes`. The
+ *     active relation type is read from `activity.field`, which can be any
+ *     value in `TIssueRelationTypes` (e.g., "blocking", "blocked_by",
+ *     "duplicate", "relates_to", "start_after", "finish_before").
+ *
+ * Side effects: none. Read-only / presentational; no mutations, no navigations,
+ * no API calls.
+ *
+ * Implementation note: the prefix copy is computed by
+ * `getRelationActivityContent(activity)` and the related work-item identifier
+ * is rendered from either `activity.new_value` (add) or `activity.old_value`
+ * (remove) — branched on `activity.old_value === ""`.
+ */
+
 import { observer } from "mobx-react";
 // hooks
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";

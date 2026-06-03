@@ -4,6 +4,29 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Empty-state view shown when the workspace has projects but no draft
+ * issues yet.
+ *
+ * Lets workspace ADMIN/MEMBER users create the first draft issue via the
+ * shared `CreateUpdateIssueModal`, which is always mounted with the modal
+ * scoped to `EIssuesStoreType.WORKSPACE_DRAFT` and `isDraft` flagged. The
+ * modal handles persistence — this component does not call the network
+ * directly.
+ *
+ * Props: none. The parent `WorkspaceDraftIssuesRoot` decides when to render.
+ *
+ * MobX stores read (via React context):
+ *   - useTranslation — translator for localized strings.
+ *   - useUserPermissions — allowPermissions, used to gate the CTA on
+ *     workspace-level ADMIN/MEMBER role. Disabling client-side prevents
+ *     unauthorized users from triggering a server-side 403.
+ *
+ * Side effects:
+ *   - Toggles local `isDraftIssueModalOpen` state to open the create modal;
+ *     all persistence is delegated to `CreateUpdateIssueModal`.
+ */
+
 import { Fragment, useState } from "react";
 // components
 import { observer } from "mobx-react";

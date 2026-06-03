@@ -2,6 +2,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Serializers for the issue resource and its surrounding objects.
+
+This module owns the largest serialization surface in
+``plane.app.serializers``.  The bulk of the issue read/write API funnels
+through :class:`IssueCreateSerializer` (write) and
+:class:`IssueSerializer` / :class:`IssueDetailSerializer` (read), with
+supporting serializers for labels, relations, assignees, links,
+attachments, reactions, comments, votes, subscribers and version history.
+"""
+
 # Django imports
 from django.utils import timezone
 from django.core.validators import URLValidator
@@ -50,9 +60,16 @@ from plane.utils.content_validator import (
 
 
 class IssueFlatSerializer(BaseSerializer):
+    """Read-only flat-fields-only ``Issue`` view.
+
+    Used as a nested payload inside activity and state serializers.
+    """
+
     ## Contain only flat fields
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = Issue
         fields = [
             "id",
@@ -69,9 +86,16 @@ class IssueFlatSerializer(BaseSerializer):
 
 
 class IssueProjectLiteSerializer(BaseSerializer):
+    """Lightweight ``Issue`` representation that nests the project details.
+
+    Used for cross-project reference lists.
+    """
+
     project_detail = ProjectLiteSerializer(source="project", read_only=True)
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = Issue
         fields = ["id", "project_detail", "name", "sequence_id"]
         read_only_fields = fields
@@ -80,6 +104,15 @@ class IssueProjectLiteSerializer(BaseSerializer):
 ##TODO: Find a better way to write this serializer
 ## Find a better approach to save manytomany?
 class IssueCreateSerializer(BaseSerializer):
+    """Main write serializer for ``Issue``.
+
+    Accepts ``assignee_ids`` and ``label_ids`` as write-only ID lists which
+    are translated into ``IssueAssignee`` / ``IssueLabel`` join rows on
+    create and update.  Triage-state issues are only accepted when the
+    calling view places ``allow_triage_state=True`` in the serializer
+    context; otherwise the state manager filters them out.
+    """
+
     # ids
     state_id = serializers.PrimaryKeyRelatedField(
         source="state", queryset=State.all_state_objects.all(), required=False, allow_null=True
@@ -101,6 +134,8 @@ class IssueCreateSerializer(BaseSerializer):
     workspace_id = serializers.UUIDField(source="workspace.id", read_only=True)
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = Issue
         fields = "__all__"
         read_only_fields = [
@@ -113,6 +148,10 @@ class IssueCreateSerializer(BaseSerializer):
         ]
 
     def to_representation(self, instance):
+        """Echo the inbound ``assignee_ids`` / ``label_ids`` payload back into the response.
+
+        Ensures the response shape mirrors the write request.
+        """
         data = super().to_representation(instance)
         assignee_ids = self.initial_data.get("assignee_ids")
         data["assignee_ids"] = assignee_ids if assignee_ids else []
@@ -121,6 +160,11 @@ class IssueCreateSerializer(BaseSerializer):
         return data
 
     def validate(self, attrs):
+        """Enforce start/target date ordering and sanitize description content.
+
+        Also project-scopes each foreign key (state, parent, estimate,
+        labels, assignees) to the URL-addressed project.
+        """
         allow_triage = self.context.get("allow_triage_state", False)
         state_manager = State.triage_objects if allow_triage else State.objects
 
@@ -196,6 +240,11 @@ class IssueCreateSerializer(BaseSerializer):
         return attrs
 
     def create(self, validated_data):
+        """Create the issue and bulk-sync the ``IssueAssignee`` / ``IssueLabel`` join rows.
+
+        Falls back to the project's ``default_assignee_id`` when no assignees
+        are supplied in the payload.
+        """
         assignees = validated_data.pop("assignee_ids", None)
         labels = validated_data.pop("label_ids", None)
 
@@ -273,6 +322,11 @@ class IssueCreateSerializer(BaseSerializer):
         return issue
 
     def update(self, instance, validated_data):
+        """Replace the issue's assignee/label join rows when those payload keys are present.
+
+        Always refreshes ``updated_at`` so the timestamp moves even when
+        only related-model rows changed.
+        """
         assignees = validated_data.pop("assignee_ids", None)
         labels = validated_data.pop("label_ids", None)
 
@@ -330,6 +384,13 @@ class IssueCreateSerializer(BaseSerializer):
 
 
 class IssueActivitySerializer(BaseSerializer):
+    """Read-only serializer for ``IssueActivity`` audit rows.
+
+    Nests actor / issue / project / workspace details and exposes
+    ``source_data`` for issues created via an external source (e.g.,
+    email-in).
+    """
+
     actor_detail = UserLiteSerializer(read_only=True, source="actor")
     issue_detail = IssueFlatSerializer(read_only=True, source="issue")
     project_detail = ProjectLiteSerializer(read_only=True, source="project")
@@ -337,6 +398,10 @@ class IssueActivitySerializer(BaseSerializer):
     source_data = serializers.SerializerMethodField()
 
     def get_source_data(self, obj):
+        """Return ``{source, source_email, extra}`` for externally-created issues.
+
+        Returns ``None`` when no source row is attached to the issue.
+        """
         if hasattr(obj, "issue") and hasattr(obj.issue, "source_data") and obj.issue.source_data:
             return {
                 "source": obj.issue.source_data[0].source,
@@ -346,19 +411,35 @@ class IssueActivitySerializer(BaseSerializer):
         return None
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = IssueActivity
         fields = "__all__"
 
 
 class ProjectUserPropertySerializer(BaseSerializer):
+    """Serializer for per-user ``ProjectUserProperty`` rows.
+
+    Stores user-specific project display/filter preferences.
+    """
+
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = ProjectUserProperty
         fields = "__all__"
         read_only_fields = ["user", "workspace", "project"]
 
 
 class LabelSerializer(BaseSerializer):
+    """Write/read serializer for ``Label``.
+
+    Enforces case-insensitive name uniqueness per project.
+    """
+
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = Label
         fields = [
             "parent",
@@ -372,6 +453,7 @@ class LabelSerializer(BaseSerializer):
         read_only_fields = ["workspace", "project"]
 
     def validate_name(self, value):
+        """Reject duplicate label names (case-insensitive) within the same project."""
         project_id = self.context.get("project_id")
 
         label = Label.objects.filter(project_id=project_id, name__iexact=value)
@@ -386,19 +468,39 @@ class LabelSerializer(BaseSerializer):
 
 
 class LabelLiteSerializer(BaseSerializer):
+    """Compact ``Label`` representation (id, name, color).
+
+    Used as a nested field on issue/list serializers.
+    """
+
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = Label
         fields = ["id", "name", "color"]
 
 
 class IssueLabelSerializer(BaseSerializer):
+    """Serializer for the ``IssueLabel`` M2M join row.
+
+    Workspace and project are set from URL context.
+    """
+
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = IssueLabel
         fields = "__all__"
         read_only_fields = ["workspace", "project"]
 
 
 class IssueRelationSerializer(BaseSerializer):
+    """Outgoing side of ``IssueRelation``.
+
+    Exposes the related issue's identity (id, sequence_id, name, state,
+    priority) plus the relation type.
+    """
+
     id = serializers.UUIDField(source="related_issue.id", read_only=True)
     project_id = serializers.PrimaryKeyRelatedField(source="related_issue.project_id", read_only=True)
     sequence_id = serializers.IntegerField(source="related_issue.sequence_id", read_only=True)
@@ -413,6 +515,8 @@ class IssueRelationSerializer(BaseSerializer):
     )
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = IssueRelation
         fields = [
             "id",
@@ -439,6 +543,12 @@ class IssueRelationSerializer(BaseSerializer):
 
 
 class RelatedIssueSerializer(BaseSerializer):
+    """Incoming side of ``IssueRelation``.
+
+    Mirror of :class:`IssueRelationSerializer` that exposes the originating
+    issue's identity for the inverse relationship.
+    """
+
     id = serializers.UUIDField(source="issue.id", read_only=True)
     project_id = serializers.PrimaryKeyRelatedField(source="issue.project_id", read_only=True)
     sequence_id = serializers.IntegerField(source="issue.sequence_id", read_only=True)
@@ -453,6 +563,8 @@ class RelatedIssueSerializer(BaseSerializer):
     )
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = IssueRelation
         fields = [
             "id",
@@ -479,15 +591,23 @@ class RelatedIssueSerializer(BaseSerializer):
 
 
 class IssueAssigneeSerializer(BaseSerializer):
+    """Serializer for ``IssueAssignee`` rows with a nested ``assignee_details`` lite-user view."""
+
     assignee_details = UserLiteSerializer(read_only=True, source="assignee")
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = IssueAssignee
         fields = "__all__"
 
 
 class CycleBaseSerializer(BaseSerializer):
+    """Compact ``Cycle`` serializer used as a nested payload by :class:`IssueCycleDetailSerializer`."""
+
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = Cycle
         fields = "__all__"
         read_only_fields = [
@@ -501,9 +621,13 @@ class CycleBaseSerializer(BaseSerializer):
 
 
 class IssueCycleDetailSerializer(BaseSerializer):
+    """Serializer for ``CycleIssue`` rows with the cycle pulled in via nested ``cycle_detail``."""
+
     cycle_detail = CycleBaseSerializer(read_only=True, source="cycle")
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = CycleIssue
         fields = "__all__"
         read_only_fields = [
@@ -517,7 +641,11 @@ class IssueCycleDetailSerializer(BaseSerializer):
 
 
 class ModuleBaseSerializer(BaseSerializer):
+    """Compact ``Module`` serializer used as a nested payload by :class:`IssueModuleDetailSerializer`."""
+
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = Module
         fields = "__all__"
         read_only_fields = [
@@ -531,9 +659,13 @@ class ModuleBaseSerializer(BaseSerializer):
 
 
 class IssueModuleDetailSerializer(BaseSerializer):
+    """Serializer for ``ModuleIssue`` rows with the module pulled in via nested ``module_detail``."""
+
     module_detail = ModuleBaseSerializer(read_only=True, source="module")
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = ModuleIssue
         fields = "__all__"
         read_only_fields = [
@@ -547,9 +679,17 @@ class IssueModuleDetailSerializer(BaseSerializer):
 
 
 class IssueLinkSerializer(BaseSerializer):
+    """Write/read serializer for ``IssueLink`` rows.
+
+    Prepends ``http://`` to schemeless URLs and rejects duplicates per
+    issue.
+    """
+
     created_by_detail = UserLiteSerializer(read_only=True, source="created_by")
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = IssueLink
         fields = "__all__"
         read_only_fields = [
@@ -563,6 +703,11 @@ class IssueLinkSerializer(BaseSerializer):
         ]
 
     def to_internal_value(self, data):
+        """Normalize the URL by prepending ``http://`` when no scheme is supplied.
+
+        Runs before standard DRF validation so the URLValidator sees a
+        schemed URL.
+        """
         # Modify the URL before validation by appending http:// if missing
         url = data.get("url", "")
         if url and not url.startswith(("http://", "https://")):
@@ -571,6 +716,10 @@ class IssueLinkSerializer(BaseSerializer):
         return super().to_internal_value(data)
 
     def validate_url(self, value):
+        """Validate the URL with Django's built-in ``URLValidator``.
+
+        Surfaces a friendly error message when the URL is malformed.
+        """
         # Use Django's built-in URLValidator for validation
         url_validator = URLValidator()
         try:
@@ -582,11 +731,16 @@ class IssueLinkSerializer(BaseSerializer):
 
     # Validation if url already exists
     def create(self, validated_data):
+        """Create the link only if no link with the same URL exists on the issue.
+
+        Enforces URL uniqueness per issue.
+        """
         if IssueLink.objects.filter(url=validated_data.get("url"), issue_id=validated_data.get("issue_id")).exists():
             raise serializers.ValidationError({"error": "URL already exists for this Issue"})
         return IssueLink.objects.create(**validated_data)
 
     def update(self, instance, validated_data):
+        """Update the link's URL only if no other link with that URL exists on the same issue."""
         if (
             IssueLink.objects.filter(url=validated_data.get("url"), issue_id=instance.issue_id)
             .exclude(pk=instance.id)
@@ -598,7 +752,11 @@ class IssueLinkSerializer(BaseSerializer):
 
 
 class IssueLinkLiteSerializer(BaseSerializer):
+    """Compact read-only ``IssueLink`` view used as the nested expansion target for issue list serializers."""
+
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = IssueLink
         fields = [
             "id",
@@ -613,9 +771,13 @@ class IssueLinkLiteSerializer(BaseSerializer):
 
 
 class IssueAttachmentSerializer(BaseSerializer):
+    """Serializer for ``FileAsset`` rows attached to issues, exposing a server-rendered ``asset_url``."""
+
     asset_url = serializers.CharField(read_only=True)
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = FileAsset
         fields = "__all__"
         read_only_fields = [
@@ -630,7 +792,15 @@ class IssueAttachmentSerializer(BaseSerializer):
 
 
 class IssueAttachmentLiteSerializer(DynamicBaseSerializer):
+    """Compact attachment serializer.
+
+    Used as the expansion target for ``issue_attachments`` in
+    :class:`DynamicBaseSerializer`.
+    """
+
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = FileAsset
         fields = [
             "id",
@@ -646,26 +816,48 @@ class IssueAttachmentLiteSerializer(DynamicBaseSerializer):
 
 
 class IssueReactionSerializer(BaseSerializer):
+    """Serializer for emoji reactions on issues.
+
+    Workspace, project, issue and actor are read-only.
+    """
+
     actor_detail = UserLiteSerializer(read_only=True, source="actor")
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = IssueReaction
         fields = "__all__"
         read_only_fields = ["workspace", "project", "issue", "actor", "deleted_at"]
 
 
 class IssueReactionLiteSerializer(DynamicBaseSerializer):
+    """Compact reaction serializer.
+
+    Used as the expansion target for ``issue_reactions`` in
+    :class:`DynamicBaseSerializer`.
+    """
+
     display_name = serializers.CharField(source="actor.display_name", read_only=True)
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = IssueReaction
         fields = ["id", "actor", "issue", "reaction", "display_name"]
 
 
 class CommentReactionSerializer(BaseSerializer):
+    """Serializer for emoji reactions on issue comments.
+
+    Workspace, project, comment and actor are read-only.
+    """
+
     display_name = serializers.CharField(source="actor.display_name", read_only=True)
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = CommentReaction
         fields = [
             "id",
@@ -685,15 +877,25 @@ class CommentReactionSerializer(BaseSerializer):
 
 
 class IssueVoteSerializer(BaseSerializer):
+    """Read-only serializer for up/down ``IssueVote`` rows used by the public deploy-board view."""
+
     actor_detail = UserLiteSerializer(read_only=True, source="actor")
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = IssueVote
         fields = ["issue", "vote", "workspace", "project", "actor", "actor_detail"]
         read_only_fields = fields
 
 
 class IssueCommentSerializer(BaseSerializer):
+    """Serializer for ``IssueComment`` rows.
+
+    Nests actor / issue / project / workspace details and includes a
+    list of comment reactions.
+    """
+
     actor_detail = UserLiteSerializer(read_only=True, source="actor")
     issue_detail = IssueFlatSerializer(read_only=True, source="issue")
     project_detail = ProjectLiteSerializer(read_only=True, source="project")
@@ -702,6 +904,8 @@ class IssueCommentSerializer(BaseSerializer):
     is_member = serializers.BooleanField(read_only=True)
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = IssueComment
         fields = "__all__"
         read_only_fields = [
@@ -716,16 +920,28 @@ class IssueCommentSerializer(BaseSerializer):
 
 
 class IssueStateFlatSerializer(BaseSerializer):
+    """Lightweight ``Issue`` view that nests state and project details.
+
+    Used by activity feeds and similar read-only contexts.
+    """
+
     state_detail = StateLiteSerializer(read_only=True, source="state")
     project_detail = ProjectLiteSerializer(read_only=True, source="project")
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = Issue
         fields = ["id", "sequence_id", "name", "state_detail", "project_detail"]
 
 
 # Issue Serializer with state details
 class IssueStateSerializer(DynamicBaseSerializer):
+    """Read serializer for ``Issue`` with nested state, project, labels and assignees.
+
+    Includes annotated counts (sub-issues / attachments / links).
+    """
+
     label_details = LabelLiteSerializer(read_only=True, source="labels", many=True)
     state_detail = StateLiteSerializer(read_only=True, source="state")
     project_detail = ProjectLiteSerializer(read_only=True, source="project")
@@ -735,14 +951,23 @@ class IssueStateSerializer(DynamicBaseSerializer):
     link_count = serializers.IntegerField(read_only=True)
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = Issue
         fields = "__all__"
 
 
 class IssueIntakeSerializer(DynamicBaseSerializer):
+    """Compact ``Issue`` view used inside intake queue payloads.
+
+    Exposes priority, sequence and queryset-annotated ``label_ids``.
+    """
+
     label_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = Issue
         fields = [
             "id",
@@ -758,6 +983,12 @@ class IssueIntakeSerializer(DynamicBaseSerializer):
 
 
 class IssueSerializer(DynamicBaseSerializer):
+    """Primary read serializer for ``Issue``.
+
+    Exposes the flat record plus pre-computed cycle / module / label /
+    assignee ID lists and annotated counts.
+    """
+
     # ids
     cycle_id = serializers.PrimaryKeyRelatedField(read_only=True)
     module_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
@@ -772,6 +1003,8 @@ class IssueSerializer(DynamicBaseSerializer):
     link_count = serializers.IntegerField(read_only=True)
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = Issue
         fields = [
             "id",
@@ -803,6 +1036,7 @@ class IssueSerializer(DynamicBaseSerializer):
         read_only_fields = fields
 
     def validate(self, data):
+        """Validate that any supplied ``state_id`` belongs to the URL-addressed project."""
         if (
             data.get("state_id")
             and not State.objects.filter(project_id=self.context.get("project_id"), pk=data.get("state_id")).exists()
@@ -812,7 +1046,15 @@ class IssueSerializer(DynamicBaseSerializer):
 
 
 class IssueListDetailSerializer(serializers.Serializer):
+    """Hand-rolled ``serializers.Serializer`` (NOT a ``ModelSerializer``).
+
+    Builds the issue list-view payload with optional inline expansion of
+    ``issue_relation`` / ``issue_related`` based on the constructor-
+    injected ``expand`` argument.
+    """
+
     def __init__(self, *args, **kwargs):
+        """Capture ``expand`` / ``fields`` kwargs before delegating to the parent serializer."""
         # Extract expand parameter and store it as instance variable
         self.expand = kwargs.pop("expand", []) or []
         # Extract fields parameter and store it as instance variable
@@ -820,15 +1062,23 @@ class IssueListDetailSerializer(serializers.Serializer):
         super().__init__(*args, **kwargs)
 
     def get_module_ids(self, obj):
+        """Project related module IDs from the prefetched ``issue_module`` reverse-relation manager."""
         return [module.module_id for module in obj.issue_module.all()]
 
     def get_label_ids(self, obj):
+        """Project related label IDs from the prefetched ``label_issue`` reverse-relation manager."""
         return [label.label_id for label in obj.label_issue.all()]
 
     def get_assignee_ids(self, obj):
+        """Project related assignee IDs from the prefetched ``issue_assignee`` reverse-relation manager."""
         return [assignee.assignee_id for assignee in obj.issue_assignee.all()]
 
     def to_representation(self, instance):
+        """Build the flat list payload with optional inline expansion of related issues.
+
+        Inlines ``issue_relation`` / ``issue_related`` when the constructor
+        ``expand`` list requested them.  Deleted related issues are skipped.
+        """
         data = {
             # Basic fields
             "id": instance.id,
@@ -915,18 +1165,33 @@ class IssueListDetailSerializer(serializers.Serializer):
 
 
 class IssueLiteSerializer(DynamicBaseSerializer):
+    """Minimal ``Issue`` representation (id, sequence_id, project_id).
+
+    Used as a nested expansion target for parent/sub-issue references.
+    """
+
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = Issue
         fields = ["id", "sequence_id", "project_id"]
         read_only_fields = fields
 
 
 class IssueDetailSerializer(IssueSerializer):
+    """Detail-view extension of :class:`IssueSerializer`.
+
+    Adds ``description_html``, ``is_subscribed`` and ``is_intake``
+    (annotated on the queryset).
+    """
+
     description_html = serializers.CharField()
     is_subscribed = serializers.BooleanField(read_only=True)
     is_intake = serializers.BooleanField(read_only=True)
 
     class Meta(IssueSerializer.Meta):
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         fields = IssueSerializer.Meta.fields + [
             "description_html",
             "is_subscribed",
@@ -936,12 +1201,20 @@ class IssueDetailSerializer(IssueSerializer):
 
 
 class IssuePublicSerializer(BaseSerializer):
+    """Public deploy-board issue view.
+
+    Exposes the state/project details, reactions and votes for
+    unauthenticated visitors.
+    """
+
     project_detail = ProjectLiteSerializer(read_only=True, source="project")
     state_detail = StateLiteSerializer(read_only=True, source="state")
     reactions = IssueReactionSerializer(read_only=True, many=True, source="issue_reactions")
     votes = IssueVoteSerializer(read_only=True, many=True)
 
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = Issue
         fields = [
             "id",
@@ -962,14 +1235,22 @@ class IssuePublicSerializer(BaseSerializer):
 
 
 class IssueSubscriberSerializer(BaseSerializer):
+    """Serializer for the ``IssueSubscriber`` join row (workspace/project/issue read-only)."""
+
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = IssueSubscriber
         fields = "__all__"
         read_only_fields = ["workspace", "project", "issue"]
 
 
 class IssueVersionDetailSerializer(BaseSerializer):
+    """Read-only serializer for ``IssueVersion`` historical snapshots of the issue's high-level fields."""
+
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = IssueVersion
         fields = [
             "id",
@@ -1008,7 +1289,15 @@ class IssueVersionDetailSerializer(BaseSerializer):
 
 
 class IssueDescriptionVersionDetailSerializer(BaseSerializer):
+    """Read-only serializer for ``IssueDescriptionVersion`` rows.
+
+    Historical snapshots of the issue's description (binary, html,
+    json, stripped).
+    """
+
     class Meta:
+        """DRF serializer Meta options (model, fields and read-only configuration)."""
+
         model = IssueDescriptionVersion
         fields = [
             "id",

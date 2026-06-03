@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Django management command to ensure the S3-compatible asset bucket exists."""
+
 # Python imports
 import os
 import boto3
@@ -12,9 +14,31 @@ from django.core.management import BaseCommand
 
 
 class Command(BaseCommand):
+    """Verify the S3-compatible bucket named by ``AWS_S3_BUCKET_NAME`` exists, creating it if absent.
+
+    CLI signature:
+        ``python manage.py create_bucket``
+
+    Side effects:
+        Calls ``boto3.client('s3').head_bucket`` and, on HTTP 404, calls
+        ``create_bucket`` against the endpoint defined by ``AWS_S3_ENDPOINT_URL``.
+        The default deployment stack ships with a MinIO container that serves this
+        S3-compatible API; the ``s3v4`` signature version is required for MinIO
+        compatibility.
+
+    Idempotency:
+        Idempotent -- implements ``check-then-create`` semantics so re-running on an
+        existing bucket is a no-op.
+
+    Required environment variables:
+        ``AWS_S3_ENDPOINT_URL`` ``AWS_ACCESS_KEY_ID`` ``AWS_SECRET_ACCESS_KEY``
+        ``AWS_REGION`` ``AWS_S3_BUCKET_NAME``.
+    """
+
     help = "Create the default bucket for the instance"
 
     def handle(self, *args, **options):
+        """Check whether the configured S3 bucket exists, creating it on HTTP 404."""
         # Create a session using the credentials from Django settings
         try:
             s3_client = boto3.client(

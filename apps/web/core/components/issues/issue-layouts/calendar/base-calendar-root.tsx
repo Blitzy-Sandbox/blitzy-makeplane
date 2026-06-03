@@ -4,6 +4,53 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Route-aware shell that wires a calendar issue layout to its MobX issue store
+ * stack and forwards drag/drop, pagination, quick-add, and edit-permission
+ * concerns down to the presentational {@link CalendarChart}.
+ *
+ * State slice read:
+ *   - issues, issuesFilter, issueMap from useIssues(storeType) — keyed by the
+ *     resolved CalendarStoreType (PROJECT | MODULE | CYCLE | PROJECT_VIEW |
+ *     TEAM | TEAM_VIEW | EPIC). When isEpic is true, storeType is overridden
+ *     to EIssuesStoreType.EPIC, otherwise it falls back to the layout-context
+ *     value from useIssueStoreType().
+ *   - calendar window (startDate, endDate, layout) from useCalendarView().
+ *   - allowPermissions from useUserPermissions() for the workspace-level
+ *     editing gate at EUserPermissionsLevel.PROJECT.
+ *
+ * Actions invoked (all sourced from useIssuesActions(storeType)):
+ *   - fetchIssues / fetchNextIssues — initial + pagination data load, scoped
+ *     by start/end dates and grouped by target_date so each calendar cell
+ *     receives its own bucket of issue IDs.
+ *   - quickAddIssue, updateIssue, removeIssue, removeIssueFromView,
+ *     archiveIssue, restoreIssue, updateFilters — surfaced through the
+ *     QuickActions render prop and the calendar-level handlers.
+ *   - handleDragDrop (./utils) — persistence path for drag-to-reschedule;
+ *     mutates target_date via updateIssue.
+ *
+ * Side effects:
+ *   - useEffect on [storeType, startDate, endDate, layout, viewId] issues an
+ *     "init-loader" fetchIssues call with month layout = 4 items/page and
+ *     week layout = 30 items/page (intentional asymmetry: month surfaces a
+ *     summary per cell, week shows the long tail).
+ *   - Drag/drop failures emit an ERROR toast via @plane/propel/toast; success
+ *     path relies on store mutations from updateIssue to refresh the UI.
+ *
+ * Permission resolution:
+ *   - canEditProperties(projectId) combines issues.viewFlags.enableInlineEditing
+ *     with either the workspace-level allowPermissions check OR the optional
+ *     per-project canEditPropertiesBasedOnProject override (used by
+ *     project-root.tsx when the user has heterogeneous rights across projects).
+ *   - readOnly={isCompletedCycle} additionally freezes editing for completed
+ *     cycles regardless of permission state.
+ *
+ * Consumers:
+ *   - ./roots/project-root.tsx, ./roots/module-root.tsx,
+ *     ./roots/cycle-root.tsx, ./roots/project-view-root.tsx
+ *   - Internally renders ./calendar.tsx (CalendarChart).
+ */
+
 import type { FC } from "react";
 import { useCallback, useEffect } from "react";
 import { observer } from "mobx-react";
@@ -24,6 +71,11 @@ import type { IQuickActionProps } from "../list/list-view-types";
 import { CalendarChart } from "./calendar";
 import { handleDragDrop } from "./utils";
 
+/**
+ * Discriminant union of the issue stores that a calendar layout can bind to.
+ * Resolved at runtime via useIssueStoreType() — with an EPIC override when the
+ * isEpic prop is true — and then passed to useIssues / useIssuesActions.
+ */
 export type CalendarStoreType =
   | EIssuesStoreType.PROJECT
   | EIssuesStoreType.MODULE
@@ -33,6 +85,24 @@ export type CalendarStoreType =
   | EIssuesStoreType.TEAM_VIEW
   | EIssuesStoreType.EPIC;
 
+/**
+ * Props injected by route-scoped wrappers in ./roots/* to bind this shared
+ * shell to a specific calendar context (project, module, cycle, view, or epic).
+ *
+ * @property QuickActions Route-specific quick-action renderer (e.g.
+ *   ProjectIssueQuickActions / ModuleIssueQuickActions / CycleIssueQuickActions).
+ * @property addIssuesToView Optional add-to-view callback supplied by
+ *   module-root.tsx and cycle-root.tsx; absent for raw project roots.
+ * @property isCompletedCycle When true, the entire calendar is rendered
+ *   read-only (forwarded as readOnly to CalendarChart). Defaults to false.
+ * @property viewId Optional fetch context (cycle/module/view id) used as the
+ *   third argument to fetchIssues; undefined for plain project boards.
+ * @property isEpic When true, swaps storeType to EIssuesStoreType.EPIC so
+ *   useIssues / useIssuesActions resolve the epic store stack. Defaults to false.
+ * @property canEditPropertiesBasedOnProject Optional per-project edit gate
+ *   that overrides the workspace-level allowPermissions result; used by
+ *   project-root.tsx where the user may have heterogeneous rights across projects.
+ */
 interface IBaseCalendarRoot {
   QuickActions: FC<IQuickActionProps>;
   addIssuesToView?: (issueIds: string[]) => Promise<any>;
@@ -42,6 +112,11 @@ interface IBaseCalendarRoot {
   canEditPropertiesBasedOnProject?: (projectId: string) => boolean;
 }
 
+/**
+ * Resolves the active issue store from layout context (with EPIC override),
+ * fetches the visible date window, and renders {@link CalendarChart} with
+ * permission-aware drag/drop, pagination, and quick-action handlers.
+ */
 export const BaseCalendarRoot = observer(function BaseCalendarRoot(props: IBaseCalendarRoot) {
   const {
     QuickActions,

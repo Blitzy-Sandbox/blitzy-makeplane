@@ -2,6 +2,54 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Space-scoped Google OAuth 2.0 sign-in (initiate + callback).
+
+Two Django :class:`View` subclasses implement the Google authorization-code
+flow for the public-space / tenant surface:
+
+  * :class:`GoogleOauthInitiateSpaceEndpoint` — ``GET /auth/spaces/google/``
+    generates a CSRF ``state`` (``uuid.uuid4().hex``), stashes the space
+    host and state in the PostgreSQL-backed Django session (via the
+    ``plane.db.models.session`` engine), and redirects the browser to
+    Google's authorization endpoint via
+    :meth:`GoogleOAuthProvider.get_auth_url`.
+  * :class:`GoogleCallbackSpaceEndpoint` — ``GET /auth/spaces/google/callback/``
+    validates the returned ``state`` against the session value (CSRF
+    defense), validates the authorization ``code``, exchanges it for a
+    Plane :class:`User` via :meth:`GoogleOAuthProvider.authenticate`, calls
+    :func:`user_login` with ``is_space=True``, and redirects safely.
+
+This module is the ``is_space=True`` mirror of
+:mod:`plane.authentication.views.app.google` — view-class shapes mirror the
+app surface; only the host-resolution and login flags differ.
+
+OAuth state CSRF defense:
+    ``state = uuid.uuid4().hex`` is generated server-side on initiate,
+    stored in ``request.session["state"]``, and verified on callback;
+    mismatch → ``GOOGLE_OAUTH_PROVIDER_ERROR``.
+
+Open-redirect prevention:
+    Post-auth ``next_path`` is sanitized via :func:`validate_next_path`,
+    composed against ``base_host(request, is_space=True)``, and gated by
+    :func:`url_has_allowed_host_and_scheme` against
+    :func:`get_allowed_hosts`; unsafe URLs fall back to
+    ``base_host(request, is_space=True)``.
+
+Session storage (per AAP §0.2.2):
+    OAuth ``state`` and ``host`` are written to the PostgreSQL-backed
+    Django session via the ``plane.db.models.session`` engine (see
+    ``SESSION_ENGINE`` in ``apps/api/plane/settings/common.py``). Redis
+    is used for caching and selected ephemeral auth data only — it is
+    NOT the Django session backend, and Plane's Celery task queueing
+    routes through RabbitMQ. OAuth itself does NOT enqueue any Celery
+    task here.
+
+Error codes:
+    ``INSTANCE_NOT_CONFIGURED`` (initiate path),
+    ``GOOGLE_OAUTH_PROVIDER_ERROR`` (state mismatch, missing code, provider
+    failure on both paths).
+"""
+
 # Python imports
 import uuid
 
@@ -23,7 +71,42 @@ from plane.utils.path_validator import get_safe_redirect_url, validate_next_path
 
 
 class GoogleOauthInitiateSpaceEndpoint(View):
+    """Begin the space-tenant Google OAuth flow.
+
+    HTTP method / URL:
+        ``GET /auth/spaces/google/``
+
+    Permission:
+        Django :class:`~django.views.View` subclass (not DRF). Anonymous
+        access required — this view begins the sign-in.
+
+    Query parameters:
+        * ``next_path`` (str, optional) — post-auth redirect destination.
+
+    Response:
+        HTTP 302 redirect — either to Google's authorization endpoint
+        (``provider.get_auth_url()``) on the happy path, or back to
+        ``base_host(request, is_space=True)`` with
+        :meth:`AuthenticationException.get_error_dict` query params on
+        failure.
+
+    Side effects (PostgreSQL-backed Django session writes via
+    ``plane.db.models.session``):
+        * ``request.session["host"] = base_host(request, is_space=True)``
+        * ``request.session["state"] = uuid.uuid4().hex`` (CSRF token
+          verified on callback).
+
+    Error codes:
+        ``INSTANCE_NOT_CONFIGURED``, ``GOOGLE_OAUTH_PROVIDER_ERROR``.
+
+    Pre-condition:
+        ``Instance.objects.first().is_setup_done`` must be ``True``
+        (migrator container has completed); otherwise redirect with
+        ``INSTANCE_NOT_CONFIGURED``.
+    """
+
     def get(self, request):
+        """Stash host + state in session, then redirect to Google's auth URL."""
         request.session["host"] = base_host(request=request, is_space=True)
         next_path = request.GET.get("next_path")
 
@@ -55,7 +138,45 @@ class GoogleOauthInitiateSpaceEndpoint(View):
 
 
 class GoogleCallbackSpaceEndpoint(View):
+    """Complete the space-tenant Google OAuth flow (token exchange + login).
+
+    HTTP method / URL:
+        ``GET /auth/spaces/google/callback/``
+
+    Permission:
+        Django :class:`~django.views.View` subclass (not DRF). Public
+        endpoint hit by Google's redirect-back to Plane.
+
+    Query parameters (set by Google):
+        * ``code`` (str, required) — authorization code to exchange.
+        * ``state`` (str, required) — CSRF token; MUST match the value
+          stored on initiate in ``request.session["state"]``.
+
+    Response:
+        HTTP 302 redirect — on success to
+        ``base_host(request, is_space=True) +
+        validate_next_path(session_next_path)``; on failure to
+        ``base_host(request, is_space=True)`` with
+        :meth:`AuthenticationException.get_error_dict` query params.
+
+    Error codes:
+        ``GOOGLE_OAUTH_PROVIDER_ERROR`` — raised on state mismatch, missing
+        ``code``, or any failure inside
+        :meth:`GoogleOAuthProvider.authenticate`.
+
+    Side effects:
+        * On success: :func:`user_login` with ``is_space=True`` writes
+          the Django session to the PostgreSQL-backed session store via
+          the ``plane.db.models.session`` engine.
+        * No DB writes from this view directly; user-row writes happen
+          inside :meth:`GoogleOAuthProvider.authenticate` when the Google
+          account is first linked.
+
+    # INTENT UNCLEAR: the ``base_host`` local rebound to ``request.session.get("host")`` shadows the imported function and would raise ``TypeError`` if invoked on the error/success paths; behavior preserved verbatim per AAP §0.12.3.
+    """
+
     def get(self, request):
+        """Validate state + code, exchange for a User, log in, and redirect safely."""
         code = request.GET.get("code")
         state = request.GET.get("state")
         base_host = request.session.get("host")

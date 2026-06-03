@@ -4,5 +4,11 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Barrel module for calendar header dropdowns. Re-exports
+ * {@link CalendarMonthsDropdown} and {@link CalendarOptionsDropdown} so
+ * callers can import either from "./dropdowns" without coupling to file names.
+ */
+
 export * from "./months-dropdown";
 export * from "./options-dropdown";

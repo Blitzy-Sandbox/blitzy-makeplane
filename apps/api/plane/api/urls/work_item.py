@@ -2,6 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routes for the external ``/api/v1/`` work-item (issue) surface.
+
+Publishes both legacy ``/issues/`` and current ``/work-items/`` URL patterns
+covering work-item CRUD, links, comments, activities, attachments, search,
+identifier lookup, and relations; the two pattern sets are concatenated as
+``old_url_patterns + new_url_patterns`` to preserve backwards compatibility
+for existing API consumers.
+"""
+
 from django.urls import path
 
 from plane.api.views import (

@@ -2,6 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL routing for current-user endpoints.
+
+Maps the user ViewSets from ``plane.app.views`` (profile, account,
+session, onboarding, tour completion, activity, activity graph,
+workspaces, workspace dashboard, issue-completed graph) to URL paths
+scoped under ``users/me/``.
+"""
+
 from django.urls import path
 
 from plane.app.views import (

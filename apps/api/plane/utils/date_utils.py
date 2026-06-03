@@ -2,6 +2,26 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Analytics period -> date range resolution helpers.
+
+Resolves the ``date_filter`` query parameter token from analytics endpoints to
+either a current/previous date range comparison dict, a concrete
+``(start_date, end_date)`` tuple, or a composed ORM filter payload, depending
+on the helper invoked.
+
+Supported period tokens:
+  - ``yesterday``       -- single calendar day prior to ``timezone.now()``.
+  - ``last_7_days``     -- rolling 7-day window ending today.
+  - ``last_30_days``    -- rolling 30-day window ending today.
+  - ``last_3_months``   -- rolling 90-day window ending today.
+  - ``custom``          -- caller supplies explicit ``start_date`` and
+    ``end_date`` query parameters (honored by
+    :func:`get_analytics_date_range` only).
+
+Consumers: ``plane.app.views.analytic.*`` advance endpoints and the
+``plane.app.views.workspace.home`` chart endpoints.
+"""
+
 from datetime import datetime, timedelta, date
 from django.utils import timezone
 from typing import Dict, Optional, List, Union, Tuple, Any
@@ -14,17 +34,15 @@ def get_analytics_date_range(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> Optional[Dict[str, Dict[str, datetime]]]:
-    """
-    Get date range for analytics with current and previous periods for comparison.
-    Returns a dictionary with current and previous date ranges.
+    """Resolve a ``date_filter`` token to a current/previous date-range comparison dict.
 
-    Args:
-        date_filter (str): The type of date filter to apply
-        start_date (str): Start date for custom range (format: YYYY-MM-DD)
-        end_date (str): End date for custom range (format: YYYY-MM-DD)
-
-    Returns:
-        dict: Dictionary containing current and previous date ranges
+    For ``date_filter == "custom"`` the caller MUST supply ``start_date`` and
+    ``end_date`` as ``YYYY-MM-DD`` strings; otherwise the window is computed
+    relative to ``timezone.now()``. Rolling windows
+    (``last_7_days``/``last_30_days``/``last_3_months``) also emit an
+    equally-sized ``previous`` bucket for period-over-period comparison.
+    Returns ``None`` when ``date_filter`` is falsy/unknown, or when a
+    ``custom`` range fails to parse.
     """
     if not date_filter:
         return None
@@ -90,20 +108,11 @@ def get_analytics_date_range(
 def get_chart_period_range(
     date_filter: Optional[str] = None,
 ) -> Optional[Tuple[date, date]]:
-    """
-    Get date range for chart visualization.
-    Returns a tuple of (start_date, end_date) for the specified period.
+    """Resolve a ``date_filter`` token to a ``(start_date, end_date)`` tuple for chart x-axis bucketing.
 
-    Args:
-        date_filter (str): The type of date filter to apply. Options are:
-            - "yesterday": Yesterday's date
-            - "last_7_days": Last 7 days
-            - "last_30_days": Last 30 days
-            - "last_3_months": Last 90 days
-            Defaults to "last_7_days" if not specified or invalid.
-
-    Returns:
-        tuple: A tuple containing (start_date, end_date) as date objects
+    Accepts ``yesterday``, ``last_7_days``, ``last_30_days``, and
+    ``last_3_months``; returns ``None`` for falsy or unrecognized tokens
+    (the ``custom`` token is intentionally not honored by this helper).
     """
     if not date_filter:
         return None
@@ -129,22 +138,15 @@ def get_analytics_filters(
     date_filter: Optional[str] = None,
     project_ids: Optional[Union[str, List[str]]] = None,
 ) -> Dict[str, Any]:
-    """
-    Get combined project and date filters for analytics endpoints
+    """Return the combined workspace/project/date filter payload for analytics endpoints.
 
-    Args:
-        slug: The workspace slug
-        user: The current user
-        type: The type of filter ("analytics" or "chart")
-        date_filter: Optional date filter string
-        project_ids: Optional list of project IDs or comma-separated string of project IDs
-
-    Returns:
-        dict: A dictionary containing:
-            - base_filters: Base filters for the workspace and user
-            - project_filters: Project-specific filters
-            - analytics_date_range: Date range filters for analytics comparison
-            - chart_period_range: Date range for chart visualization
+    Composes the workspace-scoped ``base_filters`` (issue-level) and
+    ``project_filters`` (project-level), optionally narrows them by
+    ``project_ids`` (list or comma-separated string), and attaches either
+    ``analytics_date_range`` (when ``type == "analytics"``) or
+    ``chart_period_range`` (when ``type == "chart"``) derived from
+    ``date_filter`` via :func:`get_analytics_date_range` and
+    :func:`get_chart_period_range` respectively.
     """
     # Get project IDs from request
     if project_ids and isinstance(project_ids, str):

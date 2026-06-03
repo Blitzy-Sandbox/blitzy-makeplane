@@ -4,11 +4,21 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Subscription tier catalog, billing-frequency defaults, and upgrade/marketing
+ * URL maps consumed by CE billing and license surfaces under
+ * `apps/web/ce/components/{workspace/billing,license/modal}/**` and
+ * `apps/web/core/components/license/modal/**`.
+ */
+
 import type { IPaymentProduct, TBillingFrequency, TProductBillingFrequency } from "@plane/types";
 import { EProductSubscriptionEnum } from "@plane/types";
 
 /**
- * Default billing frequency for each product subscription type
+ * Default billing frequency per subscription tier; `FREE`/`ONE` are non-recurring
+ * and paid tiers default to monthly to anchor the UI toggle on the lower-commitment option.
+ *
+ * Consumers: `apps/web/ce/components/workspace/billing/root.tsx`.
  */
 export const DEFAULT_PRODUCT_BILLING_FREQUENCY: TProductBillingFrequency = {
   [EProductSubscriptionEnum.FREE]: undefined,
@@ -19,7 +29,10 @@ export const DEFAULT_PRODUCT_BILLING_FREQUENCY: TProductBillingFrequency = {
 };
 
 /**
- * Subscription types that support billing frequency toggle (monthly/yearly)
+ * Subscription tiers eligible for the monthly/yearly toggle; excludes `FREE` and `ONE`
+ * which have no recurring frequency.
+ *
+ * Consumers: `apps/web/ce/components/workspace/billing/{root,comparison/plan-detail}.tsx`.
  */
 export const SUBSCRIPTION_WITH_BILLING_FREQUENCY = [
   EProductSubscriptionEnum.PRO,
@@ -28,8 +41,10 @@ export const SUBSCRIPTION_WITH_BILLING_FREQUENCY = [
 ];
 
 /**
- * Mapping of product subscription types to their respective payment product details
- * Used to provide information about each product's pricing and features
+ * Catalog of paid-tier products with monthly/yearly `prices` (cents); `is_active=false`
+ * (Enterprise) suppresses inline checkout and routes users to the sales CTA instead.
+ *
+ * Consumers: `apps/web/ce/components/license/modal/upgrade-modal.tsx`.
  */
 export const PLANE_COMMUNITY_PRODUCTS: Record<string, IPaymentProduct> = {
   [EProductSubscriptionEnum.PRO]: {
@@ -115,13 +130,19 @@ export const PLANE_COMMUNITY_PRODUCTS: Record<string, IPaymentProduct> = {
 };
 
 /**
- * URL for the "Talk to Sales" page where users can contact sales team
+ * "Talk to Sales" marketing URL used as the fallback CTA for tiers without
+ * self-service checkout (`FREE`, `ONE`, `ENTERPRISE`).
+ *
+ * Consumers: `apps/web/core/components/license/modal/card/plan-upgrade.tsx`,
+ * `apps/web/ce/components/{license/modal/upgrade-modal,workspace/billing/comparison/plan-detail}.tsx`.
  */
 export const TALK_TO_SALES_URL = "https://plane.so/talk-to-sales";
 
 /**
- * Mapping of subscription types to their respective upgrade/redirection URLs based on billing frequency
- * Used for self-hosted installations to redirect users to appropriate upgrade pages
+ * Self-hosted upgrade URLs keyed by tier×frequency; Pro/Business route to
+ * `app.plane.so/upgrade/...?plan={month|year}` and other tiers fall back to `TALK_TO_SALES_URL`.
+ *
+ * Consumers: `apps/web/ce/components/{license/modal/upgrade-modal,workspace/billing/comparison/plan-detail}.tsx`.
  */
 export const SUBSCRIPTION_REDIRECTION_URLS: Record<EProductSubscriptionEnum, Record<TBillingFrequency, string>> = {
   [EProductSubscriptionEnum.FREE]: {
@@ -147,8 +168,10 @@ export const SUBSCRIPTION_REDIRECTION_URLS: Record<EProductSubscriptionEnum, Rec
 };
 
 /**
- * Mapping of subscription types to their respective marketing webpage URLs
- * Used to direct users to learn more about each plan's features and pricing
+ * Tier marketing/"Learn more" URLs; `FREE`/`ONE`/`ENTERPRISE` route to sales while
+ * `PRO`/`BUSINESS` link to their landing pages.
+ *
+ * Consumers: `apps/web/ce/components/license/modal/upgrade-modal.tsx`.
  */
 export const SUBSCRIPTION_WEBPAGE_URLS: Record<EProductSubscriptionEnum, string> = {
   [EProductSubscriptionEnum.FREE]: TALK_TO_SALES_URL,

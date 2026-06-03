@@ -2,6 +2,47 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""URL configuration for the Plane authentication subsystem.
+
+Mounted at ``auth/`` by the project root URLconf (``plane/urls.py``). Exposes
+two parallel route axes derived from the same view layer:
+
+  - **App-scoped** routes (no ``spaces/`` prefix) for the main Plane web app
+  - **Space-scoped** routes (prefixed ``spaces/``) for the public-space /
+    space-tenant authentication flow
+
+Functional groups:
+
+  * Credentials: ``sign-in/``, ``sign-up/`` (+ ``spaces/`` variants)
+  * Sign-out:    ``sign-out/`` (+ ``spaces/`` variant)
+  * CSRF:        ``get-csrf-token/``
+  * Magic link:  ``magic-generate/``, ``magic-sign-in/``, ``magic-sign-up/``
+                  (+ ``spaces/`` variants). ``magic-generate`` enqueues
+                  ``magic_link_code_task.magic_link`` for code email delivery.
+  * OAuth:       ``google/{,callback/}``, ``github/{,callback/}``,
+                  ``gitlab/{,callback/}``, ``gitea/{,callback/}``
+                  (each with a ``spaces/`` mirror)
+  * Email check: ``email-check/`` (+ ``spaces/`` variant)
+  * Password:    ``forgot-password/`` (enqueues
+                  ``forgot_password_task.forgot_password`` for the reset
+                  email), ``reset-password/<uidb64>/<token>/``,
+                  ``change-password/``, ``set-password/``
+                  (forgot/reset have ``spaces/`` mirrors)
+
+The two route axes resolve to two parallel view sub-packages:
+``plane.authentication.views.app.*`` for the App-scoped endpoints and
+``plane.authentication.views.space.*`` for the Space-scoped endpoints. The
+Space variants pass ``is_space=True`` to helpers such as ``base_host`` and
+``user_login`` so the redirect host and cookie/session namespace are scoped
+to the public-space tenant.
+
+Async note (architectural rule): the magic-link and forgot-password flows
+enqueue email-sending tasks through **Celery via RabbitMQ**. Redis is used
+only for caching and session storage — not for task queueing. See
+``apps/api/plane/bgtasks/magic_link_code_task.py`` and
+``apps/api/plane/bgtasks/forgot_password_task.py``.
+"""
+
 from django.urls import path
 
 from .views import (

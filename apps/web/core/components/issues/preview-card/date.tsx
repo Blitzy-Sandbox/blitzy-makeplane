@@ -4,6 +4,37 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders the compact date area inside a `WorkItemPreviewCard` — shows a
+ * start↔target range, a start-only date, or a target-only date depending on
+ * which props are populated, with optional danger styling when the due date is
+ * overdue or otherwise warrants emphasis for the work item's state group.
+ *
+ * Exported component: `WorkItemPreviewCardDate`
+ *
+ * Props (`Props` — all three are required by the type; pass `null` for any
+ * date that is unset on the underlying work item):
+ *   - `startDate` (string | null, required): ISO date string for the work
+ *     item start date, or `null` when not set.
+ *   - `stateGroup` (TStateGroups, required): work item state group, consulted
+ *     by `shouldHighlightIssueDueDate` so terminal groups (e.g. completed) do
+ *     not flag the due date as overdue.
+ *   - `targetDate` (string | null, required): ISO date string for the work
+ *     item due/target date, or `null` when not set.
+ *
+ * MobX stores read:
+ *   None — this component is purely prop-driven.
+ *
+ * Side effects:
+ *   None. Returns `null` when both `startDate` and `targetDate` are absent so
+ *   the parent card does not render an empty date slot. Date highlighting and
+ *   formatting are delegated to the pure helpers `shouldHighlightIssueDueDate`
+ *   and `renderFormattedDate` from `@plane/utils`.
+ *
+ * Consumers:
+ *   - `./root` (`WorkItemPreviewCard`) — the only caller in this folder.
+ */
+
 import { CalendarDays } from "lucide-react";
 // plane imports
 import { DueDatePropertyIcon, StartDatePropertyIcon } from "@plane/propel/icons";

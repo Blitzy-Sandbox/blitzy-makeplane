@@ -4,6 +4,37 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Assignee filter row inside the issue layout header filters Popover.
+ *
+ * Rendered purpose: renders a searchable, paginated, selectable list of workspace/project members
+ * as `FilterOption` rows; clicking a row toggles that member's id in / out of the active assignee
+ * filter set. The header shows the active count as `Assignee (N)` and the section can be
+ * collapsed via `FilterHeader`'s preview toggle.
+ *
+ * Props (`Props`):
+ *   - `appliedFilters` (`string[] | null`, required): currently-selected assignee user ids for the
+ *     `assignees` filter slot.
+ *   - `handleUpdate` (`(val: string) => void`, required): invoked with the clicked member id; the
+ *     parent route root flips it into / out of `appliedFilters` and persists via
+ *     `issuesFilter.updateFilters(workspaceSlug, projectId, EIssueFilterType.FILTERS,
+ *     { assignees: <next-array> })`.
+ *   - `memberIds` (`string[] | undefined`, required): candidate roster of member ids to render;
+ *     supplied by the parent (typically `workspaceMember` / `projectMember` MobX store selectors).
+ *     `undefined` triggers a `Loader` skeleton fallback in the JSX.
+ *   - `searchQuery` (`string`, required): substring filter applied case-insensitively to each
+ *     member's `display_name` before sorting.
+ *
+ * MobX stores read:
+ *   - `useMember()` -> `getUserDetails(memberId)` to resolve display name and avatar for each row.
+ *   - `useUser()` -> `data` (the authenticated user) to label the current user's row as `"You"`
+ *     and to pin the current user near the top of the sort order.
+ *
+ * Side effects: none directly. Row click invokes `handleUpdate`; pagination ("View all" / "View
+ * less") only mutates the local `itemsToRender` state. No API calls, no router navigation, no
+ * direct store writes.
+ */
+
 import { useMemo, useState } from "react";
 import { sortBy } from "lodash-es";
 import { observer } from "mobx-react";
@@ -26,6 +57,11 @@ type Props = {
 
 export const FilterAssignees = observer(function FilterAssignees(props: Props) {
   const { appliedFilters, handleUpdate, memberIds, searchQuery } = props;
+  /**
+   * Paginated render: only the first `itemsToRender` rows are mounted at a time so that large
+   * rosters (e.g. workspaces with hundreds of members or labels) do not stall the dropdown's first
+   * paint. The user clicks "Load More" to grow the slice.
+   */
   // states
   const [itemsToRender, setItemsToRender] = useState(5);
   const [previewEnabled, setPreviewEnabled] = useState(true);
@@ -35,6 +71,10 @@ export const FilterAssignees = observer(function FilterAssignees(props: Props) {
 
   const appliedFiltersCount = appliedFilters?.length ?? 0;
 
+  /**
+   * Sort order: applied filters first, then the current user, then alphabetical — keeps active
+   * filters and "me" pinned to the top so users can re-toggle them quickly without scrolling.
+   */
   const sortedOptions = useMemo(() => {
     const filteredOptions = (memberIds || []).filter((memberId) =>
       getUserDetails(memberId)?.display_name.toLowerCase().includes(searchQuery.toLowerCase())

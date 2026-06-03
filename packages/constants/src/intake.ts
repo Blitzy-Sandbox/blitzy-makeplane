@@ -4,9 +4,18 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Intake/inbox issue review vocabulary (status pills, source/order options)
+ * consumed by `apps/web/core/components/inbox/**` and the intake MobX store.
+ */
+
 import type { TInboxIssueStatus } from "@plane/types";
 import { EInboxIssueStatus } from "@plane/types";
 
+/**
+ * Pairs each `EInboxIssueStatus` with i18n title/description keys for status pills; `i18n_description` is a function so callers can lazily resolve per render context.
+ * Consumers: `apps/web/core/components/inbox/inbox-issue-status.tsx` and `inbox-filter/{filters,applied-filters}/status.tsx`.
+ */
 export const INBOX_STATUS: {
   key: string;
   status: TInboxIssueStatus;
@@ -45,6 +54,10 @@ export const INBOX_STATUS: {
   },
 ];
 
+/**
+ * Order-by field options whose `key` values are Django ORM lookups accepted by the inbox list API (created_at / updated_at / sequence_id).
+ * Consumers: `apps/web/core/components/inbox/inbox-filter/sorting/order-by.tsx`.
+ */
 export const INBOX_ISSUE_ORDER_BY_OPTIONS = [
   {
     key: "issue__created_at",
@@ -60,6 +73,10 @@ export const INBOX_ISSUE_ORDER_BY_OPTIONS = [
   },
 ];
 
+/**
+ * Sort direction options paired with `INBOX_ISSUE_ORDER_BY_OPTIONS` to compose the inbox sort query.
+ * Consumers: `apps/web/core/components/inbox/inbox-filter/sorting/order-by.tsx`.
+ */
 export const INBOX_ISSUE_SORT_BY_OPTIONS = [
   {
     key: "asc",
@@ -71,6 +88,10 @@ export const INBOX_ISSUE_SORT_BY_OPTIONS = [
   },
 ];
 
+/**
+ * Relative past-duration tokens (today, yesterday, rolling 7/30-day windows) for the inbox "recent activity" filter.
+ * Consumers: `apps/web/core/store/inbox/project-inbox.store.ts` and the date-range resolver in `packages/utils/src/intake.ts`.
+ */
 export enum EPastDurationFilters {
   TODAY = "today",
   YESTERDAY = "yesterday",
@@ -78,6 +99,10 @@ export enum EPastDurationFilters {
   LAST_30_DAYS = "last_30_days",
 }
 
+/**
+ * Dropdown option list for the past-duration filter UI, pairing display `name` with the `EPastDurationFilters` token persisted in filter state.
+ * Consumers: `apps/web/core/components/inbox/inbox-filter/{filters,applied-filters}/date.tsx`.
+ */
 export const PAST_DURATION_FILTER_OPTIONS: {
   name: string;
   value: string;

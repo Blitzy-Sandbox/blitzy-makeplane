@@ -4,6 +4,48 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Confirmation modal that archives a single cycle on confirm; calls the cycle store's
+ * archive action wired to `CycleArchiveService`, surfaces success/error toasts, and
+ * redirects the user back to the project cycles list after a successful archive.
+ *
+ * Props:
+ *   - workspaceSlug (string, required): workspace slug used for the archive API call
+ *     and post-archive navigation target.
+ *   - projectId (string, required): project ID used for the archive API call and
+ *     post-archive navigation target.
+ *   - cycleId (string, required): ID of the cycle being archived; also used to look
+ *     up the cycle's display name for the confirmation copy.
+ *   - isOpen (boolean, required): controls `ModalCore` visibility.
+ *   - handleClose (() => void, required): closes the modal; invoked on Cancel,
+ *     before navigation on success, and (via `onClose`) clears local `isArchiving`
+ *     state before delegating to the caller.
+ *   - onSubmit (() => Promise<void>, optional): present in the type for API
+ *     symmetry with sibling modals but NOT invoked by this component — the archive
+ *     flow is entirely self-contained via the store action.
+ *
+ * MobX stores read:
+ *   - useCycle (cycle store): `getCycleNameById(cycleId)` for the confirmation copy
+ *     and the `archiveCycle` action.
+ *
+ * Side effects:
+ *   - API call (via store action wired to `CycleArchiveService`):
+ *     `archiveCycle(workspaceSlug, projectId, cycleId)` invoked from `handleArchiveCycle`.
+ *   - Toasts (`@plane/propel/toast`):
+ *       - SUCCESS toast with hard-coded "Archive success" / "Your archives can be
+ *         found in project archives." copy on archive success.
+ *       - ERROR toast with hard-coded "Error!" / "Cycle could not be archived.
+ *         Please try again." copy on archive failure.
+ *   - Navigation: `useAppRouter().push(`/${workspaceSlug}/projects/${projectId}/cycles`)`
+ *     after a successful archive — unconditional redirect regardless of where the
+ *     user was when they triggered the action.
+ *   - Local state: `isArchiving` boolean flag toggled around the async call to drive
+ *     the submit button's `loading` prop and label ("Archiving" vs. "Archive").
+ *
+ * Consumers: rendered from `CycleQuickActions`
+ * (`apps/web/core/components/cycles/quick-actions.tsx`) when the user picks
+ * the "Archive" overflow action on a cycle row.
+ */
 import { useState } from "react";
 // ui
 import { Button } from "@plane/propel/button";

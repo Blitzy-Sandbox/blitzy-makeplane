@@ -4,6 +4,44 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for issue external links — per-issue link-id lists plus a normalized link-by-id cache used by
+ * the link widget on the issue-detail page.
+ *
+ * State slice:
+ * - links: TIssueLinkIdMap — per-issue ordered lists of link ids
+ * - linkMap: TIssueLinkMap — normalized cache of link entities keyed by link id
+ *
+ * Actions:
+ * - addLinks(issueId, links): replaces the per-issue id list and merges entities into linkMap.
+ * - fetchLinks(workspaceSlug, projectId, issueId): GET via IssueService.fetchIssueLinks and hydrates the cache.
+ * - createLink(workspaceSlug, projectId, issueId, data): POST via IssueService.createIssueLink; appends the
+ *   new id, inserts the entity, increments the parent issue's `link_count` in `rootIssueStore.issues`, and
+ *   triggers an activity refresh.
+ * - updateLink(workspaceSlug, projectId, issueId, linkId, data): OPTIMISTIC — snapshots the current entity,
+ *   mutates the local linkMap immediately, then PATCH via IssueService.updateIssueLink. On failure the
+ *   snapshotted fields are restored and the error is rethrown.
+ * - removeLink(workspaceSlug, projectId, issueId, linkId): DELETE via IssueService.deleteIssueLink; removes
+ *   the id from the per-issue list, deletes the linkMap entry, decrements the parent issue's `link_count` in
+ *   `rootIssueStore.issues`, and refreshes the activity feed.
+ *
+ * Computed:
+ * - issueLinks: link ids for the currently-peeked issue, recomputes when `peekIssue.issueId` or the per-issue
+ *   list changes.
+ *
+ * Helper queries: getLinksByIssueId, getLinkById.
+ *
+ * Service: backed by IssueService constructed with the parent IssueDetail's `serviceType` so the same
+ * implementation serves both issues and epics.
+ *
+ * Consumers: link widgets under apps/web/core/components/issues/issue-detail/**,
+ * apps/web/core/components/issues/issue-detail-widgets/** and apps/web/core/components/issues/peek-overview/**,
+ * accessed via apps/web/core/hooks/store/use-issue-detail.ts.
+ *
+ * Note on dual storage: the link count is denormalized onto the parent issue's `link_count` in
+ * `rootIssueStore.issues` so list/board layouts do not need to read this detail store on every render.
+ */
+
 import { set } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 // services

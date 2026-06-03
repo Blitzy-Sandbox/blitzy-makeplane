@@ -4,6 +4,52 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Bootstraps the collaborative Y.js session: `HocuspocusProvider` +
+ * `IndexeddbPersistence` + connectivity reactions.
+ *
+ * This hook is the foundational Y.js / Hocuspocus boundary in the editor
+ * package. It owns the Y.Doc init → merge → persist lifecycle and is the
+ * upstream half of the collaborative editing pipeline; `use-editor.ts`
+ * and `use-collaborative-editor.ts` consume the provider it produces via
+ * the `CollaborationProvider` React context.
+ *
+ * Y.Doc lifecycle:
+ *  - Init: a `HocuspocusProvider` is constructed with
+ *    `{ name: docId, token, url }`. The provider creates and owns a
+ *    `Y.Doc` internally (exposed via `provider.document`); this hook
+ *    does NOT construct the Y.Doc directly. The Y.Doc starts empty —
+ *    the first message from the server contains the binary update
+ *    that hydrates it.
+ *  - Merge: incoming remote updates are applied via
+ *    `Y.applyUpdate(doc, update)` internally by the Hocuspocus client.
+ *    Yjs CRDT semantics guarantee deterministic merge — concurrent
+ *    edits resolve via vector clocks (Lamport-style) without an
+ *    explicit resolver, so conflict resolution is structural to the
+ *    CRDT itself.
+ *  - Persist: server-side persistence is implemented in
+ *    `apps/live/src/extensions/database.ts` with a 10-second debounce
+ *    and an HTML→binary backfill executed when `description_binary`
+ *    is empty.
+ *  - Local cache: `IndexeddbPersistence` provides an offline cache
+ *    keyed by the document name; `hasCachedContent` flips true when
+ *    the cached Y.XmlFragment "default" is non-empty.
+ *  - Connectivity: `visibilitychange`, `focus`, and `online`
+ *    listeners reconnect the provider after sleep / tab switch /
+ *    network restore. The handler is throttled to one attempt per
+ *    second to prevent `visibilitychange` and `focus` from
+ *    double-firing on tab return.
+ *  - Forced close: a `signalForcedClose` action on the returned
+ *    object lets callers mark the next close as server-forced; the
+ *    `apps/live` force-close handler extension can also trigger this
+ *    from the server via stateless messages.
+ *
+ * See tech spec §5.2.5.4 for the real-time collaboration sequence.
+ * See apps/live/src/extensions/database.ts for the server-side
+ * persistence implementation.
+ * See apps/live/src/extensions/force-close-handler.ts for the
+ * force-close trigger source.
+ */
 import { HocuspocusProvider } from "@hocuspocus/provider";
 // react
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -14,6 +60,13 @@ import type * as Y from "yjs";
 // types
 import type { CollaborationState, CollabStage, CollaborationError } from "@/types/collaboration";
 
+/**
+ * Returns true when the WebSocket close code falls in the custom
+ * 4000–4003 range that the Hocuspocus server uses to signal a forced
+ * close (e.g., admin override, server shutdown, version mismatch).
+ * Standard close codes (< 4000) are treated as transient and trigger
+ * the retry path instead.
+ */
 // Helper to check if a close code indicates a forced close
 const isForcedCloseCode = (code: number | undefined): boolean => {
   if (!code) return false;
@@ -21,18 +74,97 @@ const isForcedCloseCode = (code: number | undefined): boolean => {
   return code >= 4000 && code <= 4003;
 };
 
+/**
+ * Arguments accepted by `useYjsSetup` — the collaborative session
+ * bootstrap inputs.
+ *
+ * Fields:
+ *  - `docId`: stable identifier used as BOTH the Hocuspocus document
+ *    name and the IndexedDB key. Swapping `docId` triggers a full
+ *    session re-bind (provider teardown + reconstruction).
+ *  - `serverUrl`: WebSocket URL of the `apps/live` server.
+ *  - `authToken`: bearer token validated by the live server's
+ *    `onAuthenticate` hook (see `apps/live/src/lib/auth.ts`).
+ *  - `onStateChange`: optional callback invoked whenever the derived
+ *    `CollaborationState` changes. Kept in a ref so changes to the
+ *    handler reference do not re-trigger the connection effect.
+ *  - `options.maxConnectionAttempts`: declared as accepted by the
+ *    type but see the inline `INTENT UNCLEAR` flag — the current
+ *    implementation always uses `DEFAULT_MAX_RETRIES` (3).
+ */
 type UseYjsSetupArgs = {
   docId: string;
   serverUrl: string;
   authToken: string;
   onStateChange?: (state: CollaborationState) => void;
+  // INTENT UNCLEAR: option is accepted by the type but the current implementation always uses DEFAULT_MAX_RETRIES (3)
   options?: {
     maxConnectionAttempts?: number;
   };
 };
 
+/**
+ * Maximum transient-reconnection attempts before transitioning to a
+ * `disconnected` stage with a `max-retries` error.
+ */
 const DEFAULT_MAX_RETRIES = 3;
 
+/**
+ * Manages the collaborative session lifecycle (provider + IndexedDB
+ * persistence + connectivity recovery) for a single Y.Doc.
+ *
+ * Returns:
+ *  - `null` until the `HocuspocusProvider` has been constructed in
+ *    the first effect tick (so consumers must guard against null).
+ *  - Once ready: `{ provider, ydoc, state, actions }` where `state`
+ *    exposes `stage` (a `CollabStage`), `hasCachedContent`,
+ *    `isCacheReady`, `isServerSynced`, `isServerDisconnected`, and
+ *    `isDocReady` — derived from local cache + server stage — and
+ *    `actions.signalForcedClose(value: boolean)` lets callers mark
+ *    an upcoming close as server-forced.
+ *
+ * State machine (`CollabStage.kind` transitions):
+ *  - Happy path: `initial → connecting → awaiting-sync → synced`.
+ *  - `disconnected` on auth failure, max-retries exhaustion, or
+ *    forced close. Terminal — requires user action (tab focus,
+ *    network restore) to re-enter `connecting`.
+ *  - `reconnecting` on transient close while retry budget remains;
+ *    `attempt` counts the in-flight retry number.
+ *
+ * Effects (declared in the order they run):
+ *  1. Provider effect — deps `[docId, serverUrl, authToken]`.
+ *     Constructs the `HocuspocusProvider`, wires the
+ *     `onAuthenticationFailed` / `onConnect` / `onStatus` /
+ *     `onSynced` / `close` handlers, installs the
+ *     `visibilitychange` / `focus` / `online` reconnection
+ *     listeners, and tears the provider down on cleanup.
+ *  2. IndexedDB effect — deps `[docId, yjsSession]`. Attaches
+ *     `IndexeddbPersistence` and flips `isCacheReady` /
+ *     `hasCachedContent` when the local cache emits `synced`.
+ *  3. Fragment observer — deps `[yjsSession, isCacheReady]`. Calls
+ *     `observeDeep` on the Y.XmlFragment "default" so
+ *     `hasCachedContent` stays in sync as keystrokes mutate the
+ *     cached content. A local `lastHasContent` latch skips
+ *     redundant React state writes.
+ *  4. State-change notifier — deps `[stage]`. Invokes the optional
+ *     `onStateChange` callback via a ref so a new handler reference
+ *     does not re-run the connection effect.
+ *
+ * Forced-close handling: when the `close` handler observes a custom
+ * 4000-series code, an explicit `forcedCloseSignalRef` value, or
+ * `shouldConnect === false`, the stage transitions to `disconnected`
+ * with a `forced-close` error and the websocket provider is paused.
+ * Transient closes increment `retryCountRef` and transition through
+ * `reconnecting` until the `DEFAULT_MAX_RETRIES` budget is exhausted.
+ *
+ * Throttling: the `lastReconnectTimeRef` 1-second window prevents
+ * the reconnection path from double-firing when both
+ * `visibilitychange` and `focus` fire on tab return.
+ *
+ * Disposal safety: `isDisposedRef` short-circuits every callback
+ * after teardown so late events do not mutate React state in an
+ * unmounted component.
+ */
 export const useYjsSetup = ({ docId, serverUrl, authToken, onStateChange }: UseYjsSetupArgs) => {
   // Current collaboration stage
   const [stage, setStage] = useState<CollabStage>({ kind: "initial" });

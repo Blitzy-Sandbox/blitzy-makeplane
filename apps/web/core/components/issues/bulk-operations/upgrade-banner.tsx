@@ -4,6 +4,47 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Sticky upsell banner shown in the issues bulk-operations area to promote Plane One bulk-edit features.
+ *
+ * Rendered purpose: a `sticky bottom-0` banner that pins to the bottom of its scroll container and presents
+ * a short benefits message alongside an "Upgrade to One" call-to-action linking to the Plane One marketing
+ * page. Used in issues list/table layouts where a community user has selected multiple work items but the
+ * bulk-edit capability is paywalled.
+ *
+ * Props:
+ *   - className (string, optional): wrapper-level class overrides merged via `cn` into the default sticky
+ *     container classes. No other prop is exposed; the banner has no toggling, dismissal, or state.
+ *
+ * MobX stores read: none directly. This file is a pure presentation component with no observable
+ * subscriptions.
+ *
+ * Coordination with bulk-selection state:
+ *   - The bulk-selection lifecycle that determines when this banner is rendered is owned upstream by
+ *     `apps/web/core/store/multiple_select.store.ts` (`MultipleSelectStore`), surfaced to component
+ *     trees via `useMultipleSelect` (`apps/web/core/hooks/use-multiple-select.ts`). That store tracks
+ *     the selected, last-selected, previous-active, and next-active entity descriptors used by the
+ *     bulk-edit menus. This banner is a community-edition stand-in for those menus, so it carries no
+ *     selection observables itself — callers (list/table layouts and the issue layout roots) decide
+ *     whether to mount it.
+ *
+ * Side effects:
+ *   - External navigation: the CTA `<a href={MARKETING_PLANE_ONE_PAGE_LINK} target="_blank" rel="noopener noreferrer">`
+ *     opens the Plane One marketing page in a new browser tab. The destination URL is centralized in
+ *     `@plane/constants` so the marketing route is not hardcoded here.
+ *   - No mutations, no service calls, no router navigations, no clipboard writes.
+ *
+ * Accessibility / styling notes:
+ *   - The external link uses `rel="noopener noreferrer"` for the standard new-tab safety contract.
+ *   - The CTA is styled through the shared design-system helper `getButtonStyling("primary", "base")` from
+ *     `@plane/propel/button` so it stays consistent with other primary action buttons across the app.
+ *   - Layout classes use Tailwind utilities only; no imperative DOM access.
+ *
+ * Consumers: mounted by issue-layout shells that render the bulk-operations footer when a user has a
+ * multi-selection active in the community edition (e.g., list/table roots under
+ * `apps/web/core/components/issues/issue-layouts/`).
+ */
+
 import { MARKETING_PLANE_ONE_PAGE_LINK } from "@plane/constants";
 import { getButtonStyling } from "@plane/propel/button";
 import { cn } from "@plane/utils";

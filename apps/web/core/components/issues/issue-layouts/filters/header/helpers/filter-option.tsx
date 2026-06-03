@@ -4,6 +4,35 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * `FilterOption` — single selectable row primitive used by every entity-specific filter and every
+ * display-filter section.
+ *
+ * Rendered purpose: renders one row containing a checkbox or radio indicator + an optional leading
+ * icon + a label; on click, invokes `onClick` so the parent toggles the value in / out of the active
+ * filter set.
+ *
+ * Props (`Props`):
+ *   - `isChecked` (`boolean`, required): selection state (drives the indicator's visual state).
+ *   - `icon` (`ReactNode`, optional): leading icon (priority icon, label swatch, avatar, etc.).
+ *   - `title` (`ReactNode`, required): the option label.
+ *   - `onClick` (`() => void`, optional): row click handler; when omitted, the row is rendered
+ *     non-interactive.
+ *   - `multiple` (`boolean`, optional, default `true`): when `true`, renders a checkbox indicator
+ *     (used for multi-select filter slots like assignees / labels / priorities); when `false`,
+ *     renders a radio indicator (used for single-select slots like `group_by` / `order_by`).
+ *   - `activePulse` (`boolean`, optional, default `false`): when `true`, renders a small pulsing
+ *     accent dot at the row's trailing edge to signal an "active" state to the user.
+ *
+ * MobX stores read: none.
+ *
+ * Side effects: none — invokes `onClick`.
+ *
+ * Accessibility considerations: the row is rendered as a native `<button type="button">`, so focus
+ * order, keyboard activation (Enter / Space), and screen-reader role are inherited from the platform.
+ * Callers do not need to wire additional `role` or `onKeyDown` handlers.
+ */
+
 import { CheckIcon } from "@plane/propel/icons";
 
 type Props = {

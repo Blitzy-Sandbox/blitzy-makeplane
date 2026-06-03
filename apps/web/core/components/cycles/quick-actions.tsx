@@ -4,6 +4,41 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Per-cycle overflow action menu that renders both a right-click context menu and a dropdown
+ * trigger for edit / archive / delete / restore / copy-link / open-in-new-tab operations on a
+ * single cycle row, gated by project-level permissions.
+ *
+ * Props:
+ *   - parentRef (React.RefObject<HTMLElement>, required): ref to the row element used as the
+ *     anchor for the right-click ContextMenu.
+ *   - cycleId (string, required): ID of the cycle whose actions are exposed.
+ *   - projectId (string, required): containing project ID — used for permission checks and
+ *     navigation targets.
+ *   - workspaceSlug (string, required): workspace slug — used for permission checks, link
+ *     generation, and restore navigation.
+ *   - customClassName (string, optional): extra class name passed to the dropdown menu button.
+ *
+ * MobX stores read:
+ *   - useCycle (cycle store): getCycleById to resolve cycle metadata; restoreCycle action for
+ *     un-archiving from the archived cycles list.
+ *   - useUserPermissions (user permissions store): allowPermissions to gate edit/archive/delete
+ *     actions to ADMIN and MEMBER roles at PROJECT level.
+ *
+ * Side effects:
+ *   - Mutations: restoreCycle(workspaceSlug, projectId, cycleId) on the cycle store; surfaces
+ *     success/failure via @plane/propel/toast setToast calls.
+ *   - Navigations: useAppRouter().push to `/${workspaceSlug}/projects/${projectId}/archives/cycles`
+ *     after a successful restore.
+ *   - Clipboard: copyUrlToClipboard for the "Copy link" action plus an i18n success toast.
+ *   - Window: window.open(`/${cycleLink}`, "_blank") for the "Open in new tab" action.
+ *   - Mounts three controlled modal children — CycleCreateUpdateModal, ArchiveCycleModal,
+ *     CycleDeleteModal — toggled by local useState flags.
+ *
+ * Consumers: rendered from cycle list rows (apps/web/core/components/cycles/list/**), the
+ * analytics sidebar header, and archived-cycle list rows.
+ */
+
 import { useState } from "react";
 import { observer } from "mobx-react";
 import { MoreHorizontal } from "lucide-react";

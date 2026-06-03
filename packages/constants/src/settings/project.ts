@@ -4,10 +4,20 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Project settings tab groups, per-tab metadata, and role-based access maps
+ * consumed by the project settings shell at
+ * `apps/web/core/components/settings/project/**`.
+ */
+
 // plane imports
 import { EUserProjectRoles } from "@plane/types";
 import type { TProjectSettingsItem, TProjectSettingsTabs } from "@plane/types";
 
+/**
+ * Discriminant for sectioned project settings sidebar (`GENERAL`/`FEATURES`/`WORK_STRUCTURE`/`EXECUTION`) used by `GROUPED_PROJECT_SETTINGS`.
+ * Consumers: `apps/web/core/components/{settings/project,project/settings}/**`.
+ */
 export enum PROJECT_SETTINGS_CATEGORY {
   GENERAL = "general",
   FEATURES = "features",
@@ -15,6 +25,12 @@ export enum PROJECT_SETTINGS_CATEGORY {
   EXECUTION = "execution",
 }
 
+/**
+ * Canonical render order for project settings categories in the sidebar —
+ * `GENERAL` → `FEATURES` → `WORK_STRUCTURE` → `EXECUTION`.
+ *
+ * Consumers: `apps/web/core/components/settings/project/sidebar/**`.
+ */
 export const PROJECT_SETTINGS_CATEGORIES: PROJECT_SETTINGS_CATEGORY[] = [
   PROJECT_SETTINGS_CATEGORY.GENERAL,
   PROJECT_SETTINGS_CATEGORY.FEATURES,
@@ -22,6 +38,12 @@ export const PROJECT_SETTINGS_CATEGORIES: PROJECT_SETTINGS_CATEGORY[] = [
   PROJECT_SETTINGS_CATEGORY.EXECUTION,
 ];
 
+/**
+ * Maps each project settings category to its i18n translation key so the
+ * sidebar can render localized section headers via the translation hook.
+ *
+ * Consumers: `apps/web/core/components/settings/project/sidebar/**`.
+ */
 export const PROJECT_SETTINGS_CATEGORY_LABELS: Record<PROJECT_SETTINGS_CATEGORY, string> = {
   [PROJECT_SETTINGS_CATEGORY.GENERAL]: "common.general",
   [PROJECT_SETTINGS_CATEGORY.FEATURES]: "common.features",
@@ -29,6 +51,10 @@ export const PROJECT_SETTINGS_CATEGORY_LABELS: Record<PROJECT_SETTINGS_CATEGORY,
   [PROJECT_SETTINGS_CATEGORY.EXECUTION]: "common.execution",
 };
 
+/**
+ * Canonical record of every project settings tab keyed by `TProjectSettingsTabs` with route-relative `href`, i18n label, `access` role gate (`EUserProjectRoles`), and exact-pathname `highlight(pathname, baseUrl)` predicate for active-tab matching.
+ * Consumers: `apps/web/core/components/{settings/project,project/settings}/**` and the power-k command palette at `apps/web/core/components/power-k/ui/pages/open-entity/project-settings-menu.tsx`.
+ */
 export const PROJECT_SETTINGS: Record<TProjectSettingsTabs, TProjectSettingsItem> = {
   general: {
     key: "general",
@@ -109,8 +135,19 @@ export const PROJECT_SETTINGS: Record<TProjectSettingsTabs, TProjectSettingsItem
   },
 };
 
+/**
+ * Flat ordered list of project settings items derived from `PROJECT_SETTINGS` —
+ * convenient for `.map()` iteration, access checks, and route matching loops.
+ *
+ * Consumers: `apps/web/core/components/settings/project/**` and
+ * `apps/web/core/components/project/settings/**`.
+ */
 export const PROJECT_SETTINGS_FLAT_MAP: TProjectSettingsItem[] = Object.values(PROJECT_SETTINGS);
 
+/**
+ * Category-bucketed `PROJECT_SETTINGS` view (`GENERAL` = general/members, `FEATURES` = five `features_*`, `WORK_STRUCTURE` = states/labels/estimates, `EXECUTION` = automations) driving sectioned sidebar rendering.
+ * Consumers: `apps/web/core/components/settings/project/sidebar/**`.
+ */
 export const GROUPED_PROJECT_SETTINGS: Record<PROJECT_SETTINGS_CATEGORY, TProjectSettingsItem[]> = {
   [PROJECT_SETTINGS_CATEGORY.GENERAL]: [PROJECT_SETTINGS["general"], PROJECT_SETTINGS["members"]],
   [PROJECT_SETTINGS_CATEGORY.FEATURES]: [

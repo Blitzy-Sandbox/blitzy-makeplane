@@ -4,6 +4,66 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Inline property editor for a workspace draft issue row.
+ *
+ * Renders project-scoped dropdowns for state, priority, label, start/due
+ * dates, assignees, modules, cycles, and estimates inside each
+ * `DraftIssueBlock`. Each control mutates the draft via the parent-supplied
+ * `updateIssue` callback or, for cycle/module membership, via direct store
+ * helpers from `useWorkspaceDraftIssues` so the draft list remains the
+ * single source of truth.
+ *
+ * Props (`IIssueProperties`):
+ *   - issue (TWorkspaceDraftIssue, required): draft snapshot used to seed
+ *     each dropdown's value.
+ *   - updateIssue ((projectId, issueId, data) => Promise<void> | undefined, optional):
+ *     field update callback; mutations are no-ops when omitted or when
+ *     `issue.project_id` is missing.
+ *   - className (string, required): outer wrapper class.
+ *
+ * MobX stores read (via React context):
+ *   - useProject — getProjectById (drives `module_view` / `cycle_view`
+ *     visibility gates for the module and cycle dropdowns).
+ *   - useLabel — labelMap (seeds default label options for
+ *     `IssuePropertyLabels`).
+ *   - useWorkspaceDraftIssues — addCycleToIssue, addModulesToIssue
+ *     (membership mutations issued directly to the draft store).
+ *   - useProjectEstimates — areEstimateEnabledByProjectId (gates the
+ *     estimate dropdown when estimates are disabled for the project).
+ *   - useProjectState — getStateById (drives the due-date danger highlight
+ *     via `shouldHighlightIssueDueDate`).
+ *   - usePlatformOS — isMobile (drives `renderByDefault` on dropdowns so
+ *     mobile users see them eagerly rendered).
+ *
+ * Side effects:
+ *   - `updateIssue(projectId, issueId, partial)` for state, priority, label,
+ *     assignees, start/due dates, and estimate point.
+ *   - `addModulesToIssue(workspaceSlug, issueId, moduleIds)` for module
+ *     membership changes.
+ *   - `addCycleToIssue(workspaceSlug, issueId, cycleId | "")` for cycle
+ *     membership; empty string removes the issue from its cycle.
+ *   - Dates are formatted via `renderFormattedPayloadDate` before being
+ *     persisted so the API receives a stable wire format.
+ *   - All persistence is routed through the workspace draft store
+ *     (`apps/web/core/store/issue/workspace-draft/`) which calls
+ *     `WorkspaceDraftIssuesService`; this component does not call the
+ *     network directly.
+ *
+ * Imperative behavior:
+ *   - `handleEventPropagation` calls `stopPropagation`/`preventDefault` on
+ *     every dropdown wrapper so clicks inside dropdowns do not bubble to
+ *     the parent `DraftIssueBlock` row's double-click-to-edit handler.
+ *   - `useMemo` over `issueOperations` keeps callback identity stable so
+ *     child dropdowns do not re-mount when unrelated draft fields change.
+ *
+ * Consumers:
+ *   - `apps/web/core/components/issues/workspace-draft/draft-issue-block.tsx`
+ *
+ * Note: `useParams` is imported from `next/navigation`. Preserved verbatim
+ * per the system-boundary "imports MUST remain unchanged"; do not refactor.
+ */
+
 import { useCallback, useMemo } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";

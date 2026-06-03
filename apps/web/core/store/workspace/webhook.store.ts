@@ -4,6 +4,81 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for workspace webhook CRUD with one-time HMAC secret reveal.
+ *
+ * Composed under `BaseWorkspaceRootStore.webhook` in
+ * `apps/web/core/store/workspace/index.ts` (instantiated with the
+ * `CoreRootStore` so the store can read `rootStore.router.webhookId`).
+ *
+ * State slice:
+ *   - webhooks: Record<string, IWebhook> | null — id-keyed cache of webhook
+ *       configuration records for the active workspace; `null` until the
+ *       first `fetchWebhooks` resolves.
+ *   - webhookSecretKey: string | null — registered with `observable.ref`
+ *       (not `observable`) for shallow reactivity on the primitive value;
+ *       transiently holds the HMAC secret revealed by `createWebhook` /
+ *       `regenerateSecretKey`. Must be cleared via `clearSecretKey()` once
+ *       the UI has displayed/copied the value so the reveal does not
+ *       persist across renders.
+ *
+ * Computed:
+ *   - currentWebhook — derives the currently-routed webhook from
+ *       `rootStore.router.webhookId` and the `webhooks` cache. Recomputes
+ *       whenever `router.webhookId` or `webhooks` changes; returns `null`
+ *       when no webhook id is in the route or the cache misses the id.
+ *
+ * Computed actions (computedFn from `mobx-utils` — memoized per-argument
+ * for cheap re-renders in lists):
+ *   - getWebhookById(webhookId) — O(1) lookup into `webhooks`; returns
+ *       `null` when the cache is empty or the id is unknown.
+ *
+ * Actions (each routes through `WebhookService` from
+ * `@/services/webhook.service` and mutates state under `runInAction` for
+ * atomic batched updates):
+ *   - fetchWebhooks(workspaceSlug) → GET workspace webhooks; reduces the
+ *       response array into an id-keyed object and assigns it to
+ *       `webhooks`.
+ *   - fetchWebhookById(workspaceSlug, webhookId) → GET a single webhook;
+ *       merges the response into the `webhooks` map under its id.
+ *   - createWebhook(workspaceSlug, data) → POST. SECURITY-CRITICAL one-time
+ *       HMAC secret reveal: extracts `secret_key` from the response,
+ *       writes it to `webhookSecretKey` (transient observable), then
+ *       `delete`s it off the response before merging into the cache so the
+ *       cached record never holds the raw secret. The secret is returned
+ *       in the resolved promise as the ONLY opportunity for the UI to
+ *       capture it — the API does not expose it on subsequent reads, and
+ *       the only way to recover access is via `regenerateSecretKey`.
+ *   - updateWebhook(workspaceSlug, webhookId, data) → PATCH; merges the
+ *       partial `data` payload into the cached entry.
+ *   - removeWebhook(workspaceSlug, webhookId) → DELETE; removes the entry
+ *       from `webhooks` after the request resolves.
+ *   - regenerateSecretKey(workspaceSlug, webhookId) → POST. Same one-time
+ *       reveal pattern as `createWebhook` — returns the rotated secret in
+ *       the promise, writes it to `webhookSecretKey`, and strips it from
+ *       the cached record before the cache is updated.
+ *   - clearSecretKey() → sets `webhookSecretKey` to `null`; called by the
+ *       UI after the reveal has been displayed/copied so the transient
+ *       value does not linger.
+ *
+ * Consumers:
+ *   - apps/web/core/components/web-hooks/** — `webhooks-list.tsx`,
+ *       `webhooks-list-item.tsx`, `create-webhook-modal.tsx`,
+ *       `delete-webhook-modal.tsx`, `generated-hook-details.tsx`,
+ *       `form/form.tsx`, `form/secret-key.tsx` (the secret-reveal surface).
+ *   - apps/web/app/(all)/[workspaceSlug]/(settings)/settings/(workspace)/webhooks/page.tsx
+ *       — workspace webhooks list route.
+ *   - apps/web/app/(all)/[workspaceSlug]/(settings)/settings/(workspace)/webhooks/[webhookId]/page.tsx
+ *       — webhook detail/edit route.
+ *
+ * Cross-reference:
+ *   - The `secret_key` revealed once through this store is the HMAC key
+ *     consumed by `apps/api/plane/bgtasks/webhook_task.py` to sign outbound
+ *     event payloads (see tech spec §4.5 WEBHOOK DELIVERY WORKFLOW). The
+ *     Celery worker reads the persisted record but never re-exposes the
+ *     raw secret, which is why this store treats the reveal as one-time.
+ */
+
 // mobx
 import { action, observable, makeObservable, computed, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";

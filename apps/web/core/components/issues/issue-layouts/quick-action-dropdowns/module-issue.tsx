@@ -4,6 +4,48 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Quick-action dropdown menu for rows in the module-scoped issues layout, exposing
+ * edit (with the active `moduleId` pre-applied as a single-entry `module_ids` array
+ * on the issue), make-a-copy, open-in-new-tab, copy-link, remove-from-module,
+ * archive, and delete actions.
+ *
+ * @remarks
+ * Props (from `IQuickActionProps` in `../list/list-view-types`):
+ *   - `issue: TIssue` (required) — work item this menu acts on.
+ *   - `handleDelete: () => Promise<void>` (required) — caller-provided delete handler.
+ *   - `handleUpdate?: (data: TIssue) => Promise<void>` (optional) — caller-provided update handler.
+ *   - `handleRemoveFromView?: () => Promise<void>` (optional) — invoked by the "Remove from module" menu item.
+ *   - `handleArchive?: () => Promise<void>` (optional) — caller-provided archive handler.
+ *   - `customActionButton?: React.ReactElement` (optional) — custom trigger element for the menu.
+ *   - `portalElement?: HTMLDivElement | null` (optional) — portal mount target for the popup.
+ *   - `readOnly?: boolean` (optional, default `false`) — disables editing/deleting actions when `true`.
+ *   - `placements?: TPlacement` (optional, default `"bottom-start"`) — menu placement relative to the trigger.
+ *   - `parentRef: React.RefObject<HTMLElement>` (required) — anchor element for the context-menu listener.
+ *
+ * MobX stores read (via React context hooks — MobX is the exclusive frontend state layer):
+ *   - `useIssues(EIssuesStoreType.MODULE)` → `issuesFilter` — reads the current display filter layout label.
+ *   - `useUserPermissions()` → `allowPermissions` — gates `isEditingAllowed` on ADMIN/MEMBER at the PROJECT level.
+ *   - `useProjectState()` → `getStateById` — checks `ARCHIVABLE_STATE_GROUPS` membership to gate archive.
+ *   - `useProject()` → `getProjectIdentifierById` — resolves the project key for the work-item link.
+ *   - `useParams()` from `next/navigation` — reads `workspaceSlug` and `moduleId` from the URL.
+ *
+ * Side effects:
+ *   - Opens `ArchiveIssueModal`, `DeleteIssueModal`, `CreateUpdateIssueModal`, and
+ *     `DuplicateWorkItemModal` via local `useState` flags.
+ *   - The edit action injects `module_ids: moduleId ? [moduleId] : []` into the edit payload
+ *     via `useModuleIssueMenuItems` so the edited issue retains its module association
+ *     (modules are a many-to-many relation, hence an array — distinct from `cycle-issue.tsx`
+ *     which uses scalar `cycle_id`).
+ *   - "Remove from module" delegates to the caller's `handleRemoveFromView`.
+ *   - `duplicateIssuePayload` is built by spreading the issue with a `(copy)` suffix on `name`
+ *     and stripping `id` via `lodash-es#omit` so the duplicate is treated as a new work item.
+ *   - Passes `storeType: EIssuesStoreType.MODULE` to the menu factory to scope mutations to the
+ *     module-issues store slice.
+ *   - No direct API calls — all mutations flow through caller-provided handlers and modals
+ *     (service-layer pattern).
+ */
+
 import { useState } from "react";
 import { omit } from "lodash-es";
 import { observer } from "mobx-react";

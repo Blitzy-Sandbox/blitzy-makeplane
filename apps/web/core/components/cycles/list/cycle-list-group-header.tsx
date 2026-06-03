@@ -4,6 +4,35 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Stateless presentational header for grouped cycle sections (active, upcoming,
+ * completed) — renders a Row containing a CycleGroupIcon, the section title, an
+ * optional count suffix, and a ChevronDownIcon that rotates 180deg when the
+ * parent Disclosure is expanded.
+ *
+ * Props:
+ *   - type (TCycleGroups, required): cycle group discriminant ("current",
+ *     "upcoming", "completed", "draft") that drives the icon variant rendered
+ *     by CycleGroupIcon.
+ *   - title (string, required): localized section heading text (typically
+ *     pre-translated by the parent via useTranslation).
+ *   - count (number, optional): item count rendered after the title when
+ *     showCount is true; falls back to "0" when undefined.
+ *   - showCount (boolean, optional, default=false): when true, renders the count
+ *     suffix beside the title; when false, the count is omitted entirely.
+ *   - isExpanded (boolean, optional, default=false): when true, applies a
+ *     `rotate-180` class to the chevron to indicate the section is open.
+ *
+ * MobX stores read: NONE — purely presentational, no observer wrapping needed.
+ *
+ * Side effects: NONE — no API calls, navigations, or mutations. The chevron
+ * rotation and any collapse behavior are driven entirely by the parent's
+ * controlled state (typically a Headless UI Disclosure).
+ *
+ * Consumers: cycles/list/root.tsx (upcoming + completed Disclosure sections);
+ * sibling of `CycleListProjectGroupHeader` which is used for project-grouped
+ * sections rather than status-grouped sections.
+ */
 import React from "react";
 // types
 import { CycleGroupIcon, ChevronDownIcon } from "@plane/propel/icons";

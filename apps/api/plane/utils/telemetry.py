@@ -2,6 +2,27 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""OpenTelemetry tracer bootstrap for the Plane API.
+
+Configures the OTLP exporter targeting ``https://telemetry.plane.so`` (the
+Plane-hosted anonymized telemetry collector) and registers Django request
+auto-instrumentation. Two entrypoints:
+
+  - :func:`init_tracer`     -- call once before emitting spans.
+  - :func:`shutdown_tracer` -- call on graceful shutdown to flush pending spans.
+
+Both entrypoints are invoked from the ``instance_traces`` Celery task in
+:mod:`plane.license.bgtasks.tracer` (``init_tracer`` at the top of the task,
+``shutdown_tracer`` in its ``finally`` block). That task is scheduled by
+Celery Beat every 6 hours via the ``CELERY_BEAT_SCHEDULE`` entry
+``run-every-6-hours-for-instance-trace`` in :mod:`plane.celery`.
+
+This anonymized OpenTelemetry pipeline is distinct from the in-app
+event-tracking pipeline (:mod:`plane.bgtasks.event_tracking_task`), which
+queues events to Celery via RabbitMQ; Redis remains caching/session only
+(per AAP architectural context).
+"""
+
 # Python imports
 import os
 import atexit
@@ -19,7 +40,31 @@ _TRACER_PROVIDER = None
 
 
 def init_tracer():
-    """Initialize OpenTelemetry with proper shutdown handling"""
+    """Initialize OpenTelemetry with the OTLP exporter and Django auto-instrumentation.
+
+    Idempotent -- calling twice is harmless and returns the previously
+    configured provider. Invoked from the ``instance_traces`` Celery task in
+    :mod:`plane.license.bgtasks.tracer` (scheduled by Celery Beat every 6
+    hours via the ``run-every-6-hours-for-instance-trace`` entry in
+    :mod:`plane.celery`). Anonymized spans are batched and exported via
+    OTLP to the endpoint resolved from the ``OTLP_ENDPOINT`` environment
+    variable, defaulting to ``https://telemetry.plane.so`` (the
+    Plane-hosted telemetry collector). The service name reported on each
+    span resolves from ``SERVICE_NAME`` (default ``plane-ce-api``).
+
+    Side effects:
+        * Installs a global :class:`opentelemetry.sdk.trace.TracerProvider`.
+        * Wires a :class:`BatchSpanProcessor` around an
+          :class:`OTLPSpanExporter` (gRPC transport).
+        * Activates :class:`DjangoInstrumentor` so Django request/response
+          spans (and downstream DB queries via instrumented ORMs, when
+          present) are emitted automatically.
+        * Registers :func:`shutdown_tracer` via :func:`atexit.register` to
+          flush pending spans on interpreter exit.
+
+    Returns:
+        The configured :class:`TracerProvider` instance (the global one).
+    """
     global _TRACER_PROVIDER
 
     # If already initialized, return existing provider
@@ -53,7 +98,16 @@ def init_tracer():
 
 
 def shutdown_tracer():
-    """Shutdown OpenTelemetry tracers and processors"""
+    """Flush pending spans and shut down the OpenTelemetry tracer provider.
+
+    Invoked explicitly from the ``finally`` block of the ``instance_traces``
+    Celery task in :mod:`plane.license.bgtasks.tracer`, and also registered
+    via :func:`atexit.register` by :func:`init_tracer` so it fires on
+    graceful interpreter shutdown. Either path ensures no spans are dropped
+    from the :class:`BatchSpanProcessor`'s queue. Idempotent -- safe to
+    call when the tracer was never initialized or has already been shut
+    down; in either case the global provider reference is cleared.
+    """
     global _TRACER_PROVIDER
 
     if _TRACER_PROVIDER is not None:

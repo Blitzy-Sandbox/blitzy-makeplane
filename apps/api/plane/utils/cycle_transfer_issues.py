@@ -2,6 +2,30 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Cycle rollover helpers for transferring incomplete issues to a new cycle.
+
+When a cycle is closed (or otherwise rolled over), incomplete issues -- those
+whose state group is one of ``backlog``/``unstarted``/``started`` -- are
+reassigned via ``CycleIssue`` rows to a new (uncompleted) destination cycle.
+Completed and cancelled work remains attached to the original cycle so
+historical reporting stays intact.
+
+Side effects:
+    - Captures a ``burndown_plot`` snapshot for the source cycle into
+      ``Cycle.progress_snapshot`` so the original cycle's report is preserved
+      after the transfer.
+    - Each transfer enqueues an ``issue_activity.delay(...)`` event
+      (Celery via RabbitMQ broker; Redis is NOT used for task queueing) that
+      records the per-issue old/new cycle mapping for audit and webhook
+      fan-out.
+
+Canonical consumer: ``plane.app.views.cycle.base.TransferCycleIssueEndpoint``.
+
+Data invariant: the destination cycle MUST be uncompleted (``end_date`` is
+null or in the future); otherwise the helper returns an error response
+without mutating state.
+"""
+
 # Python imports
 import json
 
@@ -40,19 +64,45 @@ def transfer_cycle_issues(
     request,
     user_id,
 ):
-    """
-    Transfer incomplete issues from one cycle to another and create progress snapshot.
+    """Transfer incomplete issues from one cycle to another and snapshot progress.
+
+    Reassigns ``CycleIssue`` rows for issues whose state group is one of
+    ``backlog``/``unstarted``/``started`` from ``cycle_id`` to
+    ``new_cycle_id``, captures a ``burndown_plot`` snapshot for the source
+    cycle into ``Cycle.progress_snapshot``, and enqueues a single
+    ``issue_activity.delay(...)`` Celery task (RabbitMQ broker) that records
+    the per-issue old-cycle/new-cycle mapping so audit trails and webhook
+    fan-out happen asynchronously.
 
     Args:
-        slug: Workspace slug
-        project_id: Project ID
-        cycle_id: Source cycle ID
-        new_cycle_id: Destination cycle ID
-        request: HTTP request object
-        user_id: User ID performing the transfer
+        slug: Workspace slug.
+        project_id: Project ID.
+        cycle_id: Source cycle ID (issues are moved away from this cycle).
+        new_cycle_id: Destination cycle ID (must be uncompleted).
+        request: DRF/HTTP request used to derive ``base_host`` for the
+            activity payload's ``origin`` field.
+        user_id: ID of the user performing the transfer (recorded as the
+            ``actor_id`` in the activity event).
 
     Returns:
-        dict: Response data with success or error message
+        dict: ``{"success": True}`` on success. On error, returns
+        ``{"success": False, "error": "..."}`` -- either
+        ``"The cycle where the issues are transferred is already completed"``
+        when the destination cycle has already ended, or
+        ``"Source cycle not found"`` when no cycle matches ``cycle_id``.
+
+    Idempotency:
+        NON-idempotent -- calling twice records duplicate
+        ``issue_activity`` events and re-overwrites ``progress_snapshot``
+        with whatever counts are observed at call time.
+
+    See also:
+        - ``plane.bgtasks.issue_activities_task.issue_activity`` -- the
+          Celery task enqueued for the transfer event.
+        - ``plane.utils.analytics_plot.burndown_plot`` -- snapshot generator
+          used for both points-based and issue-count progress charts.
+        - ``plane.utils.host.base_host`` -- origin URL resolver used to
+          stamp the activity payload.
     """
     # Get the new cycle
     new_cycle = Cycle.objects.filter(workspace__slug=slug, project_id=project_id, pk=new_cycle_id).first()

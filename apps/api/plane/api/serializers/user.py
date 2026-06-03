@@ -1,6 +1,15 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
+"""Lightweight user serializer for the ``/api/v1/`` API surface.
+
+Embedded by sibling serializers in :mod:`plane.api.serializers` (assignees,
+project / workspace members, comment actors, audit fields like
+``created_by`` / ``updated_by``) and by the expansion mechanism in
+:class:`plane.api.serializers.base.BaseSerializer`. All fields are read-only
+because the API never accepts user data through this serializer — it is
+purely a read projection.
+"""
 
 from rest_framework import serializers
 
@@ -24,6 +33,8 @@ class UserLiteSerializer(BaseSerializer):
     )
 
     class Meta:
+        """DRF metadata: serialize ``User`` exposing read-only id, names, email, avatar, and display_name."""
+
         model = User
         fields = [
             "id",

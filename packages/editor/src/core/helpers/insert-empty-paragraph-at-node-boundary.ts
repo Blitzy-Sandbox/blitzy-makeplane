@@ -4,6 +4,12 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Keyboard-shortcut command factory that places the cursor in a paragraph immediately before or after a given node type, inserting an empty paragraph when one does not already exist at that boundary.
+ *
+ * Necessary because certain block node types (callouts, code blocks, tables, custom embeds) have no inherent way for the cursor to escape via arrow keys — this helper backs the `ArrowUp` / `ArrowDown` shortcut bindings those extensions register.
+ */
+
 import type { KeyboardShortcutCommand } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 // constants
@@ -11,6 +17,15 @@ import { CORE_EXTENSIONS } from "@/constants/extension";
 
 type Direction = "up" | "down";
 
+/**
+ * Returns a `KeyboardShortcutCommand` that places the cursor on the paragraph adjacent to the nearest enclosing node of `nodeType`, inserting a new empty paragraph there when none exists; direction `"up"` targets the slot before the node, `"down"` targets after.
+ *
+ * Used by block-node extensions (callouts, code blocks, embeds) to register arrow-key shortcuts that let users escape an otherwise cursor-trapping block.
+ *
+ * @param direction - `"up"` (insert/move to paragraph before the node) or `"down"` (after).
+ * @param nodeType - ProseMirror node type name to anchor on (e.g., `CORE_EXTENSIONS.CALLOUT`, `CORE_EXTENSIONS.CODE_BLOCK`).
+ * @returns A TipTap `KeyboardShortcutCommand` that returns `true` when it handled the keystroke (cursor moved / paragraph inserted) and `false` otherwise so TipTap falls through to the next shortcut.
+ */
 export const insertEmptyParagraphAtNodeBoundaries: (direction: Direction, nodeType: string) => KeyboardShortcutCommand =
   (direction, nodeType) =>
   ({ editor }) => {

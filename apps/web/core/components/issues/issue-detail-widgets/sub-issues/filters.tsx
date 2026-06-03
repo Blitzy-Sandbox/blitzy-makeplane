@@ -4,6 +4,31 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * `SubIssueFilters` — searchable dropdown that filters the sub-issues list by priority, state-group, state, project,
+ * work-item type, assignees, start date, and target date. Each section is gated by membership in `availableFilters`,
+ * which is supplied by the parent (`SubWorkItemTitleActions`) from the `SUB_WORK_ITEM_AVAILABLE_FILTERS_FOR_WORK_ITEM_PAGE`
+ * constant. A local search query narrows the visible options inside each section.
+ *
+ * Props (TSubIssueFiltersProps):
+ *   - handleFiltersUpdate ((key, value) => void, required): Callback invoked when any section's selection changes; the parent maps the call to a MobX action on `subIssues.filters`.
+ *   - filters (IIssueFilterOptions, required): Current applied-filter bag; each section reads its own slot (`filters.priority`, `filters.state`, etc.) and the trigger reads the whole bag to compute `isFilterApplied`.
+ *   - memberIds (string[] | undefined, required): Project member ids supplied to `FilterAssignees`; undefined falls back to "no members" inside the dropdown.
+ *   - states (IState[], optional): Project states supplied to `FilterState`; undefined hides project-specific state options.
+ *   - availableFilters ((keyof IIssueFilterOptions)[], required): The set of filter keys this dropdown should show; sourced from `@plane/constants` (`SUB_WORK_ITEM_AVAILABLE_FILTERS_FOR_WORK_ITEM_PAGE`).
+ *
+ * MobX stores read:
+ *   - NONE directly — this component is presentational and `observer`-wrapped only because its child filter primitives are observers and the wrapper keeps it harmless in MobX update batches.
+ *
+ * Side effects:
+ *   - None directly — invokes `handleFiltersUpdate(key, value)` callback; the parent maps each call to `updateSubWorkItemFilters(EIssueFilterType.FILTERS, { [key]: value }, parentId)` on the `subIssues.filters` slice.
+ *   - The trigger's `bg-accent-primary/20` background + dot indicator are visual feedback driven by `isFilterApplied = isFiltersApplied(filters)`.
+ *   - The local `filtersSearchQuery` state is component-local; it does NOT mutate any store and resets on unmount.
+ *
+ * Consumers: rendered by `./title-actions.tsx` (`SubWorkItemTitleActions`) inside the
+ * sub-issues collapsible header on the issue-detail widget shell.
+ */
+
 import { useMemo, useState } from "react";
 import { observer } from "mobx-react";
 import { ListFilter } from "lucide-react";

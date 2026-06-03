@@ -4,6 +4,35 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * MobX store for emoji reactions on comments — grouped reaction cache (commentId → reactionKey → reactionId[])
+ * paired with a flat reaction lookup map keyed by reaction id.
+ *
+ * State slice:
+ * - commentReactions: TIssueCommentReactionIdMap — grouped index of reaction ids organized as
+ *   { [commentId]: { [reactionKey]: reactionId[] } }
+ * - commentReactionMap: TIssueCommentReactionMap — flat normalized lookup of reaction entities by reaction id
+ *
+ * Actions:
+ * - fetchCommentReactions(workspaceSlug, projectId, commentId): GET via IssueReactionService.listIssueCommentReactions;
+ *   groups the response by reaction key via @plane/utils `groupReactions` and writes to both maps.
+ * - applyCommentReactions(commentId, commentReactions): synchronous in-memory variant used by `comment.store.ts`
+ *   `fetchComments` to hydrate reactions embedded in the comment payload — avoids a second round-trip.
+ * - createCommentReaction(workspaceSlug, projectId, commentId, reaction): POST via the service; appends the
+ *   new reaction id under the (commentId, reactionKey) bucket and inserts the entity into the flat map.
+ * - removeCommentReaction(workspaceSlug, projectId, commentId, reaction, userId): looks up the current user's
+ *   reaction with that key, optimistically removes it from both maps, then DELETE via the service. On failure
+ *   the stale view is reconciled by re-fetching all reactions for that comment.
+ *
+ * Helper queries: getCommentReactionsByCommentId, getCommentReactionById, commentReactionsByUser (filters
+ * the grouped bucket by `actor === userId` so the UI can answer "does this user have an X reaction here?").
+ *
+ * Consumers: the comment reaction strip rendered by comment widgets under
+ * apps/web/core/components/issues/issue-detail/** and apps/web/core/components/issues/issue-detail-widgets/**,
+ * accessed via apps/web/core/hooks/store/use-issue-detail.ts. The sibling `comment.store.ts` is the primary
+ * hydration source via `applyCommentReactions`.
+ */
+
 import { pull, find, concat, update, set } from "lodash-es";
 import { action, makeObservable, observable, runInAction } from "mobx";
 // Plane Imports

@@ -4,4 +4,8 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Re-exports the `Tooltip` Blueprint Tooltip2 wrapper.
+ */
+
 export * from "./tooltip";

@@ -4,6 +4,45 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Multi-select module assignment control for the issue detail sidebar.
+ *
+ * Rendered purpose: a multi-select `ModuleDropdown` (variant `transparent-with-text`) that shows the
+ * work item's current module memberships and lets the user add or remove modules. Diffs the
+ * incoming selection against the current `module_ids` so the persistence call carries only the
+ * delta (additions + removals), not the full set.
+ *
+ * Props (TIssueModuleSelect):
+ *   - className (string, optional, default=""): wrapper class overrides
+ *   - workspaceSlug (string, required): scopes the module mutation
+ *   - projectId (string, required): scopes the module mutation and bounds the dropdown options
+ *   - issueId (string, required): the work item being assigned
+ *   - issueOperations (TIssueOperations, required): the issue-update contract exposed from `./root`
+ *     — specifically the optional `changeModulesInIssue` method
+ *   - disabled (boolean, optional, default=false): disables both the dropdown and the local
+ *     `isUpdating` lock
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — `issue.getIssueById(issueId)` to resolve the current `module_ids`
+ *
+ * Side effects:
+ *   - Mutation via `issueOperations.changeModulesInIssue(workspaceSlug, projectId, issueId,
+ *     modulesToAdd, modulesToRemove)` — the contract routes this through the issue-detail store
+ *     which calls `ModuleService.addModulesToIssue` / `removeModulesFromIssue` against `apps/api`.
+ *   - No toast emissions here; the contract layer is responsible for user feedback.
+ *
+ * Derived state notes:
+ *   - `updatedModuleIds = xor(issue.module_ids, moduleIds)` computes the symmetric difference of the
+ *     existing and incoming module sets — this is then split into `modulesToAdd` and
+ *     `modulesToRemove` by checking which side each diff entry came from. Using `xor` instead of two
+ *     full-set comparisons keeps the payload minimal and lets the backend persist a single bulk update.
+ *   - Early-exit guard: bails when `issue` is missing or `module_ids` is undefined.
+ *   - `disableSelect = disabled || isUpdating` so the dropdown stays uninteractive during the mutation.
+ *
+ * Consumers: rendered by `./sidebar.tsx` (`IssueDetailsSidebar`) inside the issue-detail
+ * sidebar's properties block.
+ */
+
 import React, { useState } from "react";
 import { xor } from "lodash-es";
 import { observer } from "mobx-react";

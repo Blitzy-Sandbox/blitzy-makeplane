@@ -4,6 +4,40 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Toast follow-up actions that surface after a work item is created.
+ *
+ * Rendered purpose: a small inline row inside an open toast that exposes an external "View work item" / "View epic"
+ * link plus a "Copy link" button with transient "Copied!" feedback (3000ms timeout).
+ *
+ * Props (TCreateIssueToastActionItems):
+ *   - workspaceSlug (string, required): used to construct the work item URL via `generateWorkItemLink`
+ *   - projectId (string, required): part of the toast contract (note: the resolved `issue.project_id` is what feeds
+ *     the URL builder, since the issue payload is fetched from the store)
+ *   - issueId (string, required): looked up via `getIssueById(issueId)` to resolve project identifier + sequence id
+ *   - isEpic (boolean, optional, default=false): switches both the link copy ("epic" vs "work item") and the
+ *     URL builder's `isEpic` flag
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — `issue.getIssueById(issueId)` to resolve the created issue
+ *   - `useProject()` — `getProjectIdentifierById(issue.project_id)` for URL composition
+ *
+ * Side effects:
+ *   - Clipboard write via `copyUrlToClipboard(workItemLink)` from `@plane/utils`.
+ *   - Transient UI feedback via `setCopied(true)` followed by a 3000ms `setTimeout` to reset.
+ *   - External link navigation via `<a target="_blank" rel="noopener noreferrer">` to the work item URL.
+ *   - No mutations; no service calls.
+ *
+ * Derived state notes:
+ *   - Returns `null` early when the issue is not present in the store (avoids rendering a toast action for an
+ *     unreachable resource — e.g., the toast was emitted but the store snapshot has not propagated yet).
+ *   - The "Copy link" button is hidden until the parent row receives `:hover` (Tailwind `group-hover:flex`).
+ *
+ * Consumers: rendered inside the post-create success toast emitted by issue-create flows — e.g., the
+ * `CreateUpdateIssueModal` create handler in `apps/web/core/components/issues/issue-modal/modal.tsx`
+ * passes this component as the toast's `actionItems` slot, and quick-add forms reuse the same toast.
+ */
+
 import React, { useState } from "react";
 import { observer } from "mobx-react";
 import { copyUrlToClipboard, generateWorkItemLink } from "@plane/utils";

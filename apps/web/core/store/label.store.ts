@@ -4,6 +4,61 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Label store: workspace- and project-scoped label caches with parent/child
+ * tree projection and drag/drop reordering for the label management UI.
+ *
+ * State slice (observables):
+ *   - labelMap: Record<string, IIssueLabel> — all known labels keyed by id,
+ *     shared across workspace and project scopes (no per-scope partitioning;
+ *     scope is derived from each label's workspace_id / project_id fields).
+ *   - fetchedMap: Record<string, boolean> — fetch-completion flags keyed by
+ *     workspaceSlug (for workspace fetches) or projectId (for project fetches);
+ *     gates computed selectors from returning partial data before a fetch
+ *     resolves.
+ *
+ * Actions (each calls IssueLabelService and mutates observables under runInAction):
+ *   - fetchWorkspaceLabels(workspaceSlug) → IssueLabelService.getWorkspaceIssueLabels;
+ *     merges results into labelMap and sets fetchedMap[workspaceSlug] = true.
+ *   - fetchProjectLabels(workspaceSlug, projectId) → IssueLabelService.getProjectLabels;
+ *     merges results into labelMap and sets fetchedMap[projectId] = true.
+ *   - createLabel(workspaceSlug, projectId, data) → IssueLabelService.createIssueLabel;
+ *     inserts the new label into labelMap.
+ *   - updateLabel(workspaceSlug, projectId, labelId, data) — optimistic patch
+ *     into labelMap, then IssueLabelService.patchIssueLabel; on error reverts
+ *     labelMap[labelId] to the prior snapshot and rethrows.
+ *   - updateLabelPosition(workspaceSlug, projectId, draggingLabelId, droppedParentId,
+ *     droppedLabelId, dropAtEndOfList) — reparents the dragged label and computes
+ *     a midpoint sort_order between its new adjacent siblings (avoids reindexing
+ *     the full list), then delegates to updateLabel for persistence.
+ *   - deleteLabel(workspaceSlug, projectId, labelId) → IssueLabelService.deleteIssueLabel;
+ *     removes labelId from labelMap.
+ *
+ * Computed:
+ *   - workspaceLabels — labels for the current workspace, resolved via
+ *     rootStore.workspaceRoot.currentWorkspace; recomputes when labelMap,
+ *     fetchedMap, or the current workspace changes.
+ *   - projectLabels — labels for the current project sorted by sort_order;
+ *     recomputes when labelMap, fetchedMap, or rootStore.router.projectId
+ *     changes.
+ *   - projectLabelsTree — projectLabels projected into a parent → children
+ *     hierarchy via @plane/utils.buildTree; recomputes when projectLabels
+ *     changes.
+ *   - getWorkspaceLabels / getWorkspaceLabelIds / getProjectLabels /
+ *     getProjectLabelIds / getLabelById — mobx-utils `computedFn` parameterized
+ *     selectors; cached per argument set and recompute when labelMap or
+ *     fetchedMap changes.
+ *
+ * Consumers:
+ *   - apps/web/core/store/root.store.ts (composed as `rootStore.label`).
+ *   - apps/web/core/hooks/store/use-label.ts (React access hook for components).
+ *   - apps/web/core/components/labels/** (project label CRUD UI:
+ *     project-setting-label-list, project-setting-label-item, delete-label-modal,
+ *     drag-to-reorder via updateLabelPosition).
+ *   - apps/web/core/components/issues/issue-detail/label/** (label pickers on
+ *     the issue detail view).
+ */
+
 import { set, sortBy } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";

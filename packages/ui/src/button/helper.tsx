@@ -4,6 +4,28 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Variant and size token lookup tables driving `Button` styling.
+ *
+ * This module is the single source of truth for the design-system tokens (`variant`, `size`) and
+ * for the Tailwind class strings that map them to button appearance. The `Button` component in
+ * `./button` reads from these tables via `getButtonStyling` and `getIconStyling`; consumers
+ * import the token unions (`TButtonVariant`, `TButtonSizes`) to type their own button-rendering
+ * surfaces consistently.
+ */
+
+/**
+ * Design-token union enumerating every supported visual variant for the `Button` primitive.
+ *
+ * - `primary` / `accent-primary` / `outline-primary` / `neutral-primary` / `link-primary`:
+ *   neutral and brand-accent variants used for affirmative actions and navigation.
+ * - `danger` / `accent-danger` / `outline-danger` / `link-danger` / `tertiary-danger`:
+ *   destructive variants used for delete/leave/cancel actions.
+ * - `link-neutral`: text-only inline action without surrounding chrome.
+ *
+ * Adding a new variant requires a matching entry in `buttonStyling` so `getButtonStyling`
+ * resolves it correctly.
+ */
 export type TButtonVariant =
   | "primary"
   | "accent-primary"
@@ -17,8 +39,18 @@ export type TButtonVariant =
   | "tertiary-danger"
   | "link-neutral";
 
+/**
+ * Design-token union enumerating supported `Button` sizes. Each token maps to a distinct
+ * padding/font-size pair in `buttonSizeStyling` and a matching icon-container size in
+ * `buttonIconStyling`.
+ */
 export type TButtonSizes = "sm" | "md" | "lg" | "xl";
 
+/**
+ * Shape of the variant-state lookup table. Every entry must declare Tailwind class strings for
+ * the four interaction states (`default`, `hover`, `pressed`, `disabled`) so `getButtonStyling`
+ * can compose them at runtime.
+ */
 export interface IButtonStyling {
   [key: string]: {
     default: string;
@@ -28,6 +60,12 @@ export interface IButtonStyling {
   };
 }
 
+/**
+ * Size-token lookup table mapping each `TButtonSizes` value to the Tailwind class string that
+ * controls button padding, font size, and flexbox alignment. Supported keys: `sm`, `md`, `lg`, `xl`.
+ *
+ * Internal — consumed only by `getButtonStyling`; consumers should never read this enum directly.
+ */
 enum buttonSizeStyling {
   sm = `px-3 py-1.5 font-medium text-11 rounded-sm flex items-center gap-1.5 whitespace-nowrap transition-all justify-center`,
   md = `px-4 py-1.5 font-medium text-13 rounded-sm flex items-center gap-1.5 whitespace-nowrap transition-all justify-center`,
@@ -35,6 +73,13 @@ enum buttonSizeStyling {
   xl = `px-5 py-3.5 font-medium text-13 rounded-sm flex items-center gap-1.5 whitespace-nowrap transition-all justify-center`,
 }
 
+/**
+ * Size-token lookup table mapping each `TButtonSizes` value to the Tailwind class string applied
+ * to the `prependIcon` / `appendIcon` container `<div>` inside `Button`. Supported keys: `sm`,
+ * `md`, `lg`, `xl`.
+ *
+ * Internal — consumed only by `getIconStyling`; consumers should never read this enum directly.
+ */
 enum buttonIconStyling {
   sm = "h-3 w-3 flex justify-center items-center overflow-hidden my-0.5 flex-shrink-0",
   md = "h-3.5 w-3.5 flex justify-center items-center overflow-hidden my-0.5 flex-shrink-0",
@@ -42,6 +87,17 @@ enum buttonIconStyling {
   xl = "h-4 w-4 flex justify-center items-center overflow-hidden my-0.5 flex-shrink-0 ",
 }
 
+/**
+ * Variant lookup table mapping every `TButtonVariant` token to its four interaction-state class
+ * strings (`default`, `hover`, `pressed`, `disabled`).
+ *
+ * Supported variants (must stay aligned with `TButtonVariant`):
+ *   - `primary`, `accent-primary`, `outline-primary`, `neutral-primary`, `link-primary`
+ *   - `danger`, `accent-danger`, `outline-danger`, `link-danger`, `tertiary-danger`
+ *   - `link-neutral`
+ *
+ * Read by `getButtonStyling` only — modifications here propagate to every `Button` instance.
+ */
 export const buttonStyling: IButtonStyling = {
   primary: {
     default: `text-on-color bg-accent-primary`,
@@ -111,6 +167,14 @@ export const buttonStyling: IButtonStyling = {
   },
 };
 
+/**
+ * Resolves a `TButtonVariant` + `TButtonSizes` pair into a Tailwind class string by concatenating
+ * the matched entry from `buttonStyling` (with `hover` swapped to `disabled` when applicable) and
+ * the matched entry from `buttonSizeStyling`.
+ *
+ * Called by `Button` on every render; `disabled` should be `disabled || loading` to align the
+ * visual state with the HTML `disabled` attribute the component applies.
+ */
 export const getButtonStyling = (variant: TButtonVariant, size: TButtonSizes, disabled: boolean = false): string => {
   let tempVariant: string = ``;
   const currentVariant = buttonStyling[variant];
@@ -124,6 +188,10 @@ export const getButtonStyling = (variant: TButtonVariant, size: TButtonSizes, di
   return `${tempVariant} ${tempSize}`;
 };
 
+/**
+ * Returns the Tailwind class string for the `prependIcon` / `appendIcon` container `<div>` based
+ * on the requested `TButtonSizes` token.
+ */
 export const getIconStyling = (size: TButtonSizes): string => {
   let icon: string = ``;
   if (size) icon = buttonIconStyling[size];

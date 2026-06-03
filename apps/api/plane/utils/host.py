@@ -2,6 +2,27 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Request-scoped base URL and client IP helpers.
+
+Two helpers compose the canonical absolute URLs used throughout the backend
+for email templates, OAuth redirects, webhook payload ``origin`` fields, and
+notification deep-links:
+
+  - :func:`base_host` resolves the host/origin for one of four surfaces
+    (admin, space, app, or base) by combining ``settings.*_BASE_URL`` and
+    ``settings.*_BASE_PATH`` values. Consumed settings: ``WEB_URL``,
+    ``APP_BASE_URL``, ``ADMIN_BASE_URL``, ``ADMIN_BASE_PATH`` (default
+    ``/god-mode/``), ``SPACE_BASE_URL``, ``SPACE_BASE_PATH`` (default
+    ``/spaces/``).
+  - :func:`user_ip` thinly delegates to
+    :func:`plane.utils.ip_address.get_client_ip` so callers can read the
+    originating client IP from a request without importing the IP module
+    directly.
+
+Canonical consumers: notification/email builders that assemble absolute URLs,
+webhook payload ``origin`` fields, and OAuth redirect logic.
+"""
+
 # Django imports
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -20,7 +41,19 @@ def base_host(
     is_space: bool = False,
     is_app: bool = False,
 ) -> str:
-    """Utility function to return host / origin from the request"""
+    """Return the canonical host/origin URL for the requested surface.
+
+    Resolves to the admin surface (``ADMIN_BASE_URL`` + ``ADMIN_BASE_PATH``,
+    default ``/god-mode/``), the space surface (``SPACE_BASE_URL`` +
+    ``SPACE_BASE_PATH``, default ``/spaces/``), the app surface
+    (``APP_BASE_URL``), or the generic base origin (``WEB_URL`` or
+    ``APP_BASE_URL``). Only one of ``is_admin``, ``is_space``, ``is_app``
+    should be true at a time; precedence is admin > space > app > base.
+
+    Raises:
+        ImproperlyConfigured: if neither ``APP_BASE_URL`` nor ``WEB_URL`` is
+            configured.
+    """
     # Calculate the base origin from request
     base_origin = settings.WEB_URL or settings.APP_BASE_URL
 
@@ -68,4 +101,5 @@ def base_host(
 
 
 def user_ip(request: Request | HttpRequest) -> str:
+    """Return the client IP address by delegating to ``get_client_ip``."""
     return get_client_ip(request=request)

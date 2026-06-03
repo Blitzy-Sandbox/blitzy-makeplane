@@ -4,6 +4,65 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Editable metadata sidebar for the issue detail page.
+ *
+ * Rendered purpose: a scrollable right-rail panel that exposes every editable property of a work
+ * item — state, assignees, priority, creator (read-only), start/due dates with overdue highlighting,
+ * estimate, modules, cycle, parent, labels, worklog, and the project-defined additional
+ * properties. Each row delegates persistence to the supplied `TIssueOperations.update` action.
+ *
+ * Props:
+ *   - workspaceSlug (string, required): scopes mutations
+ *   - projectId (string, required): scopes mutations and gates feature visibility (cycle_view,
+ *     module_view, estimates) based on the resolved project
+ *   - issueId (string, required): the work item being edited
+ *   - issueOperations (TIssueOperations, required): issue-update contract from `./root` —
+ *     used as `issueOperations.update(workspaceSlug, projectId, issueId, partialPayload)`
+ *   - isEditable (boolean, required): when false, each property still renders but its dropdown is
+ *     disabled and the panel renders at 60% opacity
+ *
+ * MobX stores read:
+ *   - `useProject()` — `getProjectById(issue.project_id)` for `cycle_view` / `module_view` flags
+ *   - `useProjectEstimates()` — `areEstimateEnabledByProjectId(projectId)` to gate the estimate row
+ *   - `useIssueDetail()` — `issue.getIssueById(issueId)` for the live issue snapshot
+ *   - `useMember()` — `getUserDetails(issue.created_by)` for the "Created by" row
+ *   - `useProjectState()` — `getStateById(issue.state_id)` for the overdue highlight color
+ *
+ * Side effects:
+ *   - Mutations: every dropdown's `onChange` calls `issueOperations.update(...)` with a partial payload —
+ *     this routes through the store action and ultimately `IssueService.patchIssue` (`apps/api`).
+ *     No toasts here; the contract layer in `root.tsx` is responsible for user feedback.
+ *   - Sibling components (`IssueCycleSelect`, `IssueModuleSelect`, `IssueParentSelectRoot`,
+ *     `IssueLabel`, `IssueWorklogProperty`, `WorkItemAdditionalSidebarProperties`) carry their own
+ *     side-effect contracts.
+ *
+ * Derived state notes:
+ *   - `minDate` is the start date offset by one day (used to constrain the due-date picker, so
+ *     selecting a due date strictly after the start date is enforced visually).
+ *   - `maxDate` is the due date offset by one day (used to constrain the start-date picker, so the
+ *     start date stays strictly before the due date).
+ *   // INTENT UNCLEAR: the historical reason for using `+1 day` rather than `+0` is not inferable
+ *   // from the implementation; the observed behavior is that adjacent dates (same day) are
+ *   // disallowed in both pickers. Treat the offset as the existing UX contract and preserve it.
+ *   - `shouldHighlightIssueDueDate(issue.target_date, stateDetails?.group)` returns true when the
+ *     issue is overdue AND its state group is not completed/cancelled, flipping the due-date text
+ *     to `text-danger-primary`.
+ *   - Returns `<></>` early when the active issue cannot be resolved.
+ *
+ * Imperative DOM/event notes:
+ *   - The estimate dropdown row only renders when `projectId && areEstimateEnabledByProjectId(projectId)`.
+ *   - The cycle and module rows only render when their project flags are enabled.
+ *   - `DateAlert` is conditionally rendered next to the due-date picker when a date is present.
+ *
+ * Accessibility notes:
+ *   - Each property row is wrapped in `SidebarPropertyListItem` which provides label/icon/aria
+ *     semantics; preserve this composition exactly.
+ *
+ * Consumers: rendered by `./root.tsx` (`IssueDetailRoot`) as the right-rail of the
+ * work-item detail page.
+ */
+
 import { observer } from "mobx-react";
 // i18n
 import { useTranslation } from "@plane/i18n";

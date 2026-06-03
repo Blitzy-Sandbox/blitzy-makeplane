@@ -4,6 +4,41 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Table UI icon registry — inline SVG strings consumed by the table's
+ * drag-handle dropdowns and insert-handler buttons in `../plugins/`.
+ *
+ * WHY raw SVG strings (not React components):
+ *   These icons are injected into ProseMirror widget-decoration DOM via
+ *   `.innerHTML = icons.<key>` from `../plugins/drag-handles/marker-utils.ts`
+ *   and `../plugins/insert-handlers/utils.ts`. Widget decorations live
+ *   OUTSIDE the React render tree — they're created by ProseMirror's
+ *   plugin system, not React — so the icons must be assignable to raw
+ *   DOM nodes. Authoring them as strings (rather than as
+ *   `react/jsx-runtime` components or imported Lucide icons) keeps the
+ *   plugin code free of React rendering plumbing.
+ *
+ * Icon groups by consumer:
+ *   - `colorPicker` — color-fill icon used by the
+ *     `TableDragHandleDropdownColorSelector` UI in
+ *     `../plugins/drag-handles/color-selector.tsx` (note: that component
+ *     IS a React component and uses Lucide icons directly; this entry is
+ *     reserved for the non-React decoration path).
+ *   - `deleteColumn` / `deleteRow` — trash-can icons reused in the row
+ *     and column drag-handle action menus.
+ *   - `insertLeftTableIcon` / `insertRightTableIcon` /
+ *     `insertTopTableIcon` / `insertBottomTableIcon` — directional
+ *     insert glyphs for the inline "+" buttons rendered by
+ *     `../plugins/insert-handlers/`.
+ *   - `toggleColumnHeader` / `toggleRowHeader` — toggle-switch glyphs
+ *     used by the header-toggle entries in the drag-handle action menus.
+ *
+ * First-party note (AAP §0.2.2):
+ *   These SVG path strings are authored in-tree, not imported from a
+ *   third-party icon package. The few `fill="var(--text-color-tertiary)"`
+ *   references bind the icons to the editor's CSS variable theming so
+ *   they recolor automatically with the active editor theme.
+ */
 export const icons = {
   colorPicker: `<svg xmlns="http://www.w3.org/2000/svg" length="24" viewBox="0 0 24 24" style="transform: ;msFilter:;"><path fill="var(--text-color-tertiary)" d="M20 14c-.092.064-2 2.083-2 3.5 0 1.494.949 2.448 2 2.5.906.044 2-.891 2-2.5 0-1.5-1.908-3.436-2-3.5zM9.586 20c.378.378.88.586 1.414.586s1.036-.208 1.414-.586l7-7-.707-.707L11 4.586 8.707 2.293 7.293 3.707 9.586 6 4 11.586c-.378.378-.586.88-.586 1.414s.208 1.036.586 1.414L9.586 20zM11 7.414 16.586 13H5.414L11 7.414z"></path></svg>`,
   deleteColumn: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`,

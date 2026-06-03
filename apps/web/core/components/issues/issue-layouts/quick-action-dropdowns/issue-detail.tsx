@@ -4,6 +4,57 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Quick-action dropdown menu for the work-item detail and peek-overview surface, exposing
+ * Edit, Make-a-copy, Open-in-new-tab, Copy-link, Archive, Restore, and Delete actions, and
+ * wiring its internal modal state to optional parent-supplied toggle callbacks so the parent
+ * peek/detail panel can coordinate its own UI when modals open or close.
+ *
+ * Props — `TWorkItemDetailQuickActionProps = IQuickActionProps & extras`
+ *   Inherited from `IQuickActionProps` (see `../list/list-view-types`):
+ *     - `issue: TIssue` (required) — work item being acted on.
+ *     - `parentRef: React.RefObject<HTMLElement>` (required) — anchor element for `ContextMenu`.
+ *     - `handleDelete: () => Promise<void>` (required) — caller delete mutation; passed to `DeleteIssueModal.onSubmit`.
+ *     - `handleUpdate?: (data: TIssue) => Promise<void>` — caller update mutation; invoked on `CreateUpdateIssueModal.onSubmit`.
+ *     - `handleArchive?: () => Promise<void>` — caller archive mutation; passed to `ArchiveIssueModal.onSubmit`.
+ *     - `handleRestore?: () => Promise<void>` — caller restore mutation; invoked from the Restore menu item.
+ *     - `customActionButton?: React.ReactElement` — accepted by the shared contract but unused here because this surface injects its own `IconButton` ellipsis trigger directly into `CustomMenu`.
+ *     - `portalElement?: HTMLDivElement | null` — portal target for the floating menu surface.
+ *     - `readOnly?: boolean` — when `true`, forces `isEditingAllowed` to `false` regardless of permissions.
+ *     - `placements?: TPlacement` (default `"bottom-end"`) — anchor placement for the `CustomMenu`.
+ *   Detail/peek extras:
+ *     - `toggleEditIssueModal?: (value: boolean) => void` — parent-side mirror of local `createUpdateIssueModal`; called on every open and close.
+ *     - `toggleDeleteIssueModal?: (value: boolean) => void` — parent-side mirror of `deleteIssueModal`.
+ *     - `toggleDuplicateIssueModal?: (value: boolean) => void` — parent-side mirror of `duplicateWorkItemModal`.
+ *     - `toggleArchiveIssueModal?: (value: boolean) => void` — parent-side mirror of `archiveIssueModal`.
+ *     - `isPeekMode?: boolean` (default `false`) — when `true`, hides the Edit and Copy-link items so the peek panel does not surface duplicate controls.
+ *
+ * MobX stores read (via React context hooks — MobX is the exclusive frontend state model):
+ *   - `useUserPermissions()` → `allowPermissions` — gates `isEditingAllowed` on `ADMIN`/`MEMBER` at `EUserPermissionsLevel.PROJECT` scoped to `workspaceSlug` and `issue.project_id`.
+ *   - `useIssues(EIssuesStoreType.PROJECT)` → `issuesFilter` — reads `displayFilters.layout` to derive `activeLayout` passed into the menu-item context.
+ *   - `useProjectState()` → `getStateById` — resolves the issue's state to test membership in `ARCHIVABLE_STATE_GROUPS`.
+ *   - `useProject()` → `getProjectIdentifierById` — resolves the project key used to build the work-item link.
+ *   Router-only (not a MobX store): `useParams()` for `workspaceSlug`. `EIssuesStoreType.PROJECT` is used even on the detail surface because the underlying issue's parent slice is the project store regardless of whether the peek opened from a cycle/module/global layout.
+ *
+ * Side effects:
+ *   - Opens local `ArchiveIssueModal`, `DeleteIssueModal`, `CreateUpdateIssueModal` (with `fetchIssueDetails={false}` because the peek panel already owns detail loading), and `DuplicateWorkItemModal` via `useState` flags.
+ *   - Every local modal open/close mirrors to the matching `toggle*` callback so the parent's peek/detail view stays in sync (the peek header can dim or yield focus while a modal is active).
+ *   - Edit / delete / duplicate / archive actions are rerouted through `customEditAction` / `customDeleteAction` / `customDuplicateAction` / `customArchiveAction` so the local and parent state machines update together.
+ *   - Restore proxies to the caller's `handleRestore`.
+ *   - Builds `duplicateIssuePayload` by spreading the issue with a "(copy)" name suffix and stripping `id` via `lodash-es#omit` so the duplicate modal creates a fresh record.
+ *   - NO direct API calls — all mutations route through caller-supplied handlers (`handleDelete` / `handleUpdate` / `handleArchive` / `handleRestore`) and the embedded modal components.
+ *
+ * Peek-mode rendering (non-obvious conditional rendering):
+ *   When `isPeekMode === true`, the post-processing pipeline applied to items returned by
+ *   `useWorkItemDetailMenuItems` flips `shouldRender` to `false` for Edit
+ *   (`isEditingAllowed && !isPeekMode`) and Copy-link (`!isPeekMode`). This is intentional: the
+ *   peek surface already provides an inline edit affordance and exposes the link on the peek
+ *   header, so menu duplicates would confuse users.
+ *
+ * Consumed by: work-item peek-overview and detail surfaces under
+ * `apps/web/core/components/issues/peek-overview/**` and `apps/web/core/components/issues/issue-detail/**`.
+ */
+
 import { useState } from "react";
 import { omit } from "lodash-es";
 import { observer } from "mobx-react";
@@ -31,6 +82,18 @@ import type { MenuItemFactoryProps } from "./helper";
 import { useWorkItemDetailMenuItems } from "./helper";
 import { IconButton } from "@plane/propel/icon-button";
 
+/**
+ * Props contract for {@link WorkItemDetailQuickActions}. Extends `IQuickActionProps` with
+ * optional parent-coordinated modal toggle callbacks and a peek-mode rendering flag so the
+ * containing peek/detail panel can keep its UI synchronized with the dropdown's local modal
+ * state.
+ *
+ * @property toggleEditIssueModal      Parent-side mirror of the local `createUpdateIssueModal` state; invoked whenever the inner Edit modal opens or closes.
+ * @property toggleDeleteIssueModal    Parent-side mirror of the local `deleteIssueModal` state.
+ * @property toggleDuplicateIssueModal Parent-side mirror of the local `duplicateWorkItemModal` state.
+ * @property toggleArchiveIssueModal   Parent-side mirror of the local `archiveIssueModal` state.
+ * @property isPeekMode                When `true`, hides the Edit and Copy-link items because the peek panel already surfaces those controls.
+ */
 type TWorkItemDetailQuickActionProps = IQuickActionProps & {
   toggleEditIssueModal?: (value: boolean) => void;
   toggleDeleteIssueModal?: (value: boolean) => void;

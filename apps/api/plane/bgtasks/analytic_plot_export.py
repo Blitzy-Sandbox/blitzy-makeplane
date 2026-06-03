@@ -2,6 +2,40 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Celery tasks that build and email analytics CSV reports.
+
+Two ``@shared_task`` callables live here:
+
+1. ``analytic_export_task`` — builds a CSV from analytics aggregations
+   (uses :func:`plane.utils.analytics_plot.build_graph_plot` to compute
+   the distribution rows) and ships the result via SMTP through
+   :func:`send_export_email`.
+2. ``export_analytics_to_csv_email`` — a reusable CSV-emailer that takes
+   a pre-formed tabular payload (``data``, ``headers``, ``keys``) and
+   emails it as a CSV attachment through the same SMTP path.
+
+Trigger: ``analytic_export_task`` is invoked via explicit
+``analytic_export_task.delay(...)`` from
+``AnalyticExportEndpoint.post`` in
+``apps/api/plane/app/views/analytic/base.py`` when a workspace member
+requests an analytics export.
+
+Supported aggregation axes (used for both the ``x_axis`` and the
+optional ``segment`` parameters in the request payload):
+
+- ``assignees__id`` (rendered as assignee display name)
+- ``labels__id`` (rendered as label name)
+- ``state_id`` (rendered as state name)
+- ``issue_cycle__cycle_id`` (rendered as cycle name)
+- ``issue_module__module_id`` (rendered as module name)
+
+Async infrastructure: each ``@shared_task`` here is queued onto
+**RabbitMQ** and consumed by Celery workers. Redis is the cache /
+session store only — it is **not** the task broker for this module
+(per the architectural rule documented in
+``apps/api/plane/celery.py``).
+"""
+
 # Python imports
 import csv
 import io
@@ -50,7 +84,7 @@ MODULE_ID = "issue_module__module_id"
 
 
 def send_export_email(email, slug, csv_buffer, rows):
-    """Helper function to send export email."""
+    """Send the rendered CSV to ``email`` as an attachment via the instance SMTP backend."""
     subject = "Your Export is ready"
     html_content = render_to_string("emails/exports/analytics.html", {})
     text_content = generate_plain_text_from_html(html_content)
@@ -126,7 +160,7 @@ def get_assignee_details(slug, filters):
 
 
 def get_label_details(slug, filters):
-    """Fetch label details if required"""
+    """Fetch label details if required."""
     return (
         Issue.objects.filter(
             workspace__slug=slug,
@@ -141,6 +175,7 @@ def get_label_details(slug, filters):
 
 
 def get_state_details(slug, filters):
+    """Fetch distinct ``(state_id, state__name, state__color)`` rows for the workspace and filter set."""
     return (
         Issue.issue_objects.filter(workspace__slug=slug, **filters)
         .distinct("state_id")
@@ -150,6 +185,7 @@ def get_state_details(slug, filters):
 
 
 def get_module_details(slug, filters):
+    """Fetch distinct ``(module_id, module name)`` rows for the workspace and filter set."""
     return (
         Issue.issue_objects.filter(
             workspace__slug=slug,
@@ -164,6 +200,7 @@ def get_module_details(slug, filters):
 
 
 def get_cycle_details(slug, filters):
+    """Fetch distinct ``(cycle_id, cycle name)`` rows for the workspace and filter set."""
     return (
         Issue.issue_objects.filter(
             workspace__slug=slug,
@@ -197,6 +234,15 @@ def generate_segmented_rows(
     cycle_details,
     module_details,
 ):
+    """Build CSV rows for a segmented (matrix) distribution: rows by ``x_axis``, columns by ``segment``.
+
+    The header row holds the ``x_axis`` label, the ``y_axis`` label, and
+    one column per distinct ``segment`` value. Where ``x_axis`` or
+    ``segment`` is an id axis (``assignees__id``, ``labels__id``,
+    ``state_id``, ``issue_cycle__cycle_id``, ``issue_module__module_id``)
+    the raw id is swapped for the display name resolved from the matching
+    ``*_details`` lookup table.
+    """
     segment_zero = list(set(item.get("segment") for sublist in distribution.values() for item in sublist))
 
     segmented = segment
@@ -301,6 +347,14 @@ def generate_non_segmented_rows(
     cycle_details,
     module_details,
 ):
+    """Build CSV rows for a non-segmented distribution: a two-column ``(x_axis, y_axis)`` layout.
+
+    Each distribution bucket becomes one row containing the ``x_axis``
+    value and its single ``y_axis`` measure (``count`` when ``y_axis ==
+    "issue_count"``, ``estimate`` otherwise). Where ``x_axis`` is an id
+    axis the raw id is swapped for the display name resolved from the
+    matching ``*_details`` lookup table.
+    """
     rows = []
     for item, data in distribution.items():
         row = [item, data[0].get("count" if y_axis == "issue_count" else "estimate")]
@@ -348,6 +402,57 @@ def generate_non_segmented_rows(
 
 @shared_task
 def analytic_export_task(email, data, slug):
+    """Build an analytics CSV from the requested aggregation and email it to the user.
+
+    Trigger:
+        Explicit ``analytic_export_task.delay(email=..., data=...,
+        slug=...)`` from ``AnalyticExportEndpoint.post`` in
+        ``apps/api/plane/app/views/analytic/base.py`` when a workspace
+        member requests an analytics export. The Celery message is
+        routed via **RabbitMQ** and consumed by the worker.
+
+    Args:
+        email: Recipient address — usually ``request.user.email`` of
+            the user who triggered the export.
+        data: Request payload mapping. Reads ``x_axis``, ``y_axis``,
+            and the optional ``segment`` keys; the remaining keys are
+            forwarded to :func:`plane.utils.issue_filters.issue_filters`
+            as the ``Issue`` queryset filter predicate. ``x_axis`` and
+            ``segment`` must each be one of the supported axes (see
+            module docstring).
+        slug: Workspace slug used both to scope the ``Issue`` queryset
+            (``workspace__slug=slug``) and to name the attachment
+            (``<slug>-analytics.csv``).
+
+    Side effects:
+        - **DB read**: filters ``Issue.issue_objects`` by the parsed
+          predicates and feeds the queryset to
+          :func:`plane.utils.analytics_plot.build_graph_plot`, which
+          groups by ``x_axis`` (and optionally ``segment``) to compute
+          the distribution rows. Where an axis requires display labels
+          (assignee name, label name, state name, cycle name, module
+          name) a second distinct query is issued via the matching
+          ``get_*_details`` helper.
+        - **In-memory**: assembles the CSV body via
+          :func:`generate_segmented_rows` (when ``segment`` is truthy)
+          or :func:`generate_non_segmented_rows` (otherwise) and
+          renders it through :func:`generate_csv_from_rows`.
+        - **External (SMTP)**: calls :func:`send_export_email`, which
+          dispatches one ``EmailMultiAlternatives`` message with the
+          rendered ``<slug>-analytics.csv`` attached via the
+          instance-configured SMTP backend returned by
+          :func:`plane.license.utils.instance_value.get_email_configuration`.
+        - **No** chained Celery task, **no** webhook fan-out, **no**
+          cache invalidation, **no** DB writes.
+        - Any exception is caught and forwarded to
+          :func:`plane.utils.exception_logger.log_exception`; the
+          requesting user does not receive a failure notification.
+
+    Idempotency:
+        NON-idempotent. Each invocation rebuilds the CSV from the
+        current DB snapshot and sends a fresh outbound email; duplicate
+        invocations result in duplicate emails to ``email``.
+    """
     try:
         filters = issue_filters(data, "POST")
         queryset = Issue.issue_objects.filter(**filters, workspace__slug=slug)
@@ -408,6 +513,44 @@ def analytic_export_task(email, data, slug):
 
 @shared_task
 def export_analytics_to_csv_email(data, headers, keys, email, slug):
+    """Email a generic tabular payload to ``email`` as a CSV attachment.
+
+    Trigger:
+        Explicit ``export_analytics_to_csv_email.delay(...)``. The
+        Celery message is routed via **RabbitMQ** and consumed by the
+        worker.
+
+        # INTENT UNCLEAR: defined as a public ``@shared_task`` but has
+        # no callers in ``apps/api/`` at the time of writing — appears
+        # to be a reusable CSV emailer kept available for analytics
+        # export paths whose rows are already materialised upstream.
+
+    Args:
+        data: Iterable of dict-like rows. Each row is projected to a
+            CSV row via ``item.get(key, "")`` for every key in ``keys``.
+        headers: Column headers; written as the first CSV row.
+        keys: Ordered keys used to project each ``data`` row into the
+            CSV.
+        email: Recipient address.
+        slug: Workspace slug; used to name the attachment
+            (``<slug>-analytics.csv``).
+
+    Side effects:
+        - **In-memory**: builds the CSV body via
+          :func:`generate_csv_from_rows`.
+        - **External (SMTP)**: calls :func:`send_export_email`, which
+          dispatches one ``EmailMultiAlternatives`` message via the
+          instance-configured SMTP backend returned by
+          :func:`plane.license.utils.instance_value.get_email_configuration`.
+        - **No** DB writes, **no** webhook fan-out, **no** cache
+          invalidation.
+        - Any exception is caught and forwarded to
+          :func:`plane.utils.exception_logger.log_exception`; the
+          recipient does not receive a failure notification.
+
+    Idempotency:
+        NON-idempotent. Each invocation produces one outbound email.
+    """
     try:
         """
         Prepares a CSV from data and sends it as an email attachment.

@@ -4,6 +4,39 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Calendar-specific quick-add entrypoint. Renders a popover menu with
+ * "Add issue" (inline quick-add form) and "Add existing issue" (search modal)
+ * options, scoped to the active workspace/project (and optionally module/cycle).
+ *
+ * Props (TCalendarQuickAddIssueActions, L26):
+ *   - prePopulatedData (optional) — typically { target_date } from the calling
+ *     day cell; used to date-stamp both new and existing issues.
+ *   - quickAddCallback (optional) — forwarded to QuickAddIssueRoot for create.
+ *   - addIssuesToView (optional) — when supplied, the existing-issue path
+ *     batches updateIssue + addIssuesToView and the search modal switches to
+ *     module/cycle scope.
+ *   - onOpen (optional) — fired when the inline quick-add opens.
+ *   - isEpic (optional) — swaps "issue" labels to "epic" and hides the
+ *     "Add existing" menu item.
+ *
+ * Stores read:
+ *   - useIssueDetail().updateIssue — applies prePopulatedData (target_date) to
+ *     each existing issue before adding it to the view.
+ *   - useTranslation() for menu labels and toast copy.
+ *
+ * Side effects:
+ *   - handleAddIssuesToView: Promise.all(updateIssue(...)) -> addIssuesToView(ids),
+ *     wrapped in setPromiseToast from @plane/propel/toast.
+ *   - Opens the inline create form via local isOpen state; opens the existing-
+ *     issue picker via isExistingIssueModalOpen.
+ *   - shouldHideIssue filters candidates whose start_date > target_date
+ *     (avoids creating an invalid date range).
+ *
+ * Consumers:
+ *   - ./issue-blocks.tsx (CalendarIssueBlocks).
+ */
+
 import { useState } from "react";
 import { differenceInCalendarDays } from "date-fns/differenceInCalendarDays";
 import { observer } from "mobx-react";
@@ -31,6 +64,7 @@ type TCalendarQuickAddIssueActions = {
   isEpic?: boolean;
 };
 
+/** Quick-add menu for the calendar that creates new issues or adds existing ones to the active view, dated to the cell. */
 export const CalendarQuickAddIssueActions = observer(function CalendarQuickAddIssueActions(
   props: TCalendarQuickAddIssueActions
 ) {

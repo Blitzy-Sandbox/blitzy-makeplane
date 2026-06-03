@@ -2,6 +2,23 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Workspace member roster and per-user membership endpoints.
+
+Covers four surfaces:
+
+* ``WorkSpaceMemberViewSet`` — admin-facing roster management
+  (list / retrieve / change role / remove member / leave workspace).
+* ``WorkspaceMemberUserViewsEndpoint`` — persists the caller's own
+  ``view_props`` JSON blob (kanban/list per-view preferences).
+* ``WorkspaceMemberUserEndpoint`` — returns the caller's own
+  ``WorkspaceMember`` record annotated with a draft-issue count.
+* ``WorkspaceProjectMemberEndpoint`` — returns the caller's project
+  membership role across the workspace, grouped by ``project_id``.
+
+Role numerics (per ``plane.app.permissions.base.ROLE``):
+    ADMIN = 20, MEMBER = 15, GUEST = 5.
+"""
+
 # Django imports
 from django.db.models import Count, Q, OuterRef, Subquery, IntegerField
 from django.utils import timezone
@@ -28,6 +45,72 @@ from .. import BaseViewSet
 
 
 class WorkSpaceMemberViewSet(BaseViewSet):
+    """Manage the workspace member roster and self-leave.
+
+    HTTP methods + URL patterns:
+        GET    /api/workspaces/<str:slug>/members/
+        GET    /api/workspaces/<str:slug>/members/<uuid:pk>/
+        PATCH  /api/workspaces/<str:slug>/members/<uuid:pk>/
+        DELETE /api/workspaces/<str:slug>/members/<uuid:pk>/
+        POST   /api/workspaces/<str:slug>/members/leave/
+
+    Request body (PATCH):
+        ``WorkSpaceMemberSerializer`` fields — primarily ``role``
+        (20 admin / 15 member / 5 guest). Demoting to guest (5) cascades
+        by updating every ``ProjectMember.role`` in the workspace for that
+        user to 5 as well, so a workspace guest cannot hold elevated
+        project roles.
+
+    Response shape:
+        list / retrieve: ``WorkspaceMemberAdminSerializer`` for non-guests
+            (``id``, ``member``, ``role``) and ``WorkSpaceMemberSerializer``
+            for guests (so guests do not see admin-only fields).
+        partial_update: ``WorkSpaceMemberSerializer`` row.
+        destroy / leave: HTTP 204.
+
+    Permissions:
+        list / retrieve: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER,
+            ROLE.GUEST], level="WORKSPACE")`` — any active member.
+        partial_update / destroy: ``@allow_permission([ROLE.ADMIN],
+            level="WORKSPACE")`` — admins only.
+        leave: ``@allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST],
+            level="WORKSPACE")`` — any active member can leave their own
+            membership.
+
+    Read replica:
+        ``use_read_replica = True`` — listing is offloaded.
+
+    Queryset:
+        Filtered by ``workspace__slug`` with eager-loading of
+        ``member`` and ``member__avatar_asset``.
+
+    Side effects on ``leave`` (cache invalidation):
+        Invalidates:
+            * ``/api/workspaces/:slug/members/`` (per-URL)
+            * ``/api/users/me/settings/``
+            * ``api/users/me/workspaces/`` (multi)
+        The Redis cache is purely a read-through cache — Celery uses
+        RabbitMQ for task queueing, per architectural context.
+
+    Self-mutation rules:
+        * ``partial_update`` rejects with HTTP 400 if the caller tries to
+          modify their own role (use the leave endpoint to step down).
+        * ``destroy`` rejects with HTTP 400 if the caller tries to remove
+          themselves (the leave endpoint exists for that).
+        * ``destroy`` rejects with HTTP 400 if the requester holds a lower
+          role than the target.
+        * ``destroy`` rejects with HTTP 400 if the target is the only admin
+          of any project (would orphan the project).
+        * ``leave`` rejects with HTTP 400 if the caller is the sole admin
+          of the workspace OR the sole admin of any project (workspaces /
+          projects cannot be orphaned).
+
+    Note on demotion:
+        Demoting to ``role = 5`` (guest) updates the matching
+        ``ProjectMember.role`` rows to 5 too — guests cannot hold
+        elevated project roles.
+    """
+
     serializer_class = WorkspaceMemberAdminSerializer
     model = WorkspaceMember
 
@@ -35,6 +118,7 @@ class WorkSpaceMemberViewSet(BaseViewSet):
     use_read_replica = True
 
     def get_queryset(self):
+        """Return workspace-scoped members with eager-loaded member/avatar joins."""
         return self.filter_queryset(
             super()
             .get_queryset()
@@ -44,6 +128,12 @@ class WorkSpaceMemberViewSet(BaseViewSet):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def list(self, request, slug):
+        """Return the workspace roster, masking admin-only fields for guests.
+
+        Uses ``WorkspaceMemberAdminSerializer`` for non-guests (role > 5) and
+        ``WorkSpaceMemberSerializer`` for guests so guest viewers never see
+        admin-only fields.
+        """
         workspace_member = WorkspaceMember.objects.get(member=request.user, workspace__slug=slug, is_active=True)
 
         # Get all active workspace members
@@ -56,6 +146,12 @@ class WorkSpaceMemberViewSet(BaseViewSet):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def retrieve(self, request, slug, pk):
+        """Return one workspace member by id, masking fields for guests.
+
+        Returns HTTP 404 if no membership matches ``pk``. Guests
+        (``role <= ROLE.GUEST.value``) receive ``WorkSpaceMemberSerializer``;
+        others receive ``WorkspaceMemberAdminSerializer``.
+        """
         workspace_member = WorkspaceMember.objects.get(member=request.user, workspace__slug=slug, is_active=True)
 
         try:
@@ -75,6 +171,14 @@ class WorkSpaceMemberViewSet(BaseViewSet):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
     def partial_update(self, request, slug, pk):
+        """Update a member's role; reject self-updates and cascade guest demotion.
+
+        Returns HTTP 400 with ``{"error": "You cannot update your own role"}``
+        if the caller targets their own membership. If the new role is 5
+        (guest), every ``ProjectMember`` row for that member in the workspace
+        is downgraded to role 5 as well so guests cannot hold elevated
+        project roles.
+        """
         workspace_member = WorkspaceMember.objects.get(
             pk=pk, workspace__slug=slug, member__is_bot=False, is_active=True
         )
@@ -97,6 +201,18 @@ class WorkSpaceMemberViewSet(BaseViewSet):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
     def destroy(self, request, slug, pk):
+        """Soft-remove a workspace member with multi-stage safety checks.
+
+        Rejection paths (each returns HTTP 400):
+            * Caller tries to remove themselves — use leave instead.
+            * Requester's role is lower than the target's.
+            * Target is the only admin (role 20) of at least one project in
+              the workspace.
+
+        On success the user is deactivated (``is_active = False``) on the
+        ``WorkspaceMember`` row and on every active ``ProjectMember`` row in
+        the workspace. Returns HTTP 204.
+        """
         # Check the user role who is deleting the user
         workspace_member = WorkspaceMember.objects.get(
             workspace__slug=slug, pk=pk, member__is_bot=False, is_active=True
@@ -159,6 +275,22 @@ class WorkSpaceMemberViewSet(BaseViewSet):
     @invalidate_cache(path="api/users/me/workspaces/", user=False, multiple=True)
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def leave(self, request, slug):
+        """Allow the caller to leave the workspace, with anti-orphan guards.
+
+        Cache invalidation (decorator chain):
+            * ``/api/workspaces/:slug/members/`` (per-URL)
+            * ``/api/users/me/settings/``
+            * ``api/users/me/workspaces/`` (multi)
+
+        Rejection paths (each returns HTTP 400):
+            * Caller is the only admin (role 20) of the workspace.
+            * Caller is the only admin of at least one project in the
+              workspace.
+
+        On success the caller's ``WorkspaceMember`` is deactivated and every
+        active ``ProjectMember`` row in the workspace is also deactivated.
+        Returns HTTP 204.
+        """
         workspace_member = WorkspaceMember.objects.get(workspace__slug=slug, member=request.user, is_active=True)
 
         # Check if the leaving user is the only admin of the workspace
@@ -206,7 +338,28 @@ class WorkSpaceMemberViewSet(BaseViewSet):
 
 
 class WorkspaceMemberUserViewsEndpoint(BaseAPIView):
+    """Persist the caller's ``view_props`` blob on their workspace membership.
+
+    HTTP methods + URL pattern:
+        POST /api/workspaces/<str:slug>/workspace-views/
+
+    Request body:
+        ``view_props`` (JSON object): kanban/list/spreadsheet UI state
+        persisted on ``WorkspaceMember.view_props`` to survive across
+        devices.
+
+    Response shape:
+        HTTP 204 (no content).
+
+    Permissions:
+        Inherits default ``BaseAPIView`` permissions (authenticated
+        workspace member context via ``WorkspaceMember.is_active``); no
+        explicit decorator is applied because the queryset itself filters
+        by ``member=request.user``.
+    """
+
     def post(self, request, slug):
+        """Overwrite the caller's ``view_props`` JSON blob and return 204."""
         workspace_member = WorkspaceMember.objects.get(workspace__slug=slug, member=request.user, is_active=True)
         workspace_member.view_props = request.data.get("view_props", {})
         workspace_member.save()
@@ -215,9 +368,42 @@ class WorkspaceMemberUserViewsEndpoint(BaseAPIView):
 
 
 class WorkspaceMemberUserEndpoint(BaseAPIView):
+    """Return the caller's own ``WorkspaceMember`` row with a draft-issue count.
+
+    HTTP methods + URL pattern:
+        GET /api/workspaces/<str:slug>/workspace-members/me/
+
+    Request body:
+        None (GET only).
+
+    Response shape:
+        ``WorkspaceMemberMeSerializer`` — annotated with a non-null
+        ``draft_issue_count`` (coalesced to 0 when the user has no
+        drafts).
+
+    Permissions:
+        Inherits default ``BaseAPIView`` permissions (authenticated user);
+        the query is scoped to ``member=request.user`` so it cannot leak
+        other users' memberships.
+
+    Read replica:
+        ``use_read_replica = True``.
+
+    Cross-references:
+        * Serializer: ``WorkspaceMemberMeSerializer`` in
+          ``apps/api/plane/app/serializers/workspace.py``.
+        * Models: ``WorkspaceMember`` in
+          ``apps/api/plane/db/models/workspace.py``;
+          ``DraftIssue`` in
+          ``apps/api/plane/db/models/draft.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
+    """
+
     use_read_replica = True
 
     def get(self, request, slug):
+        """Return the caller's membership row with ``draft_issue_count``."""
         draft_issue_count = (
             DraftIssue.objects.filter(created_by=request.user, workspace_id=OuterRef("workspace_id"))
             .values("workspace_id")
@@ -235,12 +421,50 @@ class WorkspaceMemberUserEndpoint(BaseAPIView):
 
 
 class WorkspaceProjectMemberEndpoint(BaseAPIView):
+    """Return the caller's project memberships in the workspace, grouped by project.
+
+    HTTP methods + URL pattern:
+        GET /api/workspaces/<str:slug>/project-members/
+
+    Request body:
+        None (GET only).
+
+    Response shape:
+        ``dict[str, list[ProjectMemberRoleSerializer]]`` — keyed by
+        project id, listing the project members of every project the
+        caller is an active member of (so the frontend can render role
+        badges without a per-project round-trip).
+
+    Permissions:
+        ``permission_classes = [WorkspaceEntityPermission]`` (declared
+        on the class attribute; see
+        ``apps/api/plane/app/views/workspace/member.py``) — any active
+        workspace member.
+
+    Cross-references:
+        * Serializer: ``ProjectMemberRoleSerializer`` in
+          ``apps/api/plane/app/serializers/project.py``.
+        * Model: ``ProjectMember`` in
+          ``apps/api/plane/db/models/project.py``.
+        * Permissions: ``WorkspaceEntityPermission`` in
+          ``apps/api/plane/app/permissions/workspace.py``.
+        * URL registration:
+          ``apps/api/plane/app/urls/workspace.py``.
+    """
+
     serializer_class = ProjectMemberRoleSerializer
     model = ProjectMember
 
     permission_classes = [WorkspaceEntityPermission]
 
     def get(self, request, slug):
+        """Return project members keyed by ``project_id`` for the caller's projects.
+
+        Looks up the caller's active project memberships, fetches every
+        member of those projects in one query (joining ``project``,
+        ``member``, ``workspace``), and pivots the serialized list into a
+        dictionary keyed by ``project_id``.
+        """
         # Fetch all project IDs where the user is involved
         project_ids = (
             ProjectMember.objects.filter(member=request.user, is_active=True)

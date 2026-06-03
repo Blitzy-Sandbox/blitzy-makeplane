@@ -4,6 +4,24 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Renders an archive or restore lifecycle event in the issue activity timeline.
+ *
+ * Props:
+ *   - activityId (string, required): identifier of the activity record to render.
+ *   - ends ("top" | "bottom" | undefined, required): timeline-stack position marker
+ *     forwarded to `IssueActivityBlockComponent` for vertical-connector trimming.
+ *
+ * MobX stores read:
+ *   - `useIssueDetail()` — reads `activity.getActivityById(activityId)` to resolve
+ *     the underlying activity record.
+ *
+ * Side effects: none. The component is read-only / presentational and triggers
+ * no mutations, navigations, or API calls. When the `archive` verb fires, the
+ * shared activity block displays "Plane" as the actor (system-initiated archive)
+ * via the `customUserName` prop.
+ */
+
 import { observer } from "mobx-react";
 import { RotateCcw } from "lucide-react";
 // hooks

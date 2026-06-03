@@ -2,10 +2,38 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-"""
-OpenAPI/Swagger configuration for drf-spectacular.
+"""OpenAPI/Swagger configuration for drf-spectacular schema generation.
 
-This file contains the complete configuration for API documentation generation.
+Defines :data:`SPECTACULAR_SETTINGS`, the configuration dictionary consumed
+by ``drf-spectacular`` when generating the OpenAPI 3.x schema for the
+``/api/v1/`` REST surface. This module is imported conditionally by
+:mod:`plane.settings.common` only when the ``ENABLE_DRF_SPECTACULAR``
+environment variable equals ``"1"`` (the conditional ``if
+ENABLE_DRF_SPECTACULAR:`` block in :mod:`plane.settings.common` performs
+the import); in the default deployment the schema-generation routes in
+:mod:`plane.urls` are not installed and this module is not loaded.
+
+The settings dictionary covers:
+    - **API metadata**: title, description, contact, version, license, and
+      the schema path prefix (``/api/v1/``).
+    - **Preprocessing hooks**:
+      :func:`plane.utils.openapi.hooks.preprocess_filter_api_v1_paths`
+      restricts the schema to the ``/api/v1/`` surface.
+    - **Servers**: local (``http://localhost:8000``) and production
+      (``https://api.plane.so``) base URLs.
+    - **Tag definitions**: human-readable group descriptions for Assets,
+      Cycles, Intake, Labels, Members, Modules, Projects, States, Users,
+      and Work Item domain endpoints.
+    - **Authentication whitelist**:
+      :class:`plane.api.middleware.api_authentication.APIKeyAuthentication`
+      is the sole auth class exposed in the schema.
+    - **Enum naming overrides**: :class:`plane.db.models.module.ModuleStatus`
+      and :class:`plane.db.models.intake.IntakeIssueStatus` are renamed in
+      the generated components to avoid collisions.
+
+System boundary (AAP §0.12.3): the ``SPECTACULAR_SETTINGS`` dictionary
+contents — API title, version, tags, URL prefix, hook references, and
+enum overrides — must remain byte-identical to the source.
 """
 
 SPECTACULAR_SETTINGS = {

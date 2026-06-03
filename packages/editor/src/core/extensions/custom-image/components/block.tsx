@@ -4,6 +4,43 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Interactive image-block UI rendered by `CustomImageNodeView` once an upload
+ * has resolved to a stable, fetchable URL.
+ *
+ * Composition:
+ *   - `<img>` with size persisted to node attrs.
+ *   - Loading skeleton (`animate-pulse`) while the resolved URL or initial
+ *     resize is pending.
+ *   - `ImageUploadStatus` percentage badge while a network upload is in flight.
+ *   - `ImageToolbarRoot` contextual toolbar (alignment, download, resize-aware)
+ *     once both `src` and `downloadSrc` are resolved.
+ *   - Selection overlay + resize handle when the node is selected and the
+ *     editor is editable.
+ *
+ * Coordination model: extends `CustomImageNodeViewProps` (from `./node-view`)
+ * with parent-provided callbacks (`setEditorContainer`, `setFailedToLoadImage`)
+ * and resolved URLs (`src`, `downloadSrc`) that the parent computes from the
+ * uploader pipeline.
+ *
+ * Selection & resize: uses `NodeSelection` (`@tiptap/pm/state`) to make this
+ * node the editor's current selection on click; tracks pointer position during
+ * resize and computes a new width while preserving the image's intrinsic
+ * aspect ratio. On touch devices the editor is blurred before selection so the
+ * on-screen keyboard does not overlap the image toolbar.
+ *
+ * Image-load error recovery: when `<img>` fires `onError`, calls
+ * `extension.options.restoreImage(src)` exactly once (gated by
+ * `hasTriedRestoringImageOnce`) before surrendering to the parent's
+ * "failed to load" view.
+ *
+ * Cross-extension dependency: reads
+ * `editor.storage.utility.isTouchDevice` (registered by `UtilityExtension`)
+ * to vary touch-device interaction — see also `./uploader.tsx`.
+ *
+ * Consumed by: `./node-view.tsx` (rendered when `shouldShowBlock` is true).
+ */
+
 import { NodeSelection } from "@tiptap/pm/state";
 import React, { useRef, useState, useCallback, useLayoutEffect, useEffect } from "react";
 // plane imports
@@ -16,8 +53,33 @@ import type { CustomImageNodeViewProps } from "./node-view";
 import { ImageToolbarRoot } from "./toolbar";
 import { ImageUploadStatus } from "./upload-status";
 
+/**
+ * Minimum image width/height in pixels during resize — prevents the resize
+ * handle from collapsing the image to zero pixels, which would make further
+ * interaction impossible.
+ */
 const MIN_SIZE = 100;
 
+/**
+ * Props for `CustomImageBlock`.
+ *
+ * Inherits all fields from `CustomImageNodeViewProps` (see `./node-view`) and
+ * adds:
+ *   - `editorContainer`: cached reference to the closest `.editor-container`
+ *     element, used for sizing the image as a percentage of editor width on
+ *     first load.
+ *   - `imageFromFileSystem`: blob URL of the local file shown as a preview
+ *     while the network upload is in flight.
+ *   - `setEditorContainer`: parent-provided setter so this component can hand
+ *     back the discovered editor container.
+ *   - `setFailedToLoadImage`: parent-provided setter; called when restoration
+ *     fails and the parent should switch to the uploader/error view.
+ *   - `src`: resolved display URL (signed, short-lived) for the uploaded
+ *     image.
+ *   - `downloadSrc`: resolved download URL (signed, with
+ *     `Content-Disposition: attachment`) passed to the toolbar download
+ *     action.
+ */
 type CustomImageBlockProps = CustomImageNodeViewProps & {
   editorContainer: HTMLDivElement | null;
   imageFromFileSystem: string | undefined;
@@ -27,6 +89,27 @@ type CustomImageBlockProps = CustomImageNodeViewProps & {
   downloadSrc: string | undefined;
 };
 
+/**
+ * Renders the interactive image block (image, loader, toolbar, selection
+ * overlay, and resize handle) for an uploaded custom-image node.
+ *
+ * Required props: all fields of `CustomImageBlockProps` (see the type's JSDoc
+ * above for per-field semantics).
+ *
+ * MobX stores read: NONE (editor-internal — all state is held on the TipTap
+ * editor and on this component's local React state).
+ *
+ * Side effects:
+ *   - On image load: persists computed initial width / aspect ratio to node
+ *     attrs via `updateAttributesSafely`.
+ *   - On resize end: persists final width/height to node attrs.
+ *   - On image-load error: tries `extension.options.restoreImage(src)` once
+ *     before reporting failure to the parent.
+ *   - On click: dispatches a `NodeSelection` transaction on the editor's
+ *     view, making this image the editor's current selection.
+ *   - On touch click: calls `editor.commands.blur()` before selecting the
+ *     node, dismissing the on-screen keyboard.
+ */
 export function CustomImageBlock(props: CustomImageBlockProps) {
   // props
   const {
@@ -66,8 +149,18 @@ export function CustomImageBlock(props: CustomImageBlockProps) {
   const [hasErroredOnFirstLoad, setHasErroredOnFirstLoad] = useState(false);
   const [hasTriedRestoringImageOnce, setHasTriedRestoringImageOnce] = useState(false);
   // extension options
+  // editor.storage.utility is owned by UtilityExtension; isTouchDevice gates
+  // keyboard-dismiss-on-tap behavior in handleImageMouseDown. The cast is a
+  // defensive narrowing because the cross-extension storage augmentation is
+  // declared on UtilityExtension, not on this extension's storage.
   const isTouchDevice = !!(editor.storage.utility as { isTouchDevice?: boolean } | undefined)?.isTouchDevice;
 
+  /**
+   * Wraps `updateAttributes` in try/catch because mid-resize the editor state
+   * may transition (e.g., node deleted via undo) and `updateAttributes` will
+   * throw; swallow the error so an in-flight resize cannot break the editing
+   * session.
+   */
   const updateAttributesSafely = useCallback(
     (attributes: Partial<TCustomImageAttributes>, errorMessage: string) => {
       try {
@@ -79,6 +172,15 @@ export function CustomImageBlock(props: CustomImageBlockProps) {
     [updateAttributes]
   );
 
+  /**
+   * On first load: derives initial display width from the editor container
+   * width (35% of container, floored to `MIN_SIZE`) when the node has never
+   * been sized.
+   *
+   * On subsequent loads: only updates the stored aspect ratio if the natural
+   * ratio disagrees with the stored one — covers older images persisted
+   * without an `aspectRatio` attribute.
+   */
   const handleImageLoad = useCallback(() => {
     const img = imageRef.current;
     if (!img) return;
@@ -143,6 +245,13 @@ export function CustomImageBlock(props: CustomImageBlockProps) {
     }));
   }, [nodeWidth, nodeHeight, nodeAspectRatio]);
 
+  /**
+   * Tracks pointer motion during resize. When the image is right-aligned, the
+   * resize handle is on the left edge, so the width is computed from
+   * `containerRect.right - clientX` rather than `clientX - containerRect.left`.
+   * Width is clamped to `MIN_SIZE`; height is derived from
+   * `width / aspectRatio` to preserve the image's intrinsic proportions.
+   */
   const handleResize = useCallback(
     (e: MouseEvent | TouchEvent) => {
       if (!containerRef.current || !containerRect.current || !size.aspectRatio) return;
@@ -195,6 +304,11 @@ export function CustomImageBlock(props: CustomImageBlockProps) {
     }
   }, [isResizing, handleResize, handleResizeEnd]);
 
+  /**
+   * On touch devices, blurs the editor first so the on-screen keyboard is
+   * dismissed before the image selection takes focus — without this, the
+   * keyboard remains open and overlaps the image toolbar.
+   */
   const handleImageMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -210,6 +324,17 @@ export function CustomImageBlock(props: CustomImageBlockProps) {
     [editor, getPos, isTouchDevice]
   );
 
+  /**
+   * Derived visibility predicates that gate which UI elements are rendered:
+   *   - `showImageLoader`: pulse skeleton during initial resolve /
+   *     aspect-ratio normalization / first-load error / duplication.
+   *   - `showUploadStatus`: percentage badge while no resolved `src` and not
+   *     duplicating.
+   *   - `showImageToolbar`: contextual toolbar once `src` + `downloadSrc`
+   *     are resolved and the initial resize has completed.
+   *   - `showImageResizer`: resize handle only when the editor is editable
+   *     and the image has settled into its computed size.
+   */
   const isDuplicating = isImageDuplicating(status);
   // show the image loader if the remote image's src or preview image from filesystem is not set yet (while loading the image post upload) (or)
   // if the initial resize (from 35% width and "auto" height attrs to the actual size in px) is not complete
@@ -252,6 +377,13 @@ export function CustomImageBlock(props: CustomImageBlockProps) {
           src={displayedImageSrc}
           alt=""
           onLoad={handleImageLoad}
+          /**
+           * Image-load error recovery: tries `extension.options.restoreImage(src)`
+           * once (gated by `hasTriedRestoringImageOnce`) before surrendering to
+           * the parent's failure view. On touch devices, re-resolves via
+           * `getImageSource` because the signed URL may have expired between
+           * the failed load and the retry.
+           */
           onError={(_e) =>
             void (async () => {
               // for old image extension this command doesn't exist or if the image failed to load for the first time

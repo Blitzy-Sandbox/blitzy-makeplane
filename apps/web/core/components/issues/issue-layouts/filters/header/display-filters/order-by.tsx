@@ -4,6 +4,24 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Order-by selector inside the Display Filters dropdown.
+ *
+ * Rendered purpose: renders a radio-style `FilterOption` row per order-by key in the
+ * `ORDER_BY_OPTIONS` catalog from `@plane/constants`; selecting a row sets `displayFilters.order_by`.
+ *
+ * Props (`Props`):
+ *   - `selectedOrderBy` (`TIssueOrderByOptions`, required): the currently-active order-by key
+ *   - `handleUpdate` (`(val: TIssueOrderByOptions) => void`, required): selection callback. Parent
+ *     persists via `EIssueFilterType.DISPLAY_FILTERS`.
+ *   - `orderByFlags` (e.g. `OrderByOptionFlag`, optional): per-option enable/disable map sourced from
+ *     `layoutDisplayFiltersOptions.order_by`.
+ *
+ * MobX stores read: none.
+ *
+ * Side effects: none. Row click invokes `handleUpdate(val)`.
+ */
+
 import React, { useState } from "react";
 import { observer } from "mobx-react";
 import { ISSUE_ORDER_BY_OPTIONS } from "@plane/constants";

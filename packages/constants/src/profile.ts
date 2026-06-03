@@ -4,9 +4,19 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * User profile catalogs — profile-page tab visibility, calendar week-start options,
+ * and time-format options — consumed by `apps/web/core/components/profile/**` and
+ * the user settings MobX store.
+ */
+
 // plane imports
 import { EStartOfTheWeek } from "@plane/types";
 
+/**
+ * Non-admin profile tab list — restricted to the "summary" tab so viewers cannot navigate to the owner's assigned/created/subscribed/activity streams.
+ * Consumers: profile tab navigation in `apps/web/app/(all)/[workspaceSlug]/(projects)/profile/[userId]/{navbar,layout,header}.tsx`.
+ */
 export const PROFILE_VIEWER_TAB = [
   {
     key: "summary",
@@ -16,6 +26,10 @@ export const PROFILE_VIEWER_TAB = [
   },
 ];
 
+/**
+ * Admin/owner profile tab list extending `PROFILE_VIEWER_TAB` with assigned/created/subscribed/activity tabs over the owner's work-item streams.
+ * Consumers: `apps/web/app/(all)/[workspaceSlug]/(projects)/profile/[userId]/{navbar,layout,header}.tsx` (spread after `PROFILE_VIEWER_TAB`).
+ */
 export const PROFILE_ADMINS_TAB = [
   {
     key: "assigned",
@@ -43,6 +57,10 @@ export const PROFILE_ADMINS_TAB = [
   },
 ];
 
+/**
+ * Preference cards (`title`/`description` are i18n keys resolved at render time) for the user-preferences page; currently only `theme`, extended as new preferences ship.
+ * Consumers: user preferences page in `apps/web/core/components/profile/**`.
+ */
 export const PREFERENCE_OPTIONS: {
   id: string;
   title: string;
@@ -56,9 +74,8 @@ export const PREFERENCE_OPTIONS: {
 ];
 
 /**
- * @description The options for the start of the week
- * @type {Array<{value: EStartOfTheWeek, label: string}>}
- * @constant
+ * Start-of-week dropdown options (Sunday → Saturday) pairing each `EStartOfTheWeek` weekday value with its English label; order must stay in lockstep with the `EStartOfTheWeek` enum.
+ * Consumers: `apps/web/core/components/profile/start-of-week-preference.tsx` and the power-K preferences menu.
  */
 export const START_OF_THE_WEEK_OPTIONS = [
   {

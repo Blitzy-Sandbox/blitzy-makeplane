@@ -2,6 +2,31 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+"""Celery tasks that snapshot full issue state (fields + related data) into ``IssueVersion``.
+
+This module is the *full issue* counterpart to
+``issue_description_version_task.py`` (which snapshots only the
+description). An ``IssueVersion`` row captures the issue fields **plus**:
+
+    - current cycle (``CycleIssue``)
+    - assignees (``IssueAssignee``)
+    - labels (``IssueLabel``)
+    - modules (``ModuleIssue``)
+    - latest activity id (``IssueActivity``)
+
+Three ``@shared_task`` callables live here:
+
+1. ``issue_task`` — live snapshot on each issue change.
+2. ``schedule_issue_version`` — kick-off entrypoint for the batch backfill
+   (manual invocation only).
+3. ``sync_issue_version`` — self-rescheduling worker that pages through
+   ``Issue`` rows in ``batch_size`` chunks with a ``countdown`` delay.
+
+Async infrastructure: queued onto RabbitMQ and consumed by Celery workers
+(per the project architectural rule that Celery uses RabbitMQ as broker;
+Redis is reserved for caching / sessions and is not the task broker).
+"""
+
 # Python imports
 import json
 from typing import Optional, List, Dict
@@ -32,6 +57,50 @@ from plane.utils.exception_logger import log_exception
 
 @shared_task
 def issue_task(updated_issue, issue_id, user_id):
+    """Snapshot an issue's current full state (fields + related data) into ``IssueVersion``.
+
+    Trigger:
+        # INTENT UNCLEAR: no active call site exists. An exhaustive
+        # grep + AST scan of ``apps/api`` finds zero ``issue_task.delay``
+        # or ``issue_task.apply_async`` invocations and no signal
+        # handlers wired to this task; the only references are the
+        # ``def`` itself and the self-reference in this docstring.
+        # If the live per-edit snapshot path is ever needed in
+        # production, a caller would dispatch
+        # ``issue_task.delay(updated_issue, issue_id, user_id)`` from
+        # the issue-write path; Celery messages would then route via
+        # RabbitMQ and be consumed by the worker. As shipped today
+        # this task is reachable only via a direct synchronous call
+        # in tests or shell-equivalent contexts. Documented as observed.
+
+    Side effects:
+        - DB read: loads the ``Issue`` row plus (when the changeset
+          requires a fresh snapshot via ``IssueVersion.log_issue_version``)
+          aggregates the issue's ``CycleIssue`` (current cycle),
+          ``IssueAssignee``, ``IssueLabel``, ``ModuleIssue`` rows and the
+          latest ``IssueActivity`` id.
+        - DB write: either updates the most recent ``IssueVersion`` row
+          in-place when it belongs to the same user and is younger than
+          600 s (squash window), otherwise creates a brand new
+          ``IssueVersion`` row capturing the snapshot.
+        - No emails. No webhook fan-out. No cache invalidation.
+
+    Idempotency:
+        NON-idempotent. Outside the 600 s same-user squash window, each
+        invocation creates a new ``IssueVersion`` row. Inside the squash
+        window the existing version row is mutated (so repeated calls do
+        not accumulate rows, but they DO mutate ``last_saved_at`` and the
+        changed fields).
+
+    Args:
+        updated_issue: JSON-encoded prev-state snapshot dict (the field
+            values *before* the change that triggered this task). When
+            empty/None the task short-circuits.
+        issue_id: Primary key of the ``Issue`` being snapshotted.
+        user_id: Primary key of the user whose action triggered the
+            snapshot; used as the ``owned_by`` on the resulting
+            ``IssueVersion`` row.
+    """
     try:
         current_issue = json.loads(updated_issue) if updated_issue else {}
         issue = Issue.objects.get(id=issue_id)
@@ -65,8 +134,7 @@ def issue_task(updated_issue, issue_id, user_id):
 
 
 def get_owner_id(issue: Issue) -> Optional[int]:
-    """Get the owner ID of the issue"""
-
+    """Get the owner ID of the issue."""
     if issue.updated_by_id:
         return issue.updated_by_id
 
@@ -83,8 +151,7 @@ def get_owner_id(issue: Issue) -> Optional[int]:
 
 
 def get_related_data(issue_ids: List[UUID]) -> Dict:
-    """Get related data for the given issue IDs"""
-
+    """Get related data for the given issue IDs."""
     cycle_issues = {ci.issue_id: ci.cycle_id for ci in CycleIssue.objects.filter(issue_id__in=issue_ids)}
 
     # Get assignees with proper grouping
@@ -129,8 +196,7 @@ def get_related_data(issue_ids: List[UUID]) -> Dict:
 
 
 def create_issue_version(issue: Issue, related_data: Dict) -> Optional[IssueVersion]:
-    """Create IssueVersion object from the given issue and related data"""
-
+    """Create IssueVersion object from the given issue and related data."""
     try:
         if not issue.workspace_id or not issue.project_id:
             logging.warning(f"Skipping issue {issue.id} - missing workspace_id or project_id")
@@ -179,8 +245,41 @@ def create_issue_version(issue: Issue, related_data: Dict) -> Optional[IssueVers
 
 @shared_task
 def sync_issue_version(batch_size=5000, offset=0, countdown=300):
-    """Task to create IssueVersion records for existing Issues in batches"""
+    """Backfill one batch of ``IssueVersion`` rows starting at ``offset`` and re-schedule the next batch.
 
+    Trigger:
+        Explicit ``.apply_async(...)`` chain originated from
+        ``schedule_issue_version()`` (or a one-off shell invocation).
+        The worker self-reschedules until every ``Issue`` row has been
+        backfilled. Celery messages are routed via RabbitMQ and consumed
+        by the worker pool.
+
+    Side effects:
+        - DB read: pages ``Issue`` rows in the half-open window
+          ``[offset, offset + batch_size)`` (ordered by ``created_at``)
+          and groups the related data (cycle, assignees, labels, modules,
+          latest activity id) via ``itertools.groupby`` inside
+          ``get_related_data``.
+        - DB write: ``IssueVersion.objects.bulk_create`` of the assembled
+          snapshot rows in chunks of 1000.
+        - Self-reschedule: when ``end_offset < total_issues_count``,
+          enqueues ``sync_issue_version.apply_async(kwargs={...},
+          countdown=countdown)`` so the next batch fires after
+          ``countdown`` seconds (default 300 s = 5 min).
+        - No emails. No webhook fan-out. No cache invalidation.
+
+    Idempotency:
+        PARTIALLY idempotent. Re-running over the same ``offset`` window
+        CREATES DUPLICATE ``IssueVersion`` rows because ``bulk_create``
+        is unconditional. The operator should not re-run the backfill
+        without first clearing existing versions or accepting duplicates.
+
+    Args:
+        batch_size: Rows per batch (default ``5000``).
+        offset: Starting offset into the ``Issue`` table (default ``0``).
+        countdown: Seconds to wait between consecutive batches (default
+            ``300`` = 5 min).
+    """
     try:
         with transaction.atomic():
             base_query = Issue.objects
@@ -233,4 +332,30 @@ def sync_issue_version(batch_size=5000, offset=0, countdown=300):
 
 @shared_task
 def schedule_issue_version(batch_size=5000, countdown=300):
+    """Kick off the batched backfill of ``IssueVersion`` rows.
+
+    Trigger:
+        Manual — typically invoked from a Django shell, a data-migration
+        helper, or an operational runbook to bootstrap historical
+        ``IssueVersion`` rows after the feature is rolled out. The Celery
+        message is routed via RabbitMQ.
+
+    Side effects:
+        - Enqueues exactly one ``sync_issue_version.delay(...)`` message
+          on RabbitMQ. ``sync_issue_version`` then self-reschedules the
+          remaining batches.
+        - No direct DB writes here; all writes happen inside
+          ``sync_issue_version``.
+
+    Idempotency:
+        See ``sync_issue_version`` — because the underlying worker is
+        only PARTIALLY idempotent, repeated invocations of this
+        scheduler cascade into duplicate ``IssueVersion`` rows.
+
+    Args:
+        batch_size: Rows per batch (default ``5000``). Cast to ``int``
+            before dispatch to tolerate string-typed shell input.
+        countdown: Seconds to wait between consecutive batches (default
+            ``300`` = 5 min), forwarded to ``sync_issue_version``.
+    """
     sync_issue_version.delay(batch_size=int(batch_size), countdown=countdown)

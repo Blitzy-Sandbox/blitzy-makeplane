@@ -4,12 +4,23 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Password input wrapper that adds password-strength feedback and visibility-toggle controls on
+ * top of the shared `AuthInput` primitive for use across Plane's auth flows.
+ */
+
 import React, { useState } from "react";
 import type { E_PASSWORD_STRENGTH } from "@plane/constants";
 import { cn, getPasswordStrength } from "@plane/utils";
 import { PasswordStrengthIndicator } from "../form-fields/password/indicator";
 import { AuthInput } from "./auth-input";
 
+/**
+ * Props for `AuthPasswordInput`. Extends the standard `<input>` HTML attribute set with
+ * password-specific affordances (strength indicator, visibility toggle), labeling overrides,
+ * and the two specialized callbacks `onPasswordChange` and `onPasswordStrengthChange` consumed
+ * by `AuthForm` to drive validation.
+ */
 export type TAuthPasswordInputProps = React.InputHTMLAttributes<HTMLInputElement> & {
   label?: string;
   error?: string;
@@ -21,6 +32,29 @@ export type TAuthPasswordInputProps = React.InputHTMLAttributes<HTMLInputElement
   onPasswordStrengthChange?: (strength: E_PASSWORD_STRENGTH) => void;
 };
 
+/**
+ * Password input that wraps the shared `AuthInput` primitive, adding optional password-strength
+ * feedback and a visibility-toggle affordance for Plane's auth flows.
+ *
+ * Strength is computed by `getPasswordStrength` from `@plane/utils` (this component does not
+ * define the rules) and is both (a) rendered as inline criteria via `PasswordStrengthIndicator`
+ * — only when `showPasswordStrength`, the field has a value, AND the field is focused — and
+ * (b) reported upstream via `onPasswordStrengthChange` from a `useEffect`, so the parent form
+ * (`AuthForm`) can gate submission on `E_PASSWORD_STRENGTH.STRENGTH_VALID`.
+ *
+ * Callbacks:
+ *   - `onChange(e)`: standard input change passthrough.
+ *   - `onPasswordChange(newPassword)`: convenience receiving the raw new value.
+ *   - `onPasswordStrengthChange(strength)`: emitted whenever the derived strength changes.
+ *
+ * Props: see `TAuthPasswordInputProps`.
+ *
+ * Accessibility: label association is inherited from the inner `AuthInput` via `htmlFor`/`id`
+ * wiring. See adjacent INTENT UNCLEAR comments on the export for known accessibility
+ * ambiguities.
+ */
+// INTENT UNCLEAR: `autoComplete` is forced to `"off"` instead of the conventional `"current-password"` (sign-in) or `"new-password"` (sign-up), which suppresses password-manager autofill and save prompts.
+// INTENT UNCLEAR: the visibility-toggle button (rendered by `AuthInput` when `showPasswordToggle` is true) has no `aria-label` or `aria-pressed`, so its toggle state is not announced by screen readers.
 export function AuthPasswordInput({
   label = "Password",
   error,

@@ -4,6 +4,49 @@
  * See the LICENSE file for details.
  */
 
+/**
+ * Searchable parent/epic selector modal for work items.
+ *
+ * Rendered purpose: a `ModalCore`-wrapped headless UI `Combobox` that lets users search
+ * project work items (or epics) by name and pick a parent reference; emits the selected
+ * `ISearchIssueResponse` via the `onChange` prop.
+ *
+ * Props:
+ *   - isOpen (boolean, required): modal open state
+ *   - handleClose (() => void, required): close-modal callback (aliased internally to `onClose`)
+ *   - value (any, optional): currently selected combobox value passed to `Combobox`
+ *   - onChange ((issue: ISearchIssueResponse) => void, required): selection callback fired when a result is picked
+ *   - projectId (string | undefined, required): scopes the search to a project
+ *   - issueId (string, optional): excludes this issue from search results (server-side filter)
+ *   - searchEpic (boolean, optional, default=false): when true, the modal omits the `parent: true`
+ *     filter and instead sends `epic: true` on the search payload — see the `epic` flag note below.
+ *
+ * MobX stores read: none — this component is store-free. Routing context is obtained via `useParams`
+ * (router hook), and platform context via the `usePlatformOS` hook.
+ *
+ * Side effects:
+ *   - API call: `ProjectService.projectIssuesSearch(workspaceSlug, projectId, { search, parent, issue_id, workspace_search, epic })`
+ *     via the module-level `projectService` instance, debounced through `useDebounce(searchTerm, 500)`.
+ *     // INTENT UNCLEAR: the `epic` query parameter is sent on the wire but the community-edition
+ *     // `IssueSearchEndpoint` (`apps/api/plane/app/views/search/issue.py`) reads only
+ *     // `search` / `workspace_search` / `parent` / `issue_relation` / `cycle` / `module` /
+ *     // `sub_issue` / `target_date` / `issue_id` — so today this parameter has no effect on the
+ *     // backend. Behavior of the `epic` flag is presumed to be implemented by the
+ *     // enterprise-edition search surface; do not invent semantics here.
+ *   - Opens external links via the rocket affordance on a result row using an
+ *     `<a target="_blank" rel="noopener noreferrer">` anchor to avoid reverse-tabnabbing on the
+ *     spawned tab.
+ *
+ * Imperative DOM/derived state notes:
+ *   - `useDebounce` debounces the user's search input by 500ms before each backend call.
+ *   - The effect on `[debouncedSearchTerm, isOpen, issueId, projectId, workspaceSlug]` re-runs both when
+ *     the modal opens AND when the debounced query changes, populating `issues` state.
+ *
+ * Consumers: rendered by parent-select surfaces — e.g.,
+ * `apps/web/core/components/issues/issue-detail/parent-select.tsx` and the issue-create modal's parent
+ * picker, plus epic-parent flows that pass `searchEpic=true`.
+ */
+
 import React, { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 // icons
